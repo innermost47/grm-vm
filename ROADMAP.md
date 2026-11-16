@@ -50,6 +50,13 @@
    *Then done (lot A)*: the side folds into a rail and goes down to the bottom, the prompt folds, the panic at the
    top; soft warnings; quoted paths; pictures made smaller for the eye; tables that would mix their data asked
    about; a trash for apps; the rent of relations (from the Python machine's mind); the local time on Windows.
+   *Then done*: the inspector as a tree; formulas as mathematics, copied as LaTeX; a master equation's curve; from
+   the large to the small (networks gathered into nodes when zoomed out, a double click to go in); pleasure,
+   flourishing and progress; living colours; icons only in the top bar.
+   *Then done*: workshops (a table learned apart, merged through a sandbox); removals asked in a window; terminal
+   panes; a menu on the networks' chips. Next: workshops kept when the machine sleeps; the window's own networks
+   (layout, looks) shown in the global view; sharing chosen networks with chosen circles (friends, family) and
+   with the world.
    **Then, in this order**: the space (above); detachable windows; an app's surface, network and code together;
    outputs as small live screens (beside the network, in the inspector, on the node itself as in TouchDesigner);
    a file explorer in the side; a system view (memory, processor, disk, and the machine's share); the eye, the

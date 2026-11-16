@@ -65,10 +65,27 @@ pub struct Picture {
     /// (tick, kind, text), the newest last.
     pub journal: Vec<(u64, String, String)>,
     pub integrating: Vec<String>,
+    /// What the machine feels.
+    pub mood: grm_engine::mind::Mood,
+    /// Its workshops: (name, nodes, relations).
+    pub workshops: Vec<(String, usize, usize)>,
 }
 
 impl Picture {
     /// A sandbox's network, as a picture (its own machine: what the global network would not see).
+    /// A workshop, as a picture of its own (its nodes come from it).
+    pub fn of_workshop(w: &World, name: &str) -> Option<Picture> {
+        let ws = w.workshops.get(name)?;
+        let mut p = Picture::of(ws);
+        for n in &mut p.nodes {
+            n.source = format!("workshop:{name}");
+        }
+        for r in &mut p.relations {
+            r.source = format!("workshop:{name}");
+        }
+        Some(p)
+    }
+
     pub fn of_sandbox(w: &World, name: &str) -> Option<Picture> {
         let sb = w.sandboxes.get(name)?;
         let machine = match &sb.machine {
@@ -171,9 +188,15 @@ impl Picture {
                 .map(|s| SandboxView { name: s.name.clone(), lines: s.lines.clone() })
                 .collect(),
             sources: w.sources().into_iter().collect(),
+            mood: w.mood.clone(),
+            workshops: w
+                .workshops
+                .iter()
+                .map(|(n, ws)| (n.clone(), ws.machine.net.nodes.len(), ws.machine.net.relations.len()))
+                .collect(),
             quarantine: w.quarantine.clone(),
             journal: w.journal[start..].iter().map(|e| (e.tick, e.kind.clone(), e.text.clone())).collect(),
-            integrating: w.integrations.iter().map(|i| format!("{i:?}").chars().take(80).collect()).collect(),
+            integrating: w.integrations.iter().map(|i| format!("{} · step {}", i.source, i.step)).collect(),
         }
     }
 

@@ -129,6 +129,118 @@ pub fn accounts(m: &Machine, host: usize) -> (usize, usize, f64, Vec<Account>) {
     (held, room, p, out)
 }
 
+/// Ticks over which surprise and progress are measured.
+pub const WINDOW: usize = 20;
+/// How fast the expected surprise follows the surprise.
+pub const EXPECT_RATE: f64 = 0.1;
+/// Moments of pleasure and flourishing kept (what the journal draws).
+pub const KEPT: usize = 600;
+
+/// What the machine feels (ported from the Python machine's mind).
+///
+/// Pleasure and displeasure (dopamine): the dopamine neurons do not signal a reward itself but the difference
+/// between what was expected and what came (a reward prediction error; Schultz, Dayan & Montague 1997). Here the
+/// machine expects a certain surprise from its inputs (a running mean): being less surprised than it expected (a
+/// prediction that holds) is pleasure, more surprised is displeasure; finding something by itself is a burst of
+/// pleasure, an error a burst of displeasure; with nothing new, it comes back to rest.
+///
+/// Flourishing: accuracy (1 when its inputs no longer surprise it) times room (1 when it holds no link yet, 0 at
+/// capacity), its square root; and progress: how much its surprise is falling (Oudeyer and Kaplan's curiosity: drawn
+/// to what it is learning, neither to what it knows nor to what it cannot understand).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Mood {
+    /// From -1 (displeasure) to 1 (pleasure).
+    pub dopamine: f64,
+    pub expected: Option<f64>,
+    pub surprises: Vec<f64>,
+    pub accuracy: f64,
+    pub room: f64,
+    pub flourishing: f64,
+    /// From -1 (it learns less and less) to 1 (its surprise falls).
+    pub progress: f64,
+    /// The links the host allows (the window says it now and then).
+    pub host: usize,
+    /// (pleasure, flourishing, progress) at each tick, the last KEPT.
+    pub past: std::collections::VecDeque<(f64, f64, f64)>,
+    /// What moved it, the last ones: (tick, amount, why).
+    pub moments: std::collections::VecDeque<(u64, f64, String)>,
+}
+
+impl Default for Mood {
+    fn default() -> Self {
+        Mood {
+            dopamine: 0.0,
+            expected: None,
+            surprises: vec![],
+            accuracy: 1.0,
+            room: 1.0,
+            flourishing: 1.0,
+            progress: 0.0,
+            host: CAPACITY,
+            past: Default::default(),
+            moments: Default::default(),
+        }
+    }
+}
+
+impl Mood {
+    /// A burst of pleasure (amount > 0) or displeasure (amount < 0), and why (shown to the human).
+    pub fn reward(&mut self, amount: f64, tick: u64, why: impl Into<String>) {
+        self.dopamine = (self.dopamine + amount).clamp(-1.0, 1.0);
+        self.moments.push_back((tick, amount, why.into()));
+        while self.moments.len() > 50 {
+            self.moments.pop_front();
+        }
+    }
+
+    /// After a tick: `surprise`, the rms of how far the inputs were from what it expected (None: nothing new came).
+    pub fn after_tick(&mut self, surprise: Option<f64>, links: usize, capacity: usize) {
+        let mut d = self.dopamine;
+        match surprise.filter(|s| s.is_finite()) {
+            Some(s) => {
+                let delta = match self.expected {
+                    None => 0.0,
+                    Some(e) => (e - s) / (e + s + 0.1),
+                };
+                self.expected = Some(match self.expected {
+                    None => s,
+                    Some(e) => e + EXPECT_RATE * (s - e),
+                });
+                d = (0.3 * d + delta).clamp(-1.0, 1.0);
+                self.surprises.push(s);
+                if self.surprises.len() > 3 * WINDOW {
+                    let cut = self.surprises.len() - 3 * WINDOW;
+                    self.surprises.drain(..cut);
+                }
+            }
+            None => d *= 0.7,
+        }
+        self.dopamine = d;
+        let recent = &self.surprises[self.surprises.len().saturating_sub(WINDOW)..];
+        let mean = if recent.is_empty() { 0.0 } else { recent.iter().sum::<f64>() / recent.len() as f64 };
+        self.accuracy = 1.0 / (1.0 + mean * mean);
+        self.room = (1.0 - links as f64 / capacity.max(1) as f64).max(0.0);
+        self.flourishing = (self.accuracy * self.room).sqrt();
+        self.progress = if self.surprises.len() >= 2 * WINDOW {
+            let n = self.surprises.len();
+            let before = self.surprises[n - 2 * WINDOW..n - WINDOW].iter().sum::<f64>() / WINDOW as f64;
+            ((before - mean) / (before + 0.1)).tanh()
+        } else {
+            0.0
+        };
+        self.past.push_back((self.dopamine, self.flourishing, self.progress));
+        while self.past.len() > KEPT {
+            self.past.pop_front();
+        }
+    }
+}
+
+/// The rms of the surprises of a tick (None when there are none).
+pub fn rms(surprises: &IndexMap<String, f64>) -> Option<f64> {
+    let v: Vec<f64> = surprises.values().copied().filter(|x| x.is_finite()).collect();
+    (!v.is_empty()).then(|| (v.iter().map(|x| x * x).sum::<f64>() / v.len() as f64).sqrt())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,5 +278,30 @@ mod tests {
         assert_eq!(host_capacity(Some(4_000 * 4 * 1000)), 1000);
         assert_eq!(host_capacity(Some(0)), MIN_CAPACITY);
         assert_eq!(host_capacity(None), CAPACITY);
+    }
+
+    #[test]
+    fn a_prediction_that_holds_is_pleasure_and_a_falling_surprise_is_progress() {
+        let mut m = Mood::default();
+        // surprised, then less and less: pleasure, and progress
+        for k in 0..60 {
+            m.after_tick(Some(3.0 * (-(k as f64) / 10.0).exp()), 10, 1000);
+        }
+        assert!(m.dopamine > 0.0, "{}", m.dopamine);
+        assert!(m.progress > 0.3, "{}", m.progress);
+        assert!(m.flourishing > 0.9);
+        // more surprised than expected: displeasure
+        m.after_tick(Some(5.0), 10, 1000);
+        assert!(m.dopamine < 0.0);
+        // nothing new: back to rest
+        for _ in 0..30 {
+            m.after_tick(None, 10, 1000);
+        }
+        assert!(m.dopamine.abs() < 1e-3);
+        // a full room: no flourishing
+        m.after_tick(None, 1000, 1000);
+        assert_eq!(m.flourishing, 0.0);
+        m.reward(0.5, 3, "found a law");
+        assert!(m.dopamine > 0.4 && m.moments.back().unwrap().2 == "found a law");
     }
 }

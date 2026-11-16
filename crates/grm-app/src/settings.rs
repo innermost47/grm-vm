@@ -36,6 +36,8 @@ pub struct Settings {
     pub dock: crate::app::Dock,
     /// Apps' looks follow the hour (warmer in the evening).
     pub follow_hour: bool,
+    /// Living colours: a slow breath through them (and the sound lifts them a little).
+    pub breathe: bool,
 }
 
 impl Default for Settings {
@@ -54,6 +56,7 @@ impl Default for Settings {
             typewriter: true,
             toured: false,
             dock: crate::app::Dock::Right,
+            breathe: true,
             follow_hour: false,
         }
     }

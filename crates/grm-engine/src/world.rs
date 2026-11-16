@@ -216,6 +216,11 @@ pub struct World {
     /// Its eyes: each a network of its own, near what it sees (not written when the world sleeps: an eye opens
     /// anew).
     pub eyes: IndexMap<String, crate::vision::Eye>,
+    /// What it feels: pleasure and displeasure, flourishing, progress (of the moment: not kept when it sleeps).
+    pub mood: crate::mind::Mood,
+    /// Workshops: new networks of data, each a world of its own (its time, its laws), made apart from this one
+    /// (nothing of it comes in until the human merges it).
+    pub workshops: IndexMap<String, Box<World>>,
 }
 
 impl Default for World {
@@ -247,6 +252,8 @@ impl World {
             quarantine: vec![],
             journal: vec![],
             rounds_per_tick: 1000,
+            mood: Default::default(),
+            workshops: IndexMap::new(),
         }
     }
 
@@ -256,7 +263,20 @@ impl World {
 
     fn log(&mut self, kind: &'static str, text: impl Into<String>) {
         let tick = self.machine.net.ticks;
-        self.journal.push(Entry { tick, kind: kind.to_string(), text: text.into() });
+        let text = text.into();
+        // what it found by itself, or took in after trying it, is a burst of pleasure; what it had to put apart or
+        // refuse, a burst of displeasure
+        let burst = match kind {
+            "found" | "insight" => 0.5,
+            "integrated" | "merged" => 0.3,
+            "revised" => -0.1,
+            "quarantine" | "refused" => -0.4,
+            _ => 0.0,
+        };
+        if burst != 0.0 {
+            self.mood.reward(burst, tick, format!("{kind}: {text}"));
+        }
+        self.journal.push(Entry { tick, kind: kind.to_string(), text });
     }
 
     // ------------------------------------------------------------------ speaking to the global network
@@ -312,6 +332,7 @@ impl World {
     /// write, the nodes that live in time remember and learn from what was `measured` of them (a node not in it
     /// was not measured: its hidden state goes on), the merges rising take one more step.
     pub fn tick_at(&mut self, t: f64, learn: bool, measured: &IndexMap<String, f64>) -> IndexMap<String, f64> {
+        let before_surprise = self.machine.last_surprise.clone();
         // the rhythms of the laws the machine holds, at this moment
         for name in self.embodied.keys().cloned().collect::<Vec<_>>() {
             if let Some(h) = self.time.nodes.get(&name).and_then(|n| n.hidden.as_ref()) {
@@ -353,6 +374,15 @@ impl World {
             }
         }
         self.step_integrations();
+        // what it feels after this tick: its surprise against what it expected, its room
+        let surprise = if self.machine.last_surprise != before_surprise {
+            crate::mind::rms(&self.machine.last_surprise)
+        } else {
+            None
+        };
+        let links = crate::mind::links(&self.machine.net);
+        let room = crate::mind::capacity(&self.machine.net, self.mood.host);
+        self.mood.after_tick(surprise, links, room);
         writes
     }
 
@@ -515,6 +545,8 @@ impl World {
             laws: s.laws,
             embodied: s.embodied,
             eyes: IndexMap::new(),
+            mood: Default::default(),
+            workshops: IndexMap::new(),
         };
         w.log("woke", format!("woke from {}", path.display()));
         Ok(w)
@@ -828,6 +860,42 @@ impl World {
     }
 
     // ------------------------------------------------------------------ sandboxes
+    /// What a workshop made, said as lines (what a merge says again here, through a sandbox): its nodes, its
+    /// relations, and what its inputs read last.
+    pub fn workshop_lines(&self, name: &str) -> Result<Vec<String>> {
+        let Some(ws) = self.workshops.get(name) else { bail!("no workshop {name}") };
+        let net = &ws.machine.net;
+        let mut out = vec![];
+        for (n, spec) in &net.nodes {
+            if n.contains("__") {
+                continue;
+            }
+            out.push(if spec.input {
+                format!("input {n}{}", if spec.signed { "" } else { " positive" })
+            } else {
+                format!("node {n}{}", if spec.signed { " signed" } else { "" })
+            });
+        }
+        for r in &net.relations {
+            if !r.when.is_empty() {
+                let when: Vec<String> =
+                    r.when.iter().map(|c| format!("{} in {} .. {}", c.node, lang::g(c.lo), lang::g(c.hi))).collect();
+                out.push(format!("relate {}: {} when {}", r.name, r.text, when.join(" and ")));
+            } else {
+                out.push(format!("relate {}: {}", r.name, r.text));
+            }
+        }
+        for (n, spec) in &net.nodes {
+            if spec.input && !n.contains("__") {
+                let v = ws.machine.value(n);
+                if v.is_finite() {
+                    out.push(format!("observe {n} = {}", lang::g(v)));
+                }
+            }
+        }
+        Ok(out)
+    }
+
     pub fn open_sandbox(&mut self, name: &str) -> Result<()> {
         if !is_name(name) {
             bail!("a sandbox is named as a node is: {name}");

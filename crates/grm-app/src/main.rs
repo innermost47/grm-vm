@@ -20,6 +20,7 @@ mod icons;
 mod journey;
 mod layout;
 mod looks;
+mod math;
 mod menu;
 mod model;
 mod panels;
@@ -29,6 +30,7 @@ mod style;
 mod surface;
 mod text;
 mod tour;
+mod tree;
 mod view;
 mod worker;
 

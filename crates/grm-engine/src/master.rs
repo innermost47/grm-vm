@@ -40,7 +40,19 @@ impl Master {
         let mut parts: Vec<String> = self
             .powers
             .iter()
-            .map(|(n, p)| if (p - 1.0).abs() < 1e-9 { n.clone() } else { format!("{n}^{}", power_text(*p)) })
+            .map(|(n, p)| {
+                if (p - 1.0).abs() < 1e-9 {
+                    n.clone()
+                } else {
+                    // a fraction or a negative power between parentheses: it reads as one exponent
+                    let t = power_text(*p);
+                    if t.contains('/') || t.starts_with('-') {
+                        format!("{n}^({t})")
+                    } else {
+                        format!("{n}^{t}")
+                    }
+                }
+            })
             .collect();
         if parts.is_empty() {
             parts.push("1".into());
@@ -237,7 +249,7 @@ mod tests {
         let m = w.master(None).unwrap();
         // energy goes: epp · distance = m1 · m2 (as epp · distance · m1^-1 · m2^-1 = 1)
         let text = m.text();
-        assert!(text.contains("epp") && text.contains("m1^-1") && !text.contains("energy"), "{text}");
+        assert!(text.contains("epp") && text.contains("m1^(-1)") && !text.contains("energy"), "{text}");
         assert!(m.residual < 1e-6, "{m:?}");
         assert!(w.master(Some("nobody")).is_none());
     }

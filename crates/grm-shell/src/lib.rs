@@ -211,6 +211,27 @@ pub fn quoted(path: &str) -> String {
     }
 }
 
+impl Shell {
+    /// The app that writes this node or relation, and its line: only when what the network holds under that name
+    /// came from that app (a node of the same name from a table, or a widget of the same name, is not the app's).
+    fn app_owning(&self, engine: &Engine, thing: &str) -> Option<(String, usize)> {
+        let (app, l) = self.owner_of(thing)?;
+        let line = self.rt.apps.get(&app)?.text.lines().nth(l - 1).unwrap_or("").trim().to_string();
+        if line.split_whitespace().next() == Some("widget") {
+            return None;
+        }
+        let name = thing.to_string();
+        let source = engine.query(move |w| {
+            let net = &w.machine.net;
+            net.nodes
+                .get(&name)
+                .map(|s| s.origin.source.clone())
+                .or_else(|| net.relations.iter().find(|r| r.name == name).map(|r| r.origin.source.clone()))
+        })??;
+        (source == runtime::source_of(&app)).then_some((app, l))
+    }
+}
+
 pub fn memory() -> PathBuf {
     std::env::var_os("GRM_MEMORY").map(PathBuf::from).unwrap_or_else(|| "grm.world".into())
 }
@@ -280,6 +301,8 @@ pub enum Order {
         /// The nodes already holding other data.
         taken: Vec<String>,
     },
+    /// A workshop to show.
+    Workshop(String),
     Tour,
     Lang(String),
     Clear,
@@ -550,9 +573,9 @@ impl Shell {
                     Err(e) => vec![Line::error(format!("! {e}"))],
                 }
             }
-            "remove" if self.owner_of(rest.split_whitespace().last().unwrap_or("")).is_some() => {
+            "remove" if self.app_owning(engine, rest.split_whitespace().last().unwrap_or("")).is_some() => {
                 let thing = rest.split_whitespace().last().unwrap_or("").to_string();
-                let (app, l) = self.owner_of(&thing).unwrap();
+                let (app, l) = self.app_owning(engine, &thing).unwrap();
                 let text = self.rt.apps[&app].text.lines().nth(l - 1).unwrap_or("").trim().to_string();
                 self.asking = Some(("app-line".into(), format!("{app} {l}")));
                 vec![Line::ask(format!(

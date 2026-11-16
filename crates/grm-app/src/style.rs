@@ -204,10 +204,56 @@ fn darker(c: Color32, k: f32) -> Color32 {
     Color32::from_rgb(m(c.r()), m(c.g()), m(c.b()))
 }
 
+/// A colour turned on the wheel (degrees) and made lighter or darker (a share of white or black).
+fn shifted(c: Rgb, turn: f32, light: f32) -> Rgb {
+    let mut h = egui::ecolor::Hsva::from(Color32::from_rgb(c[0], c[1], c[2]));
+    h.h = (h.h + turn / 360.0).rem_euclid(1.0);
+    let c = Color32::from(h);
+    let c = if light >= 0.0 { lighter(c, light) } else { darker(c, -light) };
+    [c.r(), c.g(), c.b()]
+}
+
+/// A breath through the colours: slow (periods of half a minute and more), small (a few degrees of hue, one or two
+/// hundredths of light), never a flash; the sound lifts the accent a little.
+pub fn breathed(p: &Palette, secs: f64, sound: f32) -> Palette {
+    use std::f64::consts::TAU;
+    let a = (secs * TAU / 47.0).sin() as f32;
+    let b = (secs * TAU / 31.0).sin() as f32;
+    let c = (secs * TAU / 73.0).sin() as f32;
+    let sound = sound.clamp(0.0, 1.0);
+    let mut q = p.clone();
+    let sign = if p.dark { 1.0 } else { -1.0 };
+    q.accent = shifted(p.accent, 4.0 * a, sign * 0.04 * sound);
+    q.background = shifted(p.background, 6.0 * c, sign * 0.010 * b);
+    q.panel = shifted(p.panel, 6.0 * c, sign * 0.007 * b);
+    for (k, s) in q.sources.iter_mut().enumerate() {
+        *s = shifted(*s, 5.0 * (a + 0.3 * k as f32).sin(), sign * 0.02 * sound);
+    }
+    q
+}
+
+/// The colours only (not the fonts, not the sizes): what a breath changes.
+pub fn colours(ctx: &egui::Context, p: &Palette) {
+    let ink = Ink::from(p);
+    ctx.data_mut(|d| d.insert_temp(egui::Id::NULL, ink));
+    let v = visuals(p, &ink);
+    ctx.set_visuals_of(egui::Theme::Dark, v.clone());
+    ctx.set_visuals_of(egui::Theme::Light, v);
+}
+
 /// The machine's look on the whole window.
 pub fn apply(ctx: &egui::Context, p: &Palette, typewriter: bool, zoom: f32) {
     let ink = Ink::from(p);
     ctx.data_mut(|d| d.insert_temp(egui::Id::NULL, ink));
+    let v = visuals(p, &ink);
+    ctx.set_visuals_of(egui::Theme::Dark, v.clone());
+    ctx.set_visuals_of(egui::Theme::Light, v);
+    ctx.set_theme(if p.dark { egui::Theme::Dark } else { egui::Theme::Light });
+    rest(ctx, typewriter, zoom);
+}
+
+fn visuals(p: &Palette, ink: &Ink) -> egui::Visuals {
+    let ink = *ink;
     let mut v = if p.dark { egui::Visuals::dark() } else { egui::Visuals::light() };
     let lift = |c: Color32, k: f32| if p.dark { lighter(c, k) } else { darker(c, k) };
     // no override: the text on the accent (a chosen tab, a selected button) takes the colour that stands on it
@@ -255,13 +301,18 @@ pub fn apply(ctx: &egui::Context, p: &Palette, typewriter: bool, zoom: f32) {
     w.open.bg_fill = lift(ink.raised, 0.05);
     w.open.weak_bg_fill = lift(ink.raised, 0.05);
     w.open.corner_radius = r;
-    ctx.set_visuals_of(egui::Theme::Dark, v.clone());
-    ctx.set_visuals_of(egui::Theme::Light, v);
-    ctx.set_theme(if p.dark { egui::Theme::Dark } else { egui::Theme::Light });
+    v
+}
+
+fn rest(ctx: &egui::Context, typewriter: bool, zoom: f32) {
     ctx.all_styles_mut(|st| {
         st.spacing.item_spacing = egui::vec2(8.0, 6.0);
         st.spacing.button_padding = egui::vec2(10.0, 4.0);
         st.spacing.interact_size.y = 24.0;
+        // check boxes and radio buttons with a little room
+        st.spacing.icon_width = 17.0;
+        st.spacing.icon_width_inner = 9.0;
+        st.spacing.icon_spacing = 8.0;
         st.spacing.window_margin = egui::Margin::same(12);
         st.animation_time = 0.12;
     });
@@ -281,6 +332,21 @@ pub const FIELD: egui::Margin = egui::Margin { left: 8, right: 8, top: 5, bottom
 /// What a field waits for: in italics and quiet, so that it is not taken for something written.
 pub fn hint(text: impl Into<String>) -> egui::RichText {
     egui::RichText::new(text.into()).italics()
+}
+
+/// Lines shown as a terminal shows them: a dark pane, a fixed font, coloured as code is, room around.
+pub fn terminal(ui: &mut egui::Ui, lines: &[String]) {
+    let ink = Ink::of(ui.ctx());
+    let dark = Color32::from_rgb(0x16, 0x17, 0x1b);
+    egui::Frame::new().fill(dark).corner_radius(6.0).inner_margin(egui::Margin::symmetric(12, 10)).show(ui, |ui| {
+        ui.set_min_width(ui.available_width());
+        // the code's colours, on a dark ground whatever the palette
+        let term = Ink { text: Color32::from_rgb(0xd8, 0xd8, 0xd0), muted: Color32::from_rgb(0x8a, 0x8c, 0x92), ..ink };
+        for l in lines {
+            let job = crate::code::highlight_line(&term, l);
+            ui.label(job);
+        }
+    });
 }
 
 /// A selected tab or button: the accent behind, the text that stands on it.

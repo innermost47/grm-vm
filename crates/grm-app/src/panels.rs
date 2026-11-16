@@ -36,7 +36,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     });
     ui.separator();
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match app.tab {
-        Tab::Inspector => inspector(app, ui),
+        Tab::Inspector => crate::tree::show(app, ui),
         Tab::Sandboxes => sandboxes(app, ui),
         Tab::Sources => sources(app, ui),
         Tab::Journal => journal(app, ui),
@@ -76,81 +76,8 @@ fn chip(ui: &mut egui::Ui, text: &str, colour: Color32) {
     );
 }
 
-/// The nodes, each a line; a click unfolds what it is in place (an accordion: several can be open; a node chosen in
-/// the network opens there, and the list goes to it).
-fn inspector(app: &mut App, ui: &mut egui::Ui) {
-    let ink = Ink::of(ui.ctx());
-    let lang = app.settings.lang;
-    let pic = app.picture.clone();
-    ui.add(
-        egui::TextEdit::singleline(&mut app.filter)
-            .margin(crate::style::FIELD)
-            .hint_text(crate::style::hint(t(lang, "filter")))
-            .desired_width(f32::INFINITY),
-    );
-    if app.selected.len() > 1 {
-        ui.horizontal(|ui| {
-            ui.label(format!("{} {}", app.selected.len(), t(lang, "selected_many")));
-            if ui.button(t(lang, "joint")).clicked() {
-                let names = app.selected.join(" ");
-                app.say(format!("joint {names}"));
-            }
-            if ui.button(t(lang, "clear")).clicked() {
-                app.selected.clear();
-            }
-        });
-    }
-    ui.add_space(4.0);
-    let memory = egui::Id::new("inspector-open");
-    let was_open: Vec<String> = ui.ctx().data(|d| d.get_temp(memory)).unwrap_or_default();
-    let filter = app.filter.to_lowercase();
-    let mut shown = 0;
-    for n in &pic.nodes {
-        let open = app.selected.contains(&n.name);
-        if !open && (shown >= 400 || !(filter.is_empty() || n.name.to_lowercase().contains(&filter))) {
-            continue;
-        }
-        if n.name.contains("__next") {
-            continue;
-        }
-        shown += 1;
-        let k = app.colours.get(&n.source).copied().unwrap_or(0);
-        let r = ui
-            .horizontal(|ui| {
-                crate::icons::show(ui, if open { "chevron-down" } else { "chevron-right" }, 14.0, ink.muted);
-                let (r, _) = ui.allocate_exact_size(vec2(10.0, 10.0), Sense::hover());
-                ui.painter().circle_filled(r.center(), 4.0, ink.source(k));
-                let name = RichText::new(&n.name).color(if open { ink.accent } else { ink.text });
-                let name = if open { name.strong() } else { name };
-                ui.label(name);
-                ui.label(RichText::new(reading(n.value, n.sigma, n.signed)).color(ink.muted).small());
-            })
-            .response;
-        let r = ui.interact(r.rect, egui::Id::new(("inspector-row", &n.name)), Sense::click());
-        if r.hovered() {
-            ui.painter().rect_filled(r.rect.expand(1.0), 3.0, ink.faint.gamma_multiply(0.25));
-        }
-        if r.clicked() {
-            app.select(&n.name, true);
-        }
-        if open && !was_open.contains(&n.name) {
-            r.scroll_to_me(Some(egui::Align::TOP));
-        }
-        if open {
-            let name = n.name.clone();
-            egui::Frame::new()
-                .inner_margin(egui::Margin { left: 18, right: 4, top: 4, bottom: 10 })
-                .show(ui, |ui| sheet(app, ui, &name, &pic));
-            let (line, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
-            ui.painter().rect_filled(line, 0.0, ink.faint);
-        }
-    }
-    let open_now = app.selected.clone();
-    ui.ctx().data_mut(|d| d.insert_temp(memory, open_now));
-}
-
 /// What a node is, unfolded.
-fn sheet(app: &mut App, ui: &mut egui::Ui, name: &str, pic: &crate::model::Picture) {
+pub fn sheet(app: &mut App, ui: &mut egui::Ui, name: &str, pic: &crate::model::Picture) {
     let ink = Ink::of(ui.ctx());
     let lang = app.settings.lang;
     let name = name.to_string();
@@ -176,62 +103,46 @@ fn sheet(app: &mut App, ui: &mut egui::Ui, name: &str, pic: &crate::model::Pictu
             }
         }
     });
+    let playing = app.mixer.lock().map(|m| m.playing().contains(&name)).unwrap_or(false);
     ui.horizontal_wrapped(|ui| {
-        if !n.tracked && ui.button(t(lang, "track")).clicked() {
+        if !n.tracked && crate::icons::button(ui, "timer", t(lang, "track")).on_hover_text(t(lang, "track_d")).clicked()
+        {
             app.say(format!("track {name}"));
         }
         if n.tracked {
-            if ui.button(t(lang, "forecast")).clicked() {
+            if crate::icons::button(ui, "trending-up", t(lang, "forecast"))
+                .on_hover_text(t(lang, "forecast_d"))
+                .clicked()
+            {
                 app.say(format!("forecast {name} 12"));
             }
-            if ui.button(t(lang, "embody")).clicked() {
+            if crate::icons::button(ui, "brain-circuit", t(lang, "embody")).on_hover_text(t(lang, "embody_d")).clicked()
+            {
                 app.say(format!("embody {name}"));
             }
         }
-        if ui.button(t(lang, "play")).clicked() {
+        // play becomes stop while it is heard
+        if playing {
+            if crate::icons::button(ui, "square", t(lang, "stop")).on_hover_text(t(lang, "t_stop_node")).clicked() {
+                app.say(format!("stop {name}"));
+            }
+        } else if crate::icons::button(ui, "play", t(lang, "play")).on_hover_text(t(lang, "t_play_node")).clicked() {
             app.say(format!("play {name}"));
         }
     });
-    ui.add_space(6.0);
-    ui.label(RichText::new(t(lang, "relations")).strong());
-    for r in pic.relations.iter().filter(|r| r.nodes.contains(&name)) {
-        let strain = app.tension.get(&r.name).copied().unwrap_or(0.0);
-        let colour = if strain > 1.0 { ink.amber } else { ink.text };
-        ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new(format!("{}:", r.name)).strong().color(colour));
-            ui.label(RichText::new(&r.text).monospace().color(colour));
-        });
-        let mut note = format!("{} · {} {:.1} σ", r.source, t(lang, "strain"), r.tension);
-        if !r.awake {
-            note.push_str(&format!(" · {}", t(lang, "asleep")));
+    // how it moved lately (or its wave, while it plays)
+    let scope = app.mixer.lock().ok().and_then(|m| m.scope(&name));
+    match scope {
+        Some(s) => {
+            let show: Vec<f32> = s[s.len().saturating_sub(512)..].to_vec();
+            crate::hover::curve(ui, &show, ink.accent, &ink, t(lang, "as_it_sounds"));
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(33));
         }
-        if r.strength < 0.999 {
-            note.push_str(&format!(" · {} ({:.0} %)", t(lang, "integrating"), r.strength * 100.0));
+        None => {
+            let k = app.colours.get(&n.source).copied().unwrap_or(0);
+            let v: Vec<f32> = app.traces.get(&name).map(|t| t.iter().copied().collect()).unwrap_or_default();
+            crate::hover::curve(ui, &v, ink.source(k), &ink, t(lang, "lately"));
         }
-        ui.label(RichText::new(note).small().color(ink.muted));
-        if let Some((app_name, l)) = app.line_in_app(&r.name) {
-            ui.horizontal(|ui| {
-                ui.label(RichText::new(format!("{app_name}, {} {l}", t(lang, "line"))).small().color(ink.muted));
-                if ui.small_button(t(lang, "edit_line")).clicked() {
-                    let text = app
-                        .apps
-                        .iter()
-                        .find(|a| a.name == app_name)
-                        .and_then(|a| a.text.lines().nth(l - 1))
-                        .unwrap_or("")
-                        .trim()
-                        .to_string();
-                    app.line_draft = Some((Some(app_name.clone()), Some(l), text));
-                }
-            });
-        }
-        ui.horizontal_wrapped(|ui| {
-            for other in r.nodes.iter().filter(|o| **o != name && !o.contains("__next")) {
-                if ui.small_button(other).clicked() {
-                    app.select(other, false);
-                }
-            }
-        });
     }
     if n.tracked {
         ui.add_space(8.0);
@@ -351,6 +262,29 @@ fn chart(ui: &mut egui::Ui, d: &crate::model::Detail, ink: &Ink, lang: crate::te
 fn sandboxes(app: &mut App, ui: &mut egui::Ui) {
     let ink = Ink::of(ui.ctx());
     let lang = app.settings.lang;
+    // the workshops: networks of data made apart (a table loaded makes one)
+    ui.horizontal(|ui| {
+        crate::icons::show(ui, "hammer", 15.0, ink.accent);
+        ui.label(RichText::new(t(lang, "workshops")).strong()).on_hover_text(t(lang, "workshop_d"));
+    });
+    if app.picture.workshops.is_empty() {
+        ui.label(RichText::new(t(lang, "no_workshops")).small().color(ink.muted));
+    }
+    for (name, nodes, rels) in app.picture.workshops.clone() {
+        ui.horizontal(|ui| {
+            let on = app.workshop_shown.as_deref() == Some(name.as_str());
+            if crate::icons::toggle(ui, "hammer", &name, on).clicked() {
+                app.workshop_shown = Some(name.clone());
+                app.sandbox_shown = None;
+                app.current = None;
+            }
+            ui.label(RichText::new(format!("{nodes} · {rels}")).small().color(ink.muted));
+            if crate::icons::sign(ui, "merge", t(lang, "workshop_merge_d")).clicked() {
+                app.say(format!("workshop merge {name}"));
+            }
+        });
+    }
+    ui.separator();
     ui.horizontal(|ui| {
         ui.add(
             egui::TextEdit::singleline(&mut app.new_sandbox)
@@ -481,7 +415,77 @@ fn sources_list(app: &mut App, ui: &mut egui::Ui) {
     }
 }
 
+/// What the machine feels, as it is now and as it went: pleasure and displeasure, flourishing, progress; and what
+/// moved it (all of it real quantities: its surprise against what it expected, its room, its learning).
+fn feelings(app: &mut App, ui: &mut egui::Ui) {
+    let ink = Ink::of(ui.ctx());
+    let lang = app.settings.lang;
+    let m = app.picture.mood.clone();
+    ui.horizontal(|ui| {
+        crate::icons::show(ui, "heart-pulse", 15.0, ink.accent);
+        ui.label(RichText::new(t(lang, "feel")).strong());
+    });
+    let gauge = |ui: &mut egui::Ui, sign: &str, name: &str, what: &str, v: f64, signed: bool, colour: Color32| {
+        ui.horizontal(|ui| {
+            crate::icons::show(ui, sign, 14.0, colour);
+            ui.label(RichText::new(name).small()).on_hover_text(what);
+            let (rect, _) = ui.allocate_exact_size(vec2(120.0, 8.0), Sense::hover());
+            ui.painter().rect_filled(rect, 4.0, ink.faint.gamma_multiply(0.5));
+            let (a, b) = if signed {
+                let mid = rect.center().x;
+                let x = mid + (v.clamp(-1.0, 1.0) as f32) * rect.width() / 2.0;
+                (mid.min(x), mid.max(x))
+            } else {
+                (rect.left(), rect.left() + v.clamp(0.0, 1.0) as f32 * rect.width())
+            };
+            ui.painter().rect_filled(egui::Rect::from_x_y_ranges(a..=b.max(a + 1.0), rect.y_range()), 4.0, colour);
+            ui.label(RichText::new(format!("{v:+.2}")).small().monospace().color(ink.muted));
+        });
+    };
+    let pleasure = if m.dopamine >= 0.0 { ink.source(2) } else { ink.amber };
+    gauge(ui, "smile", t(lang, "pleasure"), t(lang, "pleasure_d"), m.dopamine, true, pleasure);
+    gauge(ui, "sprout", t(lang, "flourishing"), t(lang, "flourishing_d"), m.flourishing, false, ink.accent);
+    gauge(ui, "trending-up", t(lang, "progress"), t(lang, "progress_d"), m.progress, true, ink.source(4));
+    ui.label(
+        RichText::new(format!("{} {:.2} · {} {:.2}", t(lang, "accuracy"), m.accuracy, t(lang, "room_left"), m.room))
+            .small()
+            .color(ink.muted),
+    );
+    // as it went
+    if m.past.len() > 1 {
+        let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width().min(320.0), 70.0), Sense::hover());
+        let p = ui.painter_at(rect);
+        p.rect_filled(rect, 4.0, ink.surface);
+        let n = m.past.len();
+        for (k, colour, signed) in [(0, pleasure, true), (1, ink.accent, false), (2, ink.source(4), true)] {
+            let pts: Vec<egui::Pos2> = m
+                .past
+                .iter()
+                .enumerate()
+                .map(|(i, v)| {
+                    let x = [v.0, v.1, v.2][k];
+                    let y = if signed { (x + 1.0) / 2.0 } else { x };
+                    egui::pos2(
+                        rect.left() + i as f32 / (n - 1) as f32 * rect.width(),
+                        rect.bottom() - 4.0 - y.clamp(0.0, 1.0) as f32 * (rect.height() - 8.0),
+                    )
+                })
+                .collect();
+            p.add(egui::Shape::line(pts, Stroke::new(1.4_f32, colour)));
+        }
+    }
+    for (tick, amount, why) in m.moments.iter().rev().take(5) {
+        ui.horizontal(|ui| {
+            let (sign, colour) = if *amount >= 0.0 { ("smile", ink.source(2)) } else { ("frown", ink.amber) };
+            crate::icons::show(ui, sign, 12.0, colour);
+            ui.add(egui::Label::new(RichText::new(format!("[{tick}] {why}")).small().color(ink.muted)).truncate());
+        });
+    }
+    ui.separator();
+}
+
 fn journal(app: &mut App, ui: &mut egui::Ui) {
+    feelings(app, ui);
     let ink = Ink::of(ui.ctx());
     let lang = app.settings.lang;
     // the window's changes: each can be taken back (Ctrl+Z), in the order they were made

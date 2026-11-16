@@ -5,7 +5,7 @@
 //! little by little or sleeps. Click to inspect, Ctrl+click to add, Shift+drag a box, drag a node to put it
 //! somewhere, wheel to zoom, drag the background to move, right click for what can be done.
 
-use eframe::egui::{self, pos2, vec2, Color32, Pos2, Rect, Sense, Shape, Stroke};
+use eframe::egui::{self, pos2, vec2, Color32, Pos2, Rect, RichText, Sense, Shape, Stroke};
 
 use crate::app::{App, Ink};
 use crate::text::t;
@@ -46,6 +46,10 @@ fn mix(a: Color32, b: Color32, k: f32) -> Color32 {
 }
 
 /// The view of the network: all of it (`only` None), or what one source (an app) holds and the nodes it touches.
+/// Below this zoom, networks begin to gather into one node each; below the second, they are only that.
+const COLLAPSE_FROM: f32 = 0.42;
+const COLLAPSE_FULL: f32 = 0.24;
+
 pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
     let ink = Ink::of(ui.ctx());
     let lang = app.settings.lang;
@@ -257,6 +261,99 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
             );
         }
     }
+    // far away, each network becomes one node holding its master equation; coming closer, it unfolds again
+    // (from the infinitely large to the small: a double click goes into one)
+    let mut over_net: Option<String> = None;
+    let collapse =
+        if only.is_none() { ((COLLAPSE_FROM - zoom) / (COLLAPSE_FROM - COLLAPSE_FULL)).clamp(0.0, 1.0) } else { 0.0 };
+    let mut sources: Vec<String> = vec![];
+    for n in &pic.nodes {
+        if !sources.contains(&n.source) {
+            sources.push(n.source.clone());
+        }
+    }
+    if collapse > 0.0 && sources.len() >= 2 {
+        painter.rect_filled(rect, 0.0, faded(ink.surface, 0.92 * collapse));
+        let mut centres: indexmap::IndexMap<String, (Pos2, f32, usize)> = indexmap::IndexMap::new();
+        for s in &sources {
+            let pts: Vec<Pos2> =
+                pic.nodes.iter().filter(|n| &n.source == s).filter_map(|n| at(&item_of(&n.name))).collect();
+            if pts.is_empty() {
+                continue;
+            }
+            let c = pts.iter().fold(vec2(0.0, 0.0), |a, p| a + p.to_vec2()) / pts.len() as f32;
+            let spread = pts.iter().map(|p| p.distance(c.to_pos2())).fold(0.0, f32::max);
+            let radius = (18.0 + (pts.len() as f32).sqrt() * 6.0).max(spread * 0.5).min(90.0);
+            centres.insert(s.clone(), (c.to_pos2(), radius, pts.len()));
+        }
+        // what joins networks: relations that hold nodes of several, as thick as how many
+        let mut joins: indexmap::IndexMap<(String, String), usize> = indexmap::IndexMap::new();
+        for r in &pic.relations {
+            let mut srcs: Vec<String> = r.nodes.iter().filter_map(|n| pic.node(n).map(|v| v.source.clone())).collect();
+            srcs.sort();
+            srcs.dedup();
+            for a in 0..srcs.len() {
+                for b in a + 1..srcs.len() {
+                    *joins.entry((srcs[a].clone(), srcs[b].clone())).or_insert(0) += 1;
+                }
+            }
+        }
+        for ((a, b), n) in &joins {
+            if let (Some(pa), Some(pb)) = (centres.get(a), centres.get(b)) {
+                let w = (1.0 + (*n as f32).sqrt() * 1.5).min(8.0);
+                painter.line_segment([pa.0, pb.0], Stroke::new(w, faded(ink.muted, collapse)));
+            }
+        }
+        for (s, (c, radius, count)) in &centres {
+            let k = app.colours.get(s).copied().unwrap_or(0);
+            let colour = ink.source(k);
+            let over = pointer.is_some_and(|m| m.distance(*c) < *radius);
+            if over {
+                over_net = Some(s.clone());
+            }
+            painter.circle_filled(*c, *radius, faded(colour, (if over { 0.35 } else { 0.22 }) * collapse));
+            painter.circle_stroke(
+                *c,
+                *radius,
+                Stroke::new(if over { 2.5_f32 } else { 1.5_f32 }, faded(colour, collapse)),
+            );
+            painter.text(
+                *c - vec2(0.0, 7.0),
+                egui::Align2::CENTER_CENTER,
+                s,
+                egui::FontId::proportional(13.0),
+                faded(ink.text, collapse),
+            );
+            painter.text(
+                *c + vec2(0.0, 9.0),
+                egui::Align2::CENTER_CENTER,
+                format!("{count} {}", t(lang, "all_nodes")),
+                egui::FontId::proportional(10.0),
+                faded(ink.muted, collapse),
+            );
+        }
+        if collapse > 0.5 {
+            hovered = None;
+            hover_rel = None;
+            pressed_on = None;
+        }
+    }
+    if resp.double_clicked() {
+        if let Some(net) = over_net.clone() {
+            app.dive(&net);
+        } else if let Some(n) = hovered.as_ref().and_then(|n| pic.node(n)).filter(|_| only.is_none()) {
+            let s = n.source.clone();
+            app.dive(&s);
+        }
+    } else if resp.clicked() {
+        if let Some(net) = &over_net {
+            let key = format!("n:{net}");
+            app.tree_detail.insert(key.clone());
+            app.tree_scroll = Some(key);
+            app.tab = crate::app::Tab::Inspector;
+            app.side_open = true;
+        }
+    }
     // the legend, quiet, in a corner: the shapes drawn as in the view, then their words
     legend(&painter, rect, &ink, lang);
     let _ = &hover_text;
@@ -268,7 +365,16 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
             egui::Id::new("net-tip"),
             egui::PopupAnchor::Pointer,
         );
-        if let Some(n) = &hovered {
+        if let Some(net) = &over_net {
+            let net = net.clone();
+            tip.show(|ui| {
+                ui.label(RichText::new(&net).strong().size(15.0));
+                ui.label(RichText::new(t(lang, "t_row_hint")).small().color(ink.muted));
+                if let Some(m) = app.masters.get(&net).cloned() {
+                    crate::math::show(ui, &m.text(), 14.0, lang);
+                }
+            });
+        } else if let Some(n) = &hovered {
             let n = n.clone();
             tip.show(|ui| crate::hover::node(app, ui, &n));
         } else if let Some(r) = &hover_rel {
@@ -283,18 +389,27 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
     // the master equation, top left, and the one of what is shown
     {
         let mut y = rect.top() + 8.0;
-        let mut line = |label: &str, text: &str, colour: Color32| {
-            let g = painter.layout_no_wrap(format!("{label} {text}"), egui::FontId::monospace(12.0), colour);
-            let back = Rect::from_min_size(pos2(rect.left() + 6.0, y - 2.0), g.size() + vec2(8.0, 4.0));
-            painter.rect_filled(back, 3.0, faded(ink.surface, 0.8));
-            painter.galley(pos2(rect.left() + 10.0, y), g, colour);
-            y += 18.0;
-        };
-        if let Some(m) = &app.master.0 {
-            line(t(lang, "master_now"), m, ink.text);
-        }
-        if let Some(m) = &app.master.1 {
-            line(t(lang, "master_here"), m, ink.muted);
+        // drawn as mathematics (right click: LaTeX), what it gathers said beside it
+        for (key, m, colour) in
+            [("master_now", app.master.0.clone(), ink.text), ("master_here", app.master.1.clone(), ink.muted)]
+        {
+            let Some((eq, note)) = m else { continue };
+            let area = Rect::from_min_size(pos2(rect.left() + 6.0, y), vec2(rect.width() - 12.0, 90.0));
+            let mut child = ui
+                .new_child(egui::UiBuilder::new().max_rect(area).layout(egui::Layout::left_to_right(egui::Align::Min)));
+            let inner = egui::Frame::new()
+                .fill(faded(ink.surface, 0.85))
+                .corner_radius(4.0)
+                .inner_margin(egui::Margin::symmetric(6, 2))
+                .show(&mut child, |ui| {
+                    ui.horizontal(|ui| {
+                        crate::icons::show(ui, "sigma", 14.0, colour);
+                        ui.label(egui::RichText::new(t(lang, key)).small().color(colour));
+                        crate::math::show(ui, &eq, 14.0, lang);
+                        ui.label(egui::RichText::new(note).small().color(ink.muted));
+                    });
+                });
+            y = inner.response.rect.bottom() + 4.0;
         }
         // the networks in the network: a chip each, to bring one to the front
         let mut sources: Vec<String> = pic.nodes.iter().map(|n| n.source.clone()).collect();
@@ -316,8 +431,19 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
             painter.rect_filled(chip, 9.0, if on { colour } else { faded(colour, 0.14) });
             painter.galley(chip.min + vec2(7.0, 3.0), g, if on { ink.on_accent() } else { colour });
             let r = ui.interact(chip, egui::Id::new(("focus-chip", &s)), Sense::click());
-            if r.clicked() {
+            if r.double_clicked() && !s.is_empty() {
+                app.dive(&s);
+            } else if r.clicked() {
                 app.focus = if s.is_empty() { None } else { Some(s.clone()) };
+            }
+            // under the right button: what can be done with this network (go into it, play, quarantine, remove...)
+            if !s.is_empty() {
+                let outputs: Vec<String> =
+                    pic.nodes.iter().filter(|n| n.source == s && n.output).map(|n| n.name.clone()).collect();
+                r.on_hover_text(t(lang, "t_row_hint")).context_menu(|ui| {
+                    ui.set_min_width(280.0);
+                    crate::tree::network_menu(app, ui, &s, &outputs)
+                });
             }
             x = chip.right() + 6.0;
             if x > rect.right() - 80.0 {
@@ -399,6 +525,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
     } else if resp.clicked() {
         match &hovered {
             Some(n) => app.select(n, command),
+            // a relation clicked opens in the inspector, as a node does
+            None if hover_rel.is_some() => app.show_relation(hover_rel.as_deref().unwrap_or_default()),
             None if !command => app.selected.clear(),
             None => {}
         }

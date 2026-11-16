@@ -154,9 +154,18 @@ pub struct App {
     pub node_form: Option<crate::menu::NodeForm>,
     /// The network brought to the front (its source).
     pub focus: Option<String>,
+    /// The network the view went into (double click): only it is shown.
+    pub dived: Option<String>,
     /// The master equation of everything, and of what is shown.
-    pub master: (Option<String>, Option<String>),
-    master_pull: Pull<(Option<String>, Option<String>)>,
+    pub master: (Option<Said>, Option<Said>),
+    master_pull: Pull<Masters>,
+    /// Each network's master equation (the inspector draws it, and its curve).
+    pub masters: indexmap::IndexMap<String, grm_engine::master::Master>,
+    /// The inspector's tree: what is unfolded (by its path), what shows its detail (by what it is), and where
+    /// the list must go.
+    pub tree_open: std::collections::HashSet<String>,
+    pub tree_detail: std::collections::HashSet<String>,
+    pub tree_scroll: Option<String>,
     /// How the desk is shown (its network, or plots).
     pub desk_mode: Mode,
     /// Files opened to write in, and the one shown.
@@ -175,6 +184,8 @@ pub struct App {
     /// A sandbox shown in the middle, as a network.
     pub sandbox_shown: Option<String>,
     sandbox_picture: Option<Picture>,
+    /// A workshop shown in the middle (a network of data made apart).
+    pub workshop_shown: Option<String>,
     sandbox_pull: Pull<Option<Picture>>,
     /// Each app's looks (a small network each), made again when its look lines or the palette change.
     pub looks: HashMap<String, crate::looks::Looks>,
@@ -193,6 +204,15 @@ pub struct App {
     toasts: Vec<(LineKind, String, Instant)>,
     /// The window was full screen when it was left.
     fullscreen_back: bool,
+    /// A removal asked for by a click: the window asks (yes or no), not the prompt.
+    pub confirm: Option<Confirm>,
+    /// The line whose question was already answered yes in such a window.
+    quiet_yes: Option<String>,
+    /// The colours' breath: when it last moved, how loud the sound was lately, since when the window lives.
+    breath_at: Instant,
+    breath_sound: f32,
+    breathing: bool,
+    started: Instant,
     /// The window that makes a new app: open, and whether its field still has to take the keys.
     new_app_open: bool,
     new_app_focus: bool,
@@ -202,6 +222,20 @@ pub struct App {
 
 /// The files chosen in the system's window, and how long it took to answer (when it comes).
 type Chosen = std::sync::mpsc::Receiver<(Vec<PathBuf>, Duration)>;
+
+/// A master equation as it is said: the equation, and what it gathers.
+pub type Said = (String, String);
+
+/// The master equation of everything, of what is shown, and of each network.
+type Masters = (Option<Said>, Option<Said>, indexmap::IndexMap<String, grm_engine::master::Master>);
+
+/// A question asked in a window before something is taken away: what would go, and the line that does it.
+#[derive(Debug, Clone)]
+pub struct Confirm {
+    pub title: String,
+    pub detail: Vec<String>,
+    pub line: String,
+}
 
 /// What files chosen in the system's window are for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -384,6 +418,7 @@ impl App {
             code_dock: None,
             sandbox_shown: None,
             sandbox_picture: None,
+            workshop_shown: None,
             sandbox_pull: Pull::new(Duration::from_millis(300)),
             looks: HashMap::new(),
             apps_known: false,
@@ -391,11 +426,22 @@ impl App {
             window_saved_at: Instant::now(),
             world_saved_at: Instant::now(),
             journey: Default::default(),
+            dived: None,
+            masters: Default::default(),
+            tree_open: Default::default(),
+            tree_detail: Default::default(),
+            tree_scroll: None,
             collide: None,
             side_open: true,
             prompt_open: true,
             toasts: vec![],
             fullscreen_back: false,
+            confirm: None,
+            quiet_yes: None,
+            breath_at: Instant::now(),
+            breath_sound: 0.0,
+            breathing: false,
+            started: Instant::now(),
             new_app_open: false,
             new_app_focus: false,
             picking: None,
@@ -647,11 +693,15 @@ impl App {
         let here = self.current.as_ref().map(|c| grm_shell::runtime::source_of(c)).or(self.focus.clone());
         if let Some(m) = self.master_pull.poll(&self.engine, move |w| {
             let text = |m: Option<grm_engine::master::Master>| {
-                m.map(|m| format!("{}   ({:.2} decades, residual {:.1e} dex)", m.text(), m.decades, m.residual))
+                m.map(|m| (m.text(), format!("{:.2} decades, residual {:.1e} dex", m.decades, m.residual)))
             };
-            (text(w.master(None)), here.as_deref().and_then(|h| text(w.master(Some(h)))))
+            w.mood.host = grm_shell::host_capacity();
+            let all: indexmap::IndexMap<String, grm_engine::master::Master> =
+                w.sources().into_iter().filter_map(|(s, _)| w.master(Some(&s)).map(|m| (s, m))).collect();
+            (text(w.master(None)), here.as_deref().and_then(|h| text(w.master(Some(h)))), all)
         }) {
-            self.master = m;
+            self.master = (m.0, m.1);
+            self.masters = m.2;
         }
         if let Some(p) = self.pull.poll(&self.engine, |w| Picture::of(w)) {
             for n in &p.nodes {
@@ -706,10 +756,23 @@ impl App {
             if a.kept {
                 self.journey.record(crate::journey::Change::World, a.typed.clone());
             }
+            // a question already answered in a window (a removal asked for by a click): not asked again here
+            // only the answer to that very line (never another question of the prompt)
+            let answered = a.asking && self.quiet_yes.as_deref() == Some(a.typed.as_str());
+            if self.quiet_yes.as_deref() == Some(a.typed.as_str()) {
+                self.quiet_yes = None;
+            }
             for l in a.lines {
+                if answered && l.kind == LineKind::Ask {
+                    continue;
+                }
                 self.note(l.kind, l.text);
             }
             self.asking = a.asking;
+            if answered {
+                self.asking = false;
+                self.worker.send("y".to_string());
+            }
             if let Some(apps) = a.apps {
                 if self.apps_known {
                     for v in &apps {
@@ -774,6 +837,16 @@ impl App {
                         self.settings.lang = if l.starts_with("fr") { Lang::Fr } else { Lang::En };
                     }
                     grm_shell::Order::Clear => self.log.clear(),
+                    grm_shell::Order::Workshop(n) => {
+                        // a table just learned: its network shown at once
+                        self.workshop_shown = Some(n);
+                        self.sandbox_shown = None;
+                        self.current = None;
+                        self.current_file = None;
+                        self.launched = false;
+                        self.sandbox_picture = None;
+                        self.view.fitted = false;
+                    }
                     grm_shell::Order::Collide { path, stem, columns, into, taken } => {
                         let rows = columns
                             .iter()
@@ -1013,23 +1086,21 @@ impl App {
                     ui.label(RichText::new(self.tr("busy")).color(ink.muted));
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let help = crate::icons::button(ui, "circle-help", self.tr("help")).on_hover_text("F1");
+                    let help = crate::icons::sign(ui, "circle-help", &format!("{} (F1)", self.tr("help")));
                     self.areas.insert("help", help.rect);
                     if help.clicked() {
                         self.help_open = !self.help_open;
                     }
-                    let settings = crate::icons::button(ui, "settings", self.tr("settings"));
+                    let settings = crate::icons::sign(ui, "settings", self.tr("settings"));
                     self.areas.insert("settings", settings.rect);
                     if settings.clicked() {
                         self.settings_open = !self.settings_open;
                     }
-                    if crate::icons::button(ui, "moon", self.tr("sleep"))
-                        .on_hover_text(self.memory.display().to_string())
-                        .clicked()
-                    {
+                    let sleep_what = format!("{}: {}", self.tr("sleep"), self.memory.display());
+                    if crate::icons::sign(ui, "moon", &sleep_what).clicked() {
                         self.say("sleep");
                     }
-                    if ui.button(self.tr("tick")).clicked() {
+                    if crate::icons::sign(ui, "step-forward", self.tr("tick_d")).clicked() {
                         self.say("tick");
                     }
                 });
@@ -1039,6 +1110,8 @@ impl App {
 
     fn prompt(&mut self, ui: &mut egui::Ui) {
         let ink = Ink::of(ui.ctx());
+        // it fills the height the human gave it (a panel keeps the height of what it holds)
+        ui.set_min_height(ui.available_height());
         {
             let id = egui::Id::new("prompt-line");
             let line_h = ui.spacing().interact_size.y + 10.0;
@@ -1229,6 +1302,7 @@ impl App {
 
     fn windows(&mut self, ctx: &egui::Context) {
         self.line_window(ctx);
+        self.confirm_window(ctx);
         self.new_app_window(ctx);
         crate::menu::node_form(self, ctx);
         let lang = self.settings.lang;
@@ -1293,6 +1367,9 @@ impl App {
                 ui.label(t(lang, "follow_hour"));
                 ui.checkbox(&mut self.settings.follow_hour, t(lang, "follow_hour_d"));
                 ui.end_row();
+                ui.label(t(lang, "breathe"));
+                ui.checkbox(&mut self.settings.breathe, t(lang, "breathe_d"));
+                ui.end_row();
                 ui.label(t(lang, "text_size"));
                 ui.add(egui::Slider::new(&mut self.settings.text, 0.8..=2.0).step_by(0.1));
                 ui.end_row();
@@ -1303,10 +1380,9 @@ impl App {
             ui.separator();
             ui.label(RichText::new(t(lang, "layout")).strong());
             ui.label(t(lang, "layout_note"));
-            ui.label(format!("{} {:.2}", t(lang, "harmony"), self.layout.sizes.harmony));
-            for s in self.layout.statements() {
-                ui.label(RichText::new(s).monospace().small());
-            }
+            let mut lines = vec![format!("# {} {:.2}", t(lang, "harmony"), self.layout.sizes.harmony)];
+            lines.extend(self.layout.statements());
+            crate::style::terminal(ui, &lines);
             if ui.button(t(lang, "reset_layout")).clicked() {
                 reset = true;
             }
@@ -1374,6 +1450,8 @@ impl eframe::App for App {
         if std::mem::take(&mut self.fullscreen_back) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
         }
+        ctx.data_mut(|d| d.insert_temp(egui::Id::new("grm-lang"), self.settings.lang));
+        self.breath(ctx);
         self.answers(ctx);
         self.follow();
         self.files_dropped(ctx);
@@ -1424,6 +1502,11 @@ impl eframe::App for App {
         };
         let r = prompt.show(ctx, |ui| self.prompt(ui));
         self.areas.insert("prompt", r.response.rect);
+        // the height the human gave it: kept (as a wish of the layout network), given back at the next start
+        let h = r.response.rect.height();
+        if self.prompt_open && (h - self.layout.sizes.bottom).abs() > 2.0 && ctx.input(|i| i.pointer.any_down()) {
+            self.layout.wish_bottom(h);
+        }
         if sizes.stacked && self.side_open {
             let r = egui::TopBottomPanel::bottom("side")
                 .exact_height(sizes.band.min(size.y * 0.45))
@@ -1517,7 +1600,13 @@ impl App {
                     && self.current_file.is_none()
                     && self.sandbox_shown.is_none();
                 let sign = a.icon.clone().filter(|i| crate::icons::exists(i)).unwrap_or("app-window".into());
-                let colour = if a.errors.is_empty() { ui.visuals().text_color() } else { ink.amber };
+                let colour = if !a.errors.is_empty() {
+                    ink.amber
+                } else if on {
+                    ui.visuals().selection.stroke.color
+                } else {
+                    ui.visuals().text_color()
+                };
                 let r = ui
                     .add(
                         egui::Button::image_and_text(
@@ -1608,6 +1697,56 @@ impl App {
             }
             self.current_file = None;
         }
+        if let Some(ws) = self.workshop_shown.clone() {
+            ui.horizontal(|ui| {
+                crate::icons::show(ui, "hammer", 16.0, ink.accent);
+                ui.label(RichText::new(format!("{} {ws}", t(lang, "workshop"))).strong().color(ink.accent))
+                    .on_hover_text(t(lang, "workshop_d"));
+                if crate::icons::button(ui, "merge", t(lang, "workshop_merge"))
+                    .on_hover_text(t(lang, "workshop_merge_d"))
+                    .clicked()
+                {
+                    self.say(format!("workshop merge {ws}"));
+                    self.tab = Tab::Sandboxes;
+                    self.side_open = true;
+                }
+                if crate::icons::button(ui, "chart-line", t(lang, "m_plots")).clicked() {
+                    self.plotted = self
+                        .sandbox_picture
+                        .as_ref()
+                        .map(|p| p.nodes.iter().take(4).map(|n| n.name.clone()).collect())
+                        .unwrap_or_default();
+                    self.desk_mode = Mode::Plot;
+                }
+                if crate::icons::button(ui, "x", t(lang, "workshop_close")).clicked() {
+                    self.say(format!("workshop close {ws}"));
+                    self.workshop_shown = None;
+                }
+                if crate::icons::button(ui, "arrow-left", t(lang, "back")).clicked() {
+                    self.workshop_shown = None;
+                }
+            });
+            ui.separator();
+            let name = ws.clone();
+            if let Some(p) = self.sandbox_pull.poll(&self.engine, move |w| Picture::of_workshop(w, &name)) {
+                self.sandbox_picture = p;
+            }
+            match self.sandbox_picture.clone() {
+                Some(p) => {
+                    let saved = std::mem::replace(&mut self.picture, p);
+                    if self.desk_mode == Mode::Plot {
+                        crate::plot::show(self, ui, None);
+                    } else {
+                        crate::view::show(self, ui, None);
+                    }
+                    self.picture = saved;
+                }
+                None => {
+                    ui.label(t(lang, "no_workshop"));
+                }
+            }
+            return;
+        }
         if let Some(sb) = self.sandbox_shown.clone() {
             ui.horizontal(|ui| {
                 ui.label(RichText::new(format!("{} {sb}", t(lang, "sandbox_shown"))).strong().color(ink.accent));
@@ -1644,11 +1783,25 @@ impl App {
                         self.desk_mode = m;
                     }
                 }
+                ui.separator();
+                // where the view is: the whole world, or inside one network (each step goes back up)
+                if crate::icons::toggle(ui, "globe", t(lang, "world_all"), self.dived.is_none())
+                    .on_hover_text(t(lang, "world_all_d"))
+                    .clicked()
+                {
+                    self.dived = None;
+                    self.view.fitted = false;
+                }
+                if let Some(d) = self.dived.clone() {
+                    crate::icons::show(ui, "chevron-right", 14.0, Ink::of(ui.ctx()).muted);
+                    let _ = crate::icons::toggle(ui, "network", d.as_str(), true);
+                }
             });
             ui.separator();
+            let only = self.dived.clone();
             match self.desk_mode {
-                Mode::Plot => crate::plot::show(self, ui, None),
-                _ => crate::view::show(self, ui, None),
+                Mode::Plot => crate::plot::show(self, ui, only.as_deref()),
+                _ => crate::view::show(self, ui, only.as_deref()),
             }
             return;
         };
@@ -2056,5 +2209,135 @@ impl App {
             self.toasts.remove(k);
         }
         ctx.request_repaint_after(Duration::from_millis(50));
+    }
+}
+
+impl App {
+    /// A relation chosen (in the network): it opens in the inspector, its network unfolded.
+    pub fn show_relation(&mut self, name: &str) {
+        let Some(r) = self.picture.relations.iter().find(|r| r.name == name) else { return };
+        let net = format!("n:{}", r.source);
+        let key = format!("rel:{name}");
+        self.tree_open.insert(net.clone());
+        self.tree_open.insert(format!("{net}/rels"));
+        self.tree_detail.insert(key.clone());
+        self.tree_scroll = Some(key);
+        self.tab = Tab::Inspector;
+        self.side_open = true;
+    }
+}
+
+impl App {
+    /// Into a network: only it, filling the view (the way back is the way back: Alt+Left).
+    pub fn dive(&mut self, source: &str) {
+        if !self.picture.nodes.iter().any(|n| n.source == source) {
+            return;
+        }
+        self.dived = Some(source.to_string());
+        self.current = None;
+        self.current_file = None;
+        self.sandbox_shown = None;
+        self.launched = false;
+        self.desk_mode = Mode::Network;
+        self.view.fitted = false;
+    }
+}
+
+impl App {
+    /// Living colours: every tenth of a second, the palette a little turned (slowly), the sound lifting it.
+    fn breath(&mut self, ctx: &egui::Context) {
+        if !self.settings.breathe || self.settings_open {
+            if std::mem::take(&mut self.breathing) {
+                apply_look(ctx, &self.settings);
+            }
+            return;
+        }
+        if self.breath_at.elapsed() < Duration::from_millis(100) {
+            return;
+        }
+        self.breath_at = Instant::now();
+        self.breathing = true;
+        let peak = self.mixer.lock().map(|m| m.peak).unwrap_or(0.0);
+        // the sound follows slowly too
+        self.breath_sound += (peak - self.breath_sound) * 0.15;
+        let secs = self.started.elapsed().as_secs_f64();
+        crate::style::colours(ctx, &crate::style::breathed(&self.settings.palette, secs, self.breath_sound));
+        ctx.request_repaint_after(Duration::from_millis(100));
+    }
+}
+
+impl App {
+    /// A node or a relation to take away, asked for by a click: a window says what would go and asks.
+    pub fn ask_remove(&mut self, name: &str) {
+        let lang = self.settings.lang;
+        let n = name.to_string();
+        let preview = self
+            .engine
+            .query(move |w| w.removal(&[n.as_str()]).map(|p| (p.kind.to_string(), p.nodes, p.relations)))
+            .and_then(|r| r.ok());
+        let mut detail = vec![];
+        if let Some((app, l)) = self.line_in_app(name) {
+            let text = self.apps.iter().find(|a| a.name == app).and_then(|a| a.text.lines().nth(l - 1)).unwrap_or("");
+            detail.push(format!("# {app}, {} {l}", t(lang, "line")));
+            detail.push(text.trim().to_string());
+        }
+        if let Some((kind, nodes, rels)) = preview {
+            detail.push(format!("# {kind} {name}"));
+            if !nodes.is_empty() {
+                detail.push(format!("node {}", nodes.join(", ")));
+            }
+            if !rels.is_empty() {
+                detail.push(format!("relate {}", rels.join(", ")));
+            }
+        }
+        self.confirm = Some(Confirm {
+            title: format!("{} {name} ?", t(lang, "remove_q")),
+            detail,
+            line: format!("remove {name}"),
+        });
+    }
+
+    fn confirm_window(&mut self, ctx: &egui::Context) {
+        let Some(c) = self.confirm.clone() else { return };
+        let lang = self.settings.lang;
+        let ink = Ink::of(ctx);
+        let mut answer: Option<bool> = None;
+        let modal = egui::Modal::new(egui::Id::new("confirm")).show(ctx, |ui| {
+            ui.set_width(440.0);
+            ui.horizontal(|ui| {
+                crate::icons::show(ui, "trash-2", 18.0, ink.amber);
+                ui.label(RichText::new(&c.title).strong().size(16.0));
+            });
+            ui.add_space(6.0);
+            ui.label(RichText::new(t(lang, "remove_what")).small().color(ink.muted));
+            crate::style::terminal(ui, &c.detail);
+            ui.label(RichText::new(t(lang, "remove_undo")).small().color(ink.muted));
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                let yes = egui::Button::image_and_text(
+                    crate::icons::image("trash-2", 15.0, ink.on_accent()),
+                    RichText::new(t(lang, "remove_yes")).color(ink.on_accent()),
+                )
+                .fill(ink.amber);
+                if ui.add(yes).clicked() || ui.input(|i| i.key_pressed(Key::Enter)) {
+                    answer = Some(true);
+                }
+                if crate::icons::button(ui, "x", t(lang, "cancel")).clicked() {
+                    answer = Some(false);
+                }
+            });
+        });
+        if modal.should_close() && answer.is_none() {
+            answer = Some(false);
+        }
+        match answer {
+            Some(true) => {
+                self.confirm = None;
+                self.quiet_yes = Some(c.line.clone());
+                self.say(c.line);
+            }
+            Some(false) => self.confirm = None,
+            None => {}
+        }
     }
 }

@@ -86,7 +86,7 @@ pub fn node_menu(app: &mut App, ui: &mut egui::Ui, n: &str) {
         }
     }
     if item(ui, "trash-2", t(lang, "remove"), t(lang, "m_remove_d")) {
-        app.say(format!("remove {n}"));
+        app.ask_remove(n);
         ui.close();
     }
 }

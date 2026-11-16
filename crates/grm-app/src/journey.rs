@@ -28,8 +28,10 @@ pub struct Place {
     desk_mode: Mode,
     file: Option<PathBuf>,
     sandbox: Option<String>,
+    workshop: Option<String>,
     selected: Vec<String>,
     tab: Tab,
+    dived: Option<String>,
     zoom: f32,
     offset: [f32; 2],
 }
@@ -42,8 +44,10 @@ impl Place {
             && self.desk_mode == o.desk_mode
             && self.file == o.file
             && self.sandbox == o.sandbox
+            && self.workshop == o.workshop
             && self.selected == o.selected
             && self.tab == o.tab
+            && self.dived == o.dived
     }
 }
 
@@ -156,8 +160,10 @@ impl App {
             desk_mode: self.desk_mode,
             file: self.current_file.and_then(|k| self.files.get(k)).map(|f| f.path.clone()),
             sandbox: self.sandbox_shown.clone(),
+            workshop: self.workshop_shown.clone(),
             selected: self.selected.clone(),
             tab: self.tab,
+            dived: self.dived.clone(),
             zoom: self.view.zoom,
             offset: [self.view.offset.x, self.view.offset.y],
         }
@@ -171,8 +177,10 @@ impl App {
         self.desk_mode = p.desk_mode;
         self.current_file = p.file.as_ref().and_then(|path| self.files.iter().position(|f| &f.path == path));
         self.sandbox_shown = p.sandbox.clone();
+        self.workshop_shown = p.workshop.clone().filter(|w| self.picture.workshops.iter().any(|x| &x.0 == w));
         self.selected = p.selected.iter().filter(|s| self.picture.node(s).is_some()).cloned().collect();
         self.tab = p.tab;
+        self.dived = p.dived.clone().filter(|d| self.picture.nodes.iter().any(|n| &n.source == d));
         self.view.zoom = p.zoom;
         self.view.offset = egui::vec2(p.offset[0], p.offset[1]);
         self.view.fitted = true;
@@ -218,6 +226,16 @@ impl App {
         let entry = if again { self.journey.redo.pop() } else { self.journey.undo.pop() };
         let Some(entry) = entry else { return };
         self.journey.applying = true;
+        // the human taking something back is a signal too: a little displeasure, said in the journal
+        let (amount, why) = if again {
+            (0.03, format!("the human gave back: {}", entry.what))
+        } else {
+            (-0.05, format!("the human took back: {}", entry.what))
+        };
+        let _ = self.engine.query(move |w| {
+            let tick = w.machine.net.ticks;
+            w.mood.reward(amount, tick, why)
+        });
         let word = if again { "redo" } else { "undo" };
         let opposite = match entry.change {
             Change::World => {

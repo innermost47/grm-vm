@@ -4,22 +4,51 @@
 ██   ███ ██████  ██ ████ ██   o───o───o
 ██    ██ ██   ██ ██  ██  ██    \ / \ /
  ██████  ██   ██ ██      ██     o───o
-    the Global Relational Model machine
 </pre>
-
-# grm-vm
 
 ![grm-vm: an app's network beside its code, live](docs/hero.png)
 
-The GRM machine, in Rust: a network of nodes and relations that settles by itself (Gaussian belief propagation),
-where every node and every relation is a small processor that only talks to its neighbours, and only works when a
-neighbour has something new to say.
+## What this is, in a few words
 
-It is written to be fast, to never make anyone wait for it, to try new things apart before they touch what it
-holds, and to talk to other machines without a centre. It has a prompt (`grm`), a window (`grm-app`), and a voice.
-It is meant as a reactor: it starts with little, every way in and out within reach, and the human builds the
-tools they want on it (apps), each one open, readable and changeable while it runs.
-The Python machine of [grm-core](https://github.com/innermost47/grm-core) was its proof of concept; this one gives the same numbers.
+**grm-vm is a machine that holds what is known as a network of numbers and of the relations between them, and
+that says, for everything it holds, how sure it is.**
+
+You tell it things: *a mass is 2 kg*, *a force is a mass times an acceleration*, *here is a table of measurements*.
+It puts each one in the network as a node (a quantity) or a relation (an equation, a law, a constraint), and the
+network settles by itself: every value is computed from all the others at once, each with its uncertainty
+(`9.81 ± 0.02`), and where things disagree it shows the strain instead of hiding it. Give it data and it looks for
+the laws in it by itself (in a table of a falling body it finds `h = 4.9 · t²`), forecasts with how sure it is,
+and tells why it believes what it believes: which relation said what, and how much each one weighed.
+
+Nothing is hidden: it is AI in an open box. Every number can be clicked, every relation read as an equation (and
+copied as LaTeX), every change taken back, every source put in quarantine.
+
+On top of it, you build **apps**: small programs written in its language (GRML), each one at once a network, a
+surface (sliders, keys, plots, scopes) and code, all three changed while it runs. It also makes sound: any node
+can be played, computed 48 000 times a second.
+
+### Why
+
+- **One model for everything**: physics, data, music, the layout of its own window. They all live in one global
+  network, so anything can be linked to anything.
+- **Honest numbers**: an answer always comes with how sure it is, and with where it comes from.
+- **Safe by construction**: what is new is tried apart first (sandboxes, workshops), merged little by little, and
+  put in quarantine when it breaks the harmony of what is known.
+- **Calm**: nothing flashes, nothing jumps; accessibility (screen readers, sizes, contrast) from the start.
+
+### How it works, in one paragraph
+
+Each node holds a belief (a value and a precision); each relation is a factor that sends its neighbours what it
+thinks they should be (Gaussian belief propagation). Products and powers are straight lines in logarithms, so most
+laws of physics are linear there and solved exactly. A node or a relation only works when a neighbour has
+something new to say: a network at rest costs nothing. The machine comes from a Python proof of concept,
+[grm-core](https://github.com/innermost47/grm-core), and gives the same numbers.
+
+### What is in this repository
+
+The engine (Rust), a prompt (`grm`), a window (`grm-app`, built with egui), the sound (cpal), connections (files,
+tables, HTTP, WebSocket), and a few apps. It is a first version, moving fast: what it does not do yet is listed at
+the end, honestly.
 
 Licence: AGPL-3.0-or-later. © 2026 Anthony Charretier. The icons are [Lucide](https://lucide.dev)'s (ISC licence,
 `assets/icons/LICENSE-lucide`).
@@ -59,27 +88,27 @@ grm> status
 
 ## What is in it
 
-| | file | |
-|---|---|---|
-| the language | `lang.rs` | GRML, statement by statement, as grm-core reads it |
-| the network | `network.rs` | nodes, relations, measurements; each with its **provenance** (who said it, from where) and its **strength** |
-| the machine | `machine.rs` | belief propagation: rounds, ticks, `set`s, learning |
-| the world | `world.rs` | the global network, **sandboxes**, **trial merges**, **integration little by little**, **quarantine**, **recall**, `remove`, the logbook |
-| the engine | `engine.rs` | the machine in a thread of its own, computing a frame at a time, publishing snapshots |
-| ports | `ports.rs` | what comes in and goes out: values, vectors, events (a click, a key), images and sounds (their adapters come with the senses) |
-| clocks | `reflex.rs` | the speed of sound: a network's `set`s run directly, 48 000 times a second, tuned by the machine above |
-| peers | `peers.rs` | machines that share what they believe, never their data, without a centre |
-| hidden state | `hidden.rs` | what a node really is behind what is measured of it: a Kalman filter that follows it, an expectation-maximisation that consolidates its law, the world's noise told from the senses' |
-| time | `time.rs` | nodes that **remember** (precise near the present, coarser further back), **learn how they move** in real time, **find links by themselves**, are **foreseen** with a confidence, and say **why** |
-| the world outside | `grm-connect` | web APIs: what an answer can give (fields, kinds, units), the chosen fields into a sandbox, their rows each at its moment; Open-Meteo and Our World in Data to begin with |
-| laws | `discover.rs` | what holds between nodes at the same moment (a line, a power, a product of powers), found in the rows it has seen and proposed through a sandbox |
-| the eye | `vision.rs` | pictures: a network of its own near what it sees (pixels tied to their neighbours, a pyramid above them), that cleans, fills, keeps edges, is surprised, sees what changed, and sends a glance to the world's network |
-| units | `units.rs` | a node with a dimension is given in SI, counted inside in Planck units |
-| the prompt | `grm-shell` | every command, the same in the terminal and in the window: a line goes in, lines come out (said, dim, a warning, an error, a question waiting for y/n) |
-| the sound | `grm-sound` | the machine's own voice, the mixer of the human's channels, the sound device, WAV files |
-| the window | `grm-app` | the network, the prompt, the inspector, sandboxes, sources, journal, eye, sound; apps as code, network and surface; placed by a GRM network |
-| apps | `grm-shell` (`apps.rs`, `runtime.rs`) | an app's file read (`use` and `call` unfolded, its surface and APIs set apart), run, edited while it runs, closed, kept with the desk |
-| APIs | `grm-connect` (`api.rs`) | GET every so often, POST, WebSocket, each in its thread, what it reads into nodes |
+|                   | file                                  |                                                                                                                                                                                                                       |
+| ----------------- | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| the language      | `lang.rs`                             | GRML, statement by statement, as grm-core reads it                                                                                                                                                                    |
+| the network       | `network.rs`                          | nodes, relations, measurements; each with its **provenance** (who said it, from where) and its **strength**                                                                                                           |
+| the machine       | `machine.rs`                          | belief propagation: rounds, ticks, `set`s, learning                                                                                                                                                                   |
+| the world         | `world.rs`                            | the global network, **sandboxes**, **trial merges**, **integration little by little**, **quarantine**, **recall**, `remove`, the logbook                                                                              |
+| the engine        | `engine.rs`                           | the machine in a thread of its own, computing a frame at a time, publishing snapshots                                                                                                                                 |
+| ports             | `ports.rs`                            | what comes in and goes out: values, vectors, events (a click, a key), images and sounds (their adapters come with the senses)                                                                                         |
+| clocks            | `reflex.rs`                           | the speed of sound: a network's `set`s run directly, 48 000 times a second, tuned by the machine above                                                                                                                |
+| peers             | `peers.rs`                            | machines that share what they believe, never their data, without a centre                                                                                                                                             |
+| hidden state      | `hidden.rs`                           | what a node really is behind what is measured of it: a Kalman filter that follows it, an expectation-maximisation that consolidates its law, the world's noise told from the senses'                                  |
+| time              | `time.rs`                             | nodes that **remember** (precise near the present, coarser further back), **learn how they move** in real time, **find links by themselves**, are **foreseen** with a confidence, and say **why**                     |
+| the world outside | `grm-connect`                         | web APIs: what an answer can give (fields, kinds, units), the chosen fields into a sandbox, their rows each at its moment; Open-Meteo and Our World in Data to begin with                                             |
+| laws              | `discover.rs`                         | what holds between nodes at the same moment (a line, a power, a product of powers), found in the rows it has seen and proposed through a sandbox                                                                      |
+| the eye           | `vision.rs`                           | pictures: a network of its own near what it sees (pixels tied to their neighbours, a pyramid above them), that cleans, fills, keeps edges, is surprised, sees what changed, and sends a glance to the world's network |
+| units             | `units.rs`                            | a node with a dimension is given in SI, counted inside in Planck units                                                                                                                                                |
+| the prompt        | `grm-shell`                           | every command, the same in the terminal and in the window: a line goes in, lines come out (said, dim, a warning, an error, a question waiting for y/n)                                                                |
+| the sound         | `grm-sound`                           | the machine's own voice, the mixer of the human's channels, the sound device, WAV files                                                                                                                               |
+| the window        | `grm-app`                             | the network, the prompt, the inspector, sandboxes, sources, journal, eye, sound; apps as code, network and surface; placed by a GRM network                                                                           |
+| apps              | `grm-shell` (`apps.rs`, `runtime.rs`) | an app's file read (`use` and `call` unfolded, its surface and APIs set apart), run, edited while it runs, closed, kept with the desk                                                                                 |
+| APIs              | `grm-connect` (`api.rs`)              | GET every so often, POST, WebSocket, each in its thread, what it reads into nodes                                                                                                                                     |
 
 ### Never waiting, never computing for nothing
 
@@ -416,6 +445,59 @@ STATEMENT` says anything of the language into that network (`style relate breath
 
 ![The side, the prompt, a soft warning](docs/panels.png)
 
+### The inspector as a tree, formulas as mathematics, from the large to the small
+
+- **The inspector is a tree**, browsed as a file explorer: the networks (each with its sign: an app's own, a
+  keyboard for what was typed, a table for a file...), then their nodes and their relations in two folders, then
+  what each holds (a node's relations, a relation's nodes). Every line can do two things: **show its detail**
+  (a click: for a network, its master equation and its curve, what it brings and what its links cost; for a node,
+  its value, what it is, its curve, its actions; for a relation, its formula, its strain, its worth) and **unfold
+  its children** (the chevron). Every line has its sound (play, which becomes stop while it is heard; a network
+  plays its outputs) and, under the right button, what can be done with it. A relation clicked in the network
+  opens there too.
+- **Formulas are drawn as mathematics** (fractions, powers, functions), in the inspector, under the pointer and in
+  the master equation; a right click (or a double click) **copies them as LaTeX**
+  (`\mathrm{force} = \mathrm{mass} \cdot \mathrm{acceleration}`).
+- **A master equation has its curve**: its first node along, its second as it follows (the others held where they
+  are), in log on both sides (a power law is a straight line), and where the network is now.
+- **From the infinitely large to the small**: zooming out, the networks gather, each into one node (its size, its
+  colour, the relations that join it to others as thick as how many); a double click on one (or on any node, or
+  *Go into it* in the tree) goes into it, and only it fills the view. *Everything* (or Alt+Left) comes back out.
+
+![The inspector as a tree, a relation's formula](docs/tree.png)
+![Zoomed out: each network one node](docs/fractal.png)
+
+### What it feels
+
+Ported from the Python machine's mind, and shown in the journal, as quantities and as curves:
+**pleasure and displeasure** (the dopamine neurons signal the difference between what was expected and what came:
+the machine expects a certain surprise from its inputs, and being less surprised than it expected is pleasure,
+more is displeasure; finding something by itself, or taking in what it tried apart, is a burst of pleasure; what it
+has to put in quarantine or refuse, a burst of displeasure; with nothing new, it comes back to rest),
+**flourishing** (accuracy, its inputs no longer surprising it, times room, the links it can still hold) and
+**progress** (how much its surprise is falling: what it is learning now). What the human does is a signal too
+(taking something back is a little displeasure, giving it again a little pleasure), and every moment that moved it
+is written with why. Nothing of it leaves the machine.
+
+**Living colours** (on by default, a switch in the settings): a slow breath through the palette (a few degrees of
+hue, a hundredth of light, over half a minute and more; never a flash), the sound lifting the accent a little.
+
+![What it feels](docs/feelings.png)
+
+### Workshops: new networks of data, apart
+
+A table loaded (`load FILE.csv`, a file dropped on the window) does not go into the main network: it is learned in
+a **workshop** of its own, a network of its own (its time, the laws it finds), shown at once. Nothing of it comes
+in until the human says so: *Merge into my network* puts what it made into a sandbox here (its nodes, its laws,
+what its inputs read last), to be tried, then merged little by little, or refused. `load FILE.csv COLUMNS --here`
+still learns it in the main network directly. Sharing a network with chosen others (friends, family) or with the
+world comes with the peer-to-peer network.
+
+**A removal asked for by a click** opens a window that says what would go (as a terminal shows it) and asks; asked
+for at the prompt, the prompt asks.
+
+![A workshop: a table learned apart, its law found](docs/workshop.png)
+
 ### What a relation is worth: its rent
 
 Ported from the Python machine. Every relation brings information: how much it narrows what its nodes can be. For
@@ -520,10 +602,10 @@ PYTHONPATH=path/to/pygrm/src python3 tools/golden.py path/to/grm-core/vm
 The same grid (`tools/grid.py`), the same 100 rounds, the same messages, on one core of the machine it was
 written on:
 
-| | nodes | processors | messages | Python (grm-core) | Rust |
-|---|---|---|---|---|---|
-| grid 40 x 40 | 1 600 | 4 720 | 1.39 M | 2.41 s | 0.11 s |
-| grid 200 x 200 | 40 000 | 119 600 | 26.4 M | — | 2.3 s |
+|                | nodes  | processors | messages | Python (grm-core) | Rust   |
+| -------------- | ------ | ---------- | -------- | ----------------- | ------ |
+| grid 40 x 40   | 1 600  | 4 720      | 1.39 M   | 2.41 s            | 0.11 s |
+| grid 200 x 200 | 40 000 | 119 600    | 26.4 M   | —                 | 2.3 s  |
 
 About 20 times faster on one core; more cores share each round (measured on the host it runs on: the machine it
 was written on has 2 shared cores, too few to say).
@@ -537,8 +619,11 @@ python3 tools/bench_python.py path/to/grm-core/vm FILE.grm [ROUNDS]
 
 - Taking back the world gives the world back as it was, not the apps' texts (they are taken back on their own,
   in the same list). Sound files dropped are not read yet.
-- The rent is counted and shown; what does not pay it is not yet forgotten at night (the night, pruning by use,
-  pleasure and displeasure of the Python machine's mind come with the organism).
+- The rent is counted and shown; what does not pay it is not yet forgotten at night (the night, pruning by use and
+  the traces tagged by pleasure come with the organism). The colours breathe; the GRM does not yet harmonise them
+  itself. Zooming out gathers networks by where they come from (sources), not yet the sub-networks an app calls.
+- Workshops live while the machine runs: they are not yet kept when it sleeps (the file stays: loading it again
+  makes the workshop again). The window's own networks (its layout, its looks) are not yet shown in the global view.
 - Not ported yet from the Python machine: `step` (one pass at a time), `watch` (breakpoints), `mood`, `capacity`,
   `prune`, the night (fusions, forgetting), the journal written for a human; `why` tells shares and what each
   relation says, not yet what each heard. A table opened shows its first 500 rows.

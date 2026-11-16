@@ -117,6 +117,7 @@ pub const WORDS_HELP: &[(&str, &str, &str)] = &[
     ("undo", "undo / redo: the world as it was before the last change (30 kept)", "undo"),
     ("stats", "stats: the network counted, by source; what the human says most", "stats"),
     ("rent", "rent: what each relation brings, in bits a tick, against the rent of its links (the price grows as room runs out)", "rent"),
+    ("workshop", "workshop [list | show NAME | merge NAME | close NAME]: networks of data made apart (load FILE.csv makes one; merge: through a sandbox)", "workshop merge fall"),
     ("capacity", "capacity [N | auto]: the links the network may hold (auto: a quarter of the memory available now)", "capacity 20000"),
     ("look", "look NAME: accent = #E8A33D, round = 8, size = 1.2 (a look for widgets)", "look big: size = 1.5"),
 ];
@@ -127,8 +128,11 @@ impl Shell {
         let words = crate::path_words(rest);
         let args: Vec<&str> = words.iter().map(String::as_str).collect();
         let flags: Vec<&str> = args.iter().copied().filter(|a| a.starts_with('-') && a.len() > 1).collect();
-        let paths: Vec<&str> =
-            args.iter().copied().filter(|a| !(a.starts_with('-') && a.len() > 1) || *a == "--mix").collect();
+        let paths: Vec<&str> = args
+            .iter()
+            .copied()
+            .filter(|a| !(a.starts_with('-') && a.len() > 1) || *a == "--mix" || *a == "--here")
+            .collect();
         let err = |e: std::io::Error, p: &dyn std::fmt::Display| vec![Line::error(format!("! {p}: {e}"))];
         Some(match word {
             "pwd" => vec![Line::said(std::env::current_dir().map(|d| d.display().to_string()).unwrap_or_default())],
@@ -557,6 +561,7 @@ impl Shell {
                     None => vec![Line::dim("nothing to take back")],
                 }
             }
+            "workshop" | "ws" => self.workshop(engine, rest),
             "capacity" => match args.first().copied() {
                 None => {
                     let host = crate::host_capacity();
@@ -672,7 +677,8 @@ impl Shell {
         };
         let table = grm_connect::csv::read(&grm_connect::csv::text_of(&bytes));
         let numeric: Vec<bool> = (0..table.names.len()).map(|k| table.numeric(k)).collect();
-        let mut chosen: Vec<String> = paths[1..].iter().filter(|s| **s != "--mix").map(|s| s.to_string()).collect();
+        let mut chosen: Vec<String> =
+            paths[1..].iter().filter(|s| **s != "--mix" && **s != "--here").map(|s| s.to_string()).collect();
         if chosen.is_empty() {
             if self.window {
                 // the window asks which columns
@@ -704,6 +710,11 @@ impl Shell {
         }
         let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
         let source = format!("file:{stem}");
+        // by default a table is learned in a workshop of its own (a new network, apart): only `--here` puts it in
+        // the global network at once
+        if !rest.split_whitespace().any(|w| w == "--here") {
+            return self.load_in_workshop(engine, &table, &chosen, &into, &grm_connect::csv::name_of(&stem), &source);
+        }
         // a node of the same name, from somewhere else: its data would be mixed with this table's
         let wanted: Vec<String> = chosen
             .iter()
@@ -783,6 +794,121 @@ impl Shell {
         })));
         let _ = n;
         out
+    }
+
+    /// A table learned in a workshop: a world of its own, named after the file (the same file again: its rows go
+    /// on in the same workshop). The window shows it.
+    fn load_in_workshop(
+        &mut self,
+        engine: &Engine,
+        table: &grm_connect::csv::Csv,
+        chosen: &[String],
+        into: &IndexMap<String, String>,
+        name: &str,
+        source: &str,
+    ) -> Vec<Line> {
+        let cols: Vec<usize> = chosen.iter().filter_map(|c| table.names.iter().position(|n| n == c)).collect();
+        if cols.is_empty() {
+            return vec![Line::warn(format!("? none of these columns: {}", table.names.join(", ")))];
+        }
+        let node_of = |k: usize| into.get(&table.names[k]).cloned().unwrap_or(table.names[k].clone());
+        let names: Vec<String> = cols.iter().map(|k| node_of(*k)).collect();
+        let positive: Vec<bool> =
+            cols.iter().map(|k| table.rows.iter().filter_map(|r| r[*k]).all(|v| v > 0.0)).collect();
+        let rows: Vec<(f64, IndexMap<String, f64>)> = table
+            .rows
+            .iter()
+            .enumerate()
+            .map(|(t, r)| (t as f64, cols.iter().filter_map(|k| r[*k].map(|v| (node_of(*k), v))).collect()))
+            .collect();
+        let origin = grm_engine::Provenance::of(source);
+        let ws_name = name.to_string();
+        let mut out = crate::said(engine.ask(move |w| {
+            let ws = w.workshops.entry(ws_name.clone()).or_insert_with(|| Box::new(grm_engine::world::World::new()));
+            for (n, pos) in names.iter().zip(&positive) {
+                if !ws.machine.net.nodes.contains_key(n) {
+                    ws.say(&format!("input {n}{}", if *pos { " positive" } else { "" }), &origin)?;
+                }
+            }
+            let fed = ws.feed_rows(&rows)?;
+            let found = ws.discover();
+            let mut text = format!(
+                "{fed} rows learned in the workshop {ws_name} (a network of its own, apart): {}",
+                names.join(", ")
+            );
+            for f in found {
+                text.push_str(&format!("\nfound by itself: {f}"));
+            }
+            text.push_str(&format!("\nwhen it is ready: workshop merge {ws_name}"));
+            let tick = w.machine.net.ticks;
+            w.mood.reward(0.1, tick, format!("a new workshop of data: {ws_name}"));
+            Ok(text)
+        }));
+        if self.window {
+            self.orders.push(Order::Workshop(name.to_string()));
+        }
+        out.retain(|l| !l.text.is_empty());
+        out
+    }
+
+    /// `workshop`: the workshops; `workshop merge NAME`: what it made goes into a sandbox here (to be tried, merged
+    /// or refused); `workshop close NAME`; `workshop show NAME`.
+    pub(crate) fn workshop(&mut self, engine: &Engine, rest: &str) -> Vec<Line> {
+        let mut words = rest.split_whitespace();
+        let what = words.next().unwrap_or("");
+        let name = words.next().unwrap_or("").to_string();
+        match what {
+            "" | "list" => {
+                let list = engine
+                    .query(|w| {
+                        w.workshops
+                            .iter()
+                            .map(|(n, ws)| (n.clone(), ws.machine.net.nodes.len(), ws.machine.net.relations.len()))
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                if list.is_empty() {
+                    return vec![Line::dim("no workshop: load FILE.csv makes one")];
+                }
+                list.into_iter().map(|(n, a, b)| Line::said(format!("{n}: {a} node(s), {b} relation(s)"))).collect()
+            }
+            "show" | "open" => {
+                if self.window {
+                    self.orders.push(Order::Workshop(name.clone()));
+                }
+                vec![Line::dim(format!("workshop {name}"))]
+            }
+            "merge" => {
+                let n = name.clone();
+                crate::said(engine.ask(move |w| {
+                    let lines = w.workshop_lines(&n)?;
+                    let sb = if w.sandboxes.contains_key(&n) { format!("{n}_ws") } else { n.clone() };
+                    w.open_sandbox(&sb)?;
+                    let mut errors = vec![];
+                    for l in &lines {
+                        if let Err(e) = w.say_in(&sb, l) {
+                            errors.push(format!("{l}: {e}"));
+                        }
+                    }
+                    let mut text = format!(
+                        "what the workshop {n} made is in the sandbox {sb} ({} lines): trial {sb}, then merge {sb} or refuse {sb}",
+                        lines.len() - errors.len()
+                    );
+                    for e in errors {
+                        text.push_str(&format!("\n  not taken: {e}"));
+                    }
+                    Ok(text)
+                }))
+            }
+            "close" => {
+                let n = name.clone();
+                crate::said(engine.ask(move |w| match w.workshops.shift_remove(&n) {
+                    Some(_) => Ok(format!("workshop {n} closed")),
+                    None => Err(grm_engine::GrmError::new(format!("no workshop {n}"))),
+                }))
+            }
+            _ => vec![Line::warn("? workshop [list | show NAME | merge NAME | close NAME]")],
+        }
     }
 
     /// `rm` answered yes.
