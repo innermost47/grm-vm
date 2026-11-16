@@ -230,12 +230,22 @@ impl App {
             }
             Change::Opened { name, path } => {
                 self.journey.quiet.insert(name.clone());
-                self.say(if again { format!("app open {}", path.display()) } else { format!("app close {name}") });
+                self.say(if again {
+                    format!("app open {}", grm_shell::quoted(&path.display().to_string()))
+                } else {
+                    format!("app close {name}")
+                });
                 Change::Opened { name, path }
             }
             Change::Closed { name, path } => {
                 self.journey.quiet.insert(name.clone());
-                self.say(if again { format!("app close {name}") } else { format!("app open {}", path.display()) });
+                // put in the trash meanwhile: it comes back from there
+                let open = if path.exists() {
+                    format!("app open {}", grm_shell::quoted(&path.display().to_string()))
+                } else {
+                    format!("app restore {name}")
+                };
+                self.say(if again { format!("app close {name}") } else { open });
                 Change::Closed { name, path }
             }
             Change::Layout { pos, pinned } => {

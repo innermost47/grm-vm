@@ -6,6 +6,9 @@
 //! It also keeps the sound: the mixer (the machine's own voice, and the channels the human plays), and what the
 //! machine feels moves the voice (`feel`).
 
+/// The longest side of a picture given to the eye (a bigger one is made smaller first).
+pub const SIGHT: usize = 160;
+
 pub mod apps;
 pub mod fs;
 pub mod runtime;
@@ -132,6 +135,82 @@ the machine:    threads N|all       how many threads share a round (the numbers 
                 help, quit";
 
 /// Where the world sleeps between two sessions: $GRM_MEMORY, or grm.world in the folder it is started from.
+/// The words of a command, a path among them: "between quotes" a path may have spaces; without quotes, words that
+/// together name a file or folder that exists are one (`see C:\Pictures\Capture d'écran 1.png eye`).
+pub fn path_words(rest: &str) -> Vec<String> {
+    let mut tokens: Vec<(String, bool)> = vec![];
+    let mut current = String::new();
+    let mut quoted = false;
+    let mut was_quoted = false;
+    for c in rest.chars() {
+        match c {
+            '"' => {
+                quoted = !quoted;
+                was_quoted = true;
+            }
+            c if c.is_whitespace() && !quoted => {
+                if !current.is_empty() || was_quoted {
+                    tokens.push((std::mem::take(&mut current), was_quoted));
+                }
+                was_quoted = false;
+            }
+            c => current.push(c),
+        }
+    }
+    if !current.is_empty() || was_quoted {
+        tokens.push((current, was_quoted));
+    }
+    let mut out = vec![];
+    let mut i = 0;
+    while i < tokens.len() {
+        let mut took = 1;
+        if !tokens[i].1 {
+            for j in (i + 2..=tokens.len()).rev() {
+                if tokens[i..j].iter().any(|t| t.1) {
+                    continue;
+                }
+                let joined = tokens[i..j].iter().map(|t| t.0.as_str()).collect::<Vec<_>>().join(" ");
+                if crate::fs::expand(&joined).exists() {
+                    took = j - i;
+                    break;
+                }
+            }
+        }
+        out.push(tokens[i..i + took].iter().map(|t| t.0.as_str()).collect::<Vec<_>>().join(" "));
+        i += took;
+    }
+    out
+}
+
+/// The links the host's memory allows now (read again at most every ten seconds).
+pub fn host_capacity() -> usize {
+    static LAST: std::sync::Mutex<Option<(std::time::Instant, usize)>> = std::sync::Mutex::new(None);
+    let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((at, n)) = *last {
+        if at.elapsed() < Duration::from_secs(10) {
+            return n;
+        }
+    }
+    let free = sysinfo::System::new()
+        .map(|mut sys| {
+            sys.refresh_memory();
+            sys.available_memory()
+        })
+        .unwrap_or(0);
+    let n = grm_engine::mind::host_capacity((free > 0).then_some(free));
+    *last = Some((std::time::Instant::now(), n));
+    n
+}
+
+/// A path said back to the prompt: between quotes when it has spaces.
+pub fn quoted(path: &str) -> String {
+    if path.contains(char::is_whitespace) {
+        format!("\"{path}\"")
+    } else {
+        path.to_string()
+    }
+}
+
 pub fn memory() -> PathBuf {
     std::env::var_os("GRM_MEMORY").map(PathBuf::from).unwrap_or_else(|| "grm.world".into())
 }
@@ -190,6 +269,16 @@ pub enum Order {
         names: Vec<String>,
         written: Vec<String>,
         numeric: Vec<bool>,
+    },
+    /// A table whose columns would go into nodes that already hold other data: which names?
+    Collide {
+        path: PathBuf,
+        /// The file's name, as a name (a prefix to offer).
+        stem: String,
+        columns: Vec<String>,
+        into: indexmap::IndexMap<String, String>,
+        /// The nodes already holding other data.
+        taken: Vec<String>,
     },
     Tour,
     Lang(String),
@@ -342,7 +431,7 @@ impl Shell {
             "tail", "cat", "programs", "progs", "mixer", "apps", "undo", "redo", "stats", "joint", "focus", "fc",
             "clear", "tour", "lang", "cd", "sound", "voice", "volume", "mute", "unmute", "solo", "gain", "pan",
             "panic", "stop", "trial", "play", "pause", "render", "edit", "open", "new", "threads", "sleep", "mkdir",
-            "touch", "cp", "mv", "rm",
+            "rent", "touch", "cp", "mv", "rm",
         ];
         // an app keeps its own texts, and opening or closing one is taken back by closing or opening it: the world
         // is not kept for them
@@ -641,13 +730,17 @@ impl Shell {
     }
 
     fn see(&mut self, engine: &Engine, rest: &str) -> Vec<Line> {
-        let mut words = rest.split_whitespace();
-        let file = PathBuf::from(words.next().unwrap_or(""));
-        let name = words.next().unwrap_or("eye").to_string();
+        let words = path_words(rest);
+        let file = crate::fs::expand(words.first().map(String::as_str).unwrap_or(""));
+        let name = words.get(1).cloned().unwrap_or("eye".into());
         let picture = match grm_connect::read_picture(&file) {
             Ok(p) => p,
             Err(e) => return vec![Line::error(format!("! {e}"))],
         };
+        // a big picture is made smaller first: the eye sees it in seconds, not in minutes
+        let (w0, h0) = (picture.width, picture.height);
+        let picture = picture.shrunk(SIGHT);
+        let smaller = (picture.width, picture.height) != (w0, h0);
         let eye = name.clone();
         let size = (picture.width, picture.height, picture.channels);
         let Some(sight) = engine.query(move |w| w.see(&eye, &picture, Duration::from_secs(20))) else {
@@ -662,10 +755,14 @@ impl Shell {
             let path = PathBuf::from(format!("{}-{tag}.png", stem.display()));
             grm_connect::write_picture(&path, p).map(|_| path.display().to_string())
         };
-        let mut out = vec![Line::said(format!(
+        let mut out = vec![];
+        if smaller {
+            out.push(Line::dim(format!("made smaller to be seen: {w0}x{h0} -> {}x{}", size.0, size.1)));
+        }
+        out.push(Line::said(format!(
             "{name} saw {}x{}x{} in {} rounds ({:.2?})",
             size.0, size.1, size.2, sight.rounds, sight.elapsed
-        ))];
+        )));
         match write("clean", &sight.clean) {
             Ok(p) => out.push(Line::dim(format!("cleaned: {p}"))),
             Err(e) => out.push(Line::error(format!("! {e}"))),
@@ -1031,6 +1128,21 @@ fn csv_answer(csv: String, entity: String, meta: Option<serde_json::Value>) -> g
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_path_with_spaces_is_one_word_quoted_or_not() {
+        let dir = std::env::temp_dir().join(format!("grm-words-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("Capture d'écran 2026-10-07 110132.png");
+        std::fs::write(&file, b"x").unwrap();
+        let f = file.display().to_string();
+        assert_eq!(path_words(&format!("{f} eye")), vec![f.clone(), "eye".into()]);
+        assert_eq!(path_words(&format!("\"{f}\" eye")), vec![f.clone(), "eye".into()]);
+        assert_eq!(path_words("\"a b\" c"), vec!["a b".to_string(), "c".into()]);
+        assert_eq!(path_words("a  b"), vec!["a".to_string(), "b".into()]);
+        assert_eq!(quoted("a b"), "\"a b\"");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn the_prompt_says_plays_and_asks_before_taking_away() {

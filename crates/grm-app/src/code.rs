@@ -228,33 +228,45 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
     });
     let errors_h = (view.errors.len().min(6) as f32) * 18.0 + if view.errors.is_empty() { 0.0 } else { 8.0 };
     let mut changed = false;
-    egui::ScrollArea::both().max_height((ui.available_height() - errors_h).max(80.0)).id_salt(("code", name)).show(
+    egui::ScrollArea::vertical().max_height((ui.available_height() - errors_h).max(80.0)).id_salt(("code", name)).show(
         ui,
         |ui| {
             ui.horizontal_top(|ui| {
-                // line numbers, the lines it could not say in amber
-                let n = draft.text.lines().count().max(1);
-                let mut numbers = LayoutJob::default();
-                for k in 1..=n {
-                    let colour = if error_lines.contains(&k) { ink.amber } else { ink.faint };
-                    numbers.append(&format!("{k:>3}\n"), 0.0, TextFormat::simple(FontId::monospace(13.0), colour));
-                }
-                ui.label(numbers);
-                let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, _wrap: f32| {
-                    // no wrapping: a line of code stays one line, beside its number
+                // a gutter for the numbers (drawn once the text is laid out: a long line wraps, its number stays
+                // on its first row)
+                let (gutter, _) = ui.allocate_exact_size(egui::vec2(34.0, 0.0), egui::Sense::hover());
+                let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap: f32| {
                     let mut job = highlight(&ink, text.as_str(), &error_lines);
-                    job.wrap.max_width = f32::INFINITY;
+                    job.wrap.max_width = wrap;
                     ui.fonts_mut(|f| f.layout_job(job))
                 };
-                let r = ui.add(
-                    egui::TextEdit::multiline(&mut draft.text)
-                        .id(egui::Id::new(("code-edit", name)))
-                        .code_editor()
-                        .desired_width(f32::INFINITY)
-                        .desired_rows(24)
-                        .lock_focus(true)
-                        .layouter(&mut layouter),
-                );
+                let out = egui::TextEdit::multiline(&mut draft.text)
+                    .margin(crate::style::FIELD)
+                    .id(egui::Id::new(("code-edit", name)))
+                    .code_editor()
+                    .desired_width(f32::INFINITY)
+                    .desired_rows(24)
+                    .lock_focus(true)
+                    .layouter(&mut layouter)
+                    .show(ui);
+                let r = out.response.clone();
+                // the numbers, the lines it could not say in amber
+                let mut line = 1usize;
+                let mut starts = true;
+                for row in &out.galley.rows {
+                    if starts {
+                        let colour = if error_lines.contains(&line) { ink.amber } else { ink.faint };
+                        ui.painter().text(
+                            egui::pos2(gutter.right() - 6.0, out.galley_pos.y + row.pos.y),
+                            egui::Align2::RIGHT_TOP,
+                            line.to_string(),
+                            FontId::monospace(13.0),
+                            colour,
+                        );
+                        line += 1;
+                    }
+                    starts = row.row.ends_with_newline;
+                }
                 if r.changed() {
                     changed = true;
                 }

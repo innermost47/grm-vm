@@ -278,7 +278,7 @@ impl Looks {
     }
 }
 
-/// Minutes since midnight, local time (from the system's offset when it can be read; UTC otherwise).
+/// Minutes since midnight, local time.
 fn local_minutes() -> i64 {
     let utc =
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
@@ -287,24 +287,11 @@ fn local_minutes() -> i64 {
     ((utc / 60 + offset) % 1440 + 1440) % 1440
 }
 
-/// The local offset from UTC, in minutes, as `date` says it (0 when it cannot be known).
+/// The local offset from UTC, in minutes, as the system says it (Windows, Linux, macOS alike; summer time
+/// included).
 fn local_offset() -> i64 {
-    static OFFSET: std::sync::OnceLock<i64> = std::sync::OnceLock::new();
-    *OFFSET.get_or_init(|| {
-        std::process::Command::new("date")
-            .arg("+%z")
-            .output()
-            .ok()
-            .and_then(|o| String::from_utf8(o.stdout).ok())
-            .and_then(|s| {
-                let s = s.trim();
-                let sign = if s.starts_with('-') { -1 } else { 1 };
-                let d = s.trim_start_matches(['+', '-']);
-                let (h, m) = (d.get(..2)?.parse::<i64>().ok()?, d.get(2..4)?.parse::<i64>().ok()?);
-                Some(sign * (h * 60 + m))
-            })
-            .unwrap_or(0)
-    })
+    use chrono::Offset;
+    chrono::Local::now().offset().fix().local_minus_utc() as i64 / 60
 }
 
 #[cfg(test)]

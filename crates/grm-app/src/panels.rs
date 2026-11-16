@@ -8,11 +8,27 @@ use crate::app::{App, Ink, Tab, TABS};
 use crate::text::t;
 use crate::view::reading;
 
+/// Each tab's sign.
+pub fn sign_of(tab: Tab) -> &'static str {
+    match tab {
+        Tab::Inspector => "search",
+        Tab::Sandboxes => "flask-conical",
+        Tab::Sources => "waypoints",
+        Tab::Journal => "scroll-text",
+        Tab::Eye => "eye",
+        Tab::Sound => "audio-lines",
+    }
+}
+
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let lang = app.settings.lang;
     ui.horizontal_wrapped(|ui| {
+        if crate::icons::sign(ui, "panel-right-close", t(lang, "fold_side")).clicked() {
+            app.side_open = false;
+        }
         for (k, (tab, key)) in TABS.iter().enumerate() {
-            let r = ui.selectable_label(app.tab == *tab, t(lang, key)).on_hover_text(format!("Ctrl+{}", k + 1));
+            let r = crate::icons::toggle(ui, sign_of(*tab), t(lang, key), app.tab == *tab)
+                .on_hover_text(format!("Ctrl+{}", k + 1));
             if r.clicked() {
                 app.tab = *tab;
             }
@@ -26,6 +42,28 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         Tab::Journal => journal(app, ui),
         Tab::Eye => eye(app, ui),
         Tab::Sound => sound(app, ui),
+    });
+}
+
+/// The side folded: a rail of signs (each unfolds the side on its tab).
+pub fn rail(app: &mut App, ui: &mut egui::Ui) {
+    let lang = app.settings.lang;
+    ui.vertical_centered(|ui| {
+        ui.add_space(4.0);
+        if crate::icons::sign(ui, "panel-right-open", t(lang, "unfold_side")).clicked() {
+            app.side_open = true;
+        }
+        ui.add_space(10.0);
+        for (tab, key) in TABS {
+            let ink = Ink::of(ui.ctx());
+            let colour = if app.tab == tab { ink.accent } else { ink.text };
+            let b = egui::Button::image(crate::icons::image(sign_of(tab), 18.0, colour)).frame(false);
+            if ui.add(b).on_hover_text(t(lang, key)).clicked() {
+                app.tab = tab;
+                app.side_open = true;
+            }
+            ui.add_space(8.0);
+        }
     });
 }
 
@@ -44,7 +82,12 @@ fn inspector(app: &mut App, ui: &mut egui::Ui) {
     let ink = Ink::of(ui.ctx());
     let lang = app.settings.lang;
     let pic = app.picture.clone();
-    ui.add(egui::TextEdit::singleline(&mut app.filter).hint_text(t(lang, "filter")).desired_width(f32::INFINITY));
+    ui.add(
+        egui::TextEdit::singleline(&mut app.filter)
+            .margin(crate::style::FIELD)
+            .hint_text(crate::style::hint(t(lang, "filter")))
+            .desired_width(f32::INFINITY),
+    );
     if app.selected.len() > 1 {
         ui.horizontal(|ui| {
             ui.label(format!("{} {}", app.selected.len(), t(lang, "selected_many")));
@@ -309,7 +352,12 @@ fn sandboxes(app: &mut App, ui: &mut egui::Ui) {
     let ink = Ink::of(ui.ctx());
     let lang = app.settings.lang;
     ui.horizontal(|ui| {
-        ui.add(egui::TextEdit::singleline(&mut app.new_sandbox).hint_text(t(lang, "new_sandbox")).desired_width(160.0));
+        ui.add(
+            egui::TextEdit::singleline(&mut app.new_sandbox)
+                .margin(crate::style::FIELD)
+                .hint_text(crate::style::hint(t(lang, "new_sandbox")))
+                .desired_width(160.0),
+        );
         if ui.button(t(lang, "open")).clicked() && !app.new_sandbox.trim().is_empty() {
             let name = std::mem::take(&mut app.new_sandbox);
             app.say(format!("sandbox {}", name.trim()));
@@ -329,7 +377,10 @@ fn sandboxes(app: &mut App, ui: &mut egui::Ui) {
             ui.horizontal(|ui| {
                 let field = app.sandbox_lines.entry(s.name.clone()).or_default();
                 let r = ui.add(
-                    egui::TextEdit::singleline(field).hint_text(t(lang, "say_in")).font(egui::TextStyle::Monospace),
+                    egui::TextEdit::singleline(field)
+                        .margin(crate::style::FIELD)
+                        .hint_text(crate::style::hint(t(lang, "say_in")))
+                        .font(egui::TextStyle::Monospace),
                 );
                 if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                     let line = std::mem::take(field);
@@ -362,7 +413,40 @@ fn sandboxes(app: &mut App, ui: &mut egui::Ui) {
     }
 }
 
+/// The trash: apps put away, each can come back.
+fn trash(app: &mut App, ui: &mut egui::Ui) {
+    let ink = Ink::of(ui.ctx());
+    let lang = app.settings.lang;
+    let dir = grm_shell::runtime::apps_dir(&app.memory).join(".trash");
+    let mut names: Vec<String> = std::fs::read_dir(&dir)
+        .map(|d| d.flatten().filter_map(|e| e.path().file_stem().map(|s| s.to_string_lossy().to_string())).collect())
+        .unwrap_or_default();
+    names.sort();
+    ui.add_space(10.0);
+    ui.horizontal(|ui| {
+        crate::icons::show(ui, "trash-2", 15.0, ink.muted);
+        ui.label(RichText::new(t(lang, "trash")).strong());
+    });
+    if names.is_empty() {
+        ui.label(RichText::new(t(lang, "trash_empty")).small().color(ink.muted));
+    }
+    for n in names {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(&n).monospace());
+            if crate::icons::button(ui, "archive-restore", t(lang, "restore")).clicked() {
+                app.say(format!("app restore {n}"));
+            }
+        });
+    }
+}
+
+/// Where everything comes from (and what is in quarantine), then the trash.
 fn sources(app: &mut App, ui: &mut egui::Ui) {
+    sources_list(app, ui);
+    trash(app, ui);
+}
+
+fn sources_list(app: &mut App, ui: &mut egui::Ui) {
     let ink = Ink::of(ui.ctx());
     let lang = app.settings.lang;
     let pic = app.picture.clone();
@@ -432,13 +516,24 @@ fn eye(app: &mut App, ui: &mut egui::Ui) {
     let ink = Ink::of(ui.ctx());
     let lang = app.settings.lang;
     ui.horizontal(|ui| {
-        ui.add(egui::TextEdit::singleline(&mut app.eye_path).hint_text(t(lang, "picture_path")).desired_width(150.0));
+        ui.add(
+            egui::TextEdit::singleline(&mut app.eye_path)
+                .margin(crate::style::FIELD)
+                .hint_text(crate::style::hint(t(lang, "picture_path")))
+                .desired_width(150.0),
+        );
         if crate::icons::sign(ui, "folder-open", t(lang, "choose")).clicked() {
             app.pick(crate::app::Pick::Eye);
         }
-        ui.add(egui::TextEdit::singleline(&mut app.eye_name).hint_text(t(lang, "eye_name")).desired_width(60.0));
+        ui.add(
+            egui::TextEdit::singleline(&mut app.eye_name)
+                .margin(crate::style::FIELD)
+                .hint_text(crate::style::hint(t(lang, "eye_name")))
+                .desired_width(60.0),
+        );
         if ui.button(t(lang, "see")).clicked() && !app.eye_path.trim().is_empty() {
-            let line = format!("see {} {}", app.eye_path.trim(), app.eye_name.trim());
+            let line =
+                format!("see {} {}", grm_shell::quoted(app.eye_path.trim().trim_matches('"')), app.eye_name.trim());
             app.say(line);
         }
     });
@@ -537,8 +632,19 @@ fn sound(app: &mut App, ui: &mut egui::Ui) {
     // the human's channels
     ui.label(RichText::new(t(lang, "channels")).strong());
     ui.horizontal(|ui| {
-        ui.add(egui::TextEdit::singleline(&mut app.play_field).hint_text(t(lang, "play_node")).desired_width(150.0));
-        if ui.button(t(lang, "play")).clicked() && !app.play_field.trim().is_empty() {
+        // the nodes to choose from (those that play already are not offered)
+        let playing: Vec<String> = views.iter().map(|v| v.name.clone()).collect();
+        let shown = if app.play_field.is_empty() { t(lang, "play_node").to_string() } else { app.play_field.clone() };
+        egui::ComboBox::from_id_salt("play-node").width(170.0).selected_text(shown).show_ui(ui, |ui| {
+            for n in app.picture.nodes.iter().filter(|n| !n.name.contains("__next") && !playing.contains(&n.name)) {
+                let k = app.colours.get(&n.source).copied().unwrap_or(0);
+                let label = RichText::new(&n.name).color(ink.source(k));
+                if ui.selectable_label(app.play_field == n.name, label).on_hover_text(&n.source).clicked() {
+                    app.play_field = n.name.clone();
+                }
+            }
+        });
+        if crate::icons::button(ui, "play", t(lang, "play")).clicked() && !app.play_field.trim().is_empty() {
             let n = std::mem::take(&mut app.play_field);
             app.say(format!("play {}", n.trim()));
         }

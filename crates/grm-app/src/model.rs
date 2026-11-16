@@ -40,6 +40,9 @@ pub struct RelationView {
     /// Its conditions hold (a `when` not met: it sleeps).
     pub awake: bool,
     pub keep: bool,
+    /// What it brings each tick, in bits, and the rent of its links.
+    pub bits: f64,
+    pub rent: f64,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -132,11 +135,15 @@ impl Picture {
                 _ => {}
             }
         }
+        let (_, _, _, accounts) = grm_engine::mind::accounts(m, grm_shell::host_capacity());
+        let account: std::collections::HashMap<&str, (f64, f64)> =
+            accounts.iter().map(|a| (a.name.as_str(), (a.bits, a.rent))).collect();
         let relations = net
             .relations
             .iter()
             .map(|r| {
                 let (t, awake, keep) = tension.get(r.name.as_str()).copied().unwrap_or((0.0, false, false));
+                let (bits, rent) = account.get(r.name.as_str()).copied().unwrap_or((0.0, 0.0));
                 RelationView {
                     name: r.name.clone(),
                     text: r.text.clone(),
@@ -146,6 +153,8 @@ impl Picture {
                     tension: t,
                     awake,
                     keep,
+                    bits,
+                    rent,
                 }
             })
             .collect();

@@ -47,6 +47,37 @@
       (what next, what if, what drives what, how sure), then the prompt; forecasts drawn with their bands, and an
       honest confidence (the machine tests its bands on data it has not seen and says how often they held).
       Later, talking to the GRM in natural language.
+   *Then done (lot A)*: the side folds into a rail and goes down to the bottom, the prompt folds, the panic at the
+   top; soft warnings; quoted paths; pictures made smaller for the eye; tables that would mix their data asked
+   about; a trash for apps; the rent of relations (from the Python machine's mind); the local time on Windows.
+   **Then, in this order**: the space (above); detachable windows; an app's surface, network and code together;
+   outputs as small live screens (beside the network, in the inspector, on the node itself as in TouchDesigner);
+   a file explorer in the side; a system view (memory, processor, disk, and the machine's share); the eye, the
+   ear, files as input nodes a file is dropped on; the flow made visible (direction, propagation, weight: paths as
+   thick as what goes through them; animated, or arrows to rest the eyes); the x-ray's frames moved and folded,
+   tied to their element by a thread; a journal of what was learned (curves, weights, laws); the network in time
+   (back and forward through what it was); colours harmonised by the GRM and a slow, optional breath through them.
+   The sound: pulses and `sync` for sequencers, a player, reverb, delay and a pad computed by the GRM, the sea,
+   binaural sound that follows the pointer through the network, a resting view (a campfire: the network pulsing
+   by itself, heard). The mind of the Python machine: pleasure and displeasure, use and pruning, the night,
+   fulfilment and progress; every action of the human a signal it learns from, shown to them, never sent away.
+   **Before any world-sized network: room by the host.** A regulator measures the processor and the memory and sets
+   a budget; distant networks become virtual nodes carrying their master equation (and their boundary's spread and
+   links, so that enough of their complexity crosses); each summary keeps its residual and unfolds again when it
+   grows, and what is lost by simplifying widens the uncertainty shown (less certainty, never less truth); each
+   node carries how likely it is to be updated in the next seconds (shown, near what matters, moving fast, or a
+   sentinel that never sleeps); the human sees what share of the host the machine takes, the resolution it can
+   afford, and what that costs in certainty.
+   **The world network**: at the first launch, public data (Our World in Data, CC BY 4.0; weather, earthquakes,
+   the World Bank; Wikipedia for the cards), checked source by source; a card for each node (a picture, its text,
+   its curve and likely trend, how sure, how trusted its source is: earned by agreement between sources and by
+   their past revisions); a globe drawn by the machine itself (public-domain coastlines); tensions kept as they are
+   (an imbalance in the data is part of what is shown); links learned are not causes, and say so. What is personal
+   stays on the machine: only public sources, or what the human publishes, are shared.
+   **An aquarium**: artificial life whose DNA is a small GRM network (its body drawn from it), living on the data
+   coming in, with food, gestation, reproduction with mutation, selection; sandboxed (a genome is data, never code;
+   its size capped; one that travels to another machine is signed and quarantined on arrival). What survives is
+   something to look at, never a conclusion: the human draws the conclusions.
 4. **The senses**: images (a pyramid of patches), sounds (bands of frequency), seeing the network pulse, dreaming.
 5. **The decentralised network**: the internet transport (no central server), public, private and closed networks,
    signatures, the sas (identity, form, permissions, quarantine, compatibility, earned trust), debates between

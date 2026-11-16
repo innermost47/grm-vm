@@ -49,6 +49,48 @@ pub struct Picture {
 }
 
 impl Picture {
+    /// The same picture made smaller, so that its longest side is at most `side` (each new pixel the mean of the
+    /// pixels it covers; pixels not seen are left out of the mean). A smaller picture is given back as it is.
+    pub fn shrunk(&self, side: usize) -> Picture {
+        let longest = self.width.max(self.height);
+        if longest <= side || side == 0 {
+            return self.clone();
+        }
+        let k = longest as f64 / side as f64;
+        let w = ((self.width as f64 / k).round() as usize).max(1);
+        let h = ((self.height as f64 / k).round() as usize).max(1);
+        let c = self.channels;
+        let mut data = vec![f32::NAN; w * h * c];
+        for y in 0..h {
+            let (y0, y1) = (
+                (y as f64 * k) as usize,
+                (((y + 1) as f64 * k) as usize).min(self.height).max((y as f64 * k) as usize + 1),
+            );
+            for x in 0..w {
+                let (x0, x1) = (
+                    (x as f64 * k) as usize,
+                    (((x + 1) as f64 * k) as usize).min(self.width).max((x as f64 * k) as usize + 1),
+                );
+                for ch in 0..c {
+                    let (mut sum, mut n) = (0.0f64, 0usize);
+                    for yy in y0..y1.min(self.height) {
+                        for xx in x0..x1.min(self.width) {
+                            let v = self.data[(yy * self.width + xx) * c + ch];
+                            if v.is_finite() {
+                                sum += v as f64;
+                                n += 1;
+                            }
+                        }
+                    }
+                    if n > 0 {
+                        data[(y * w + x) * c + ch] = (sum / n as f64) as f32;
+                    }
+                }
+            }
+        }
+        Picture { width: w, height: h, channels: c, data }
+    }
+
     pub fn new(width: usize, height: usize, channels: usize) -> Picture {
         Picture { width, height, channels, data: vec![0.0; width * height * channels] }
     }
@@ -423,5 +465,15 @@ mod tests {
             change.at(18, 6, 0)
         );
         assert!(change.at(2, 28, 0) < 3.0, "{}", change.at(2, 28, 0));
+    }
+
+    #[test]
+    fn a_big_picture_is_made_smaller_keeping_its_means() {
+        let p = Picture { width: 400, height: 200, channels: 1, data: (0..80_000).map(|k| (k % 400) as f32).collect() };
+        let q = p.shrunk(100);
+        assert_eq!((q.width, q.height), (100, 50));
+        // each new pixel covers four columns: their mean
+        assert!((q.data[0] - 1.5).abs() < 1e-6 && (q.data[99] - 397.5).abs() < 1e-6);
+        assert_eq!(p.shrunk(500).width, 400);
     }
 }

@@ -636,7 +636,10 @@ pub fn edit_panel(app: &mut App, ui: &mut egui::Ui, name: &str) {
                 });
         }
         ui.add(
-            egui::TextEdit::singleline(&mut app.surface.add_name).hint_text(t(lang, "widget_name")).desired_width(90.0),
+            egui::TextEdit::singleline(&mut app.surface.add_name)
+                .margin(crate::style::FIELD)
+                .hint_text(crate::style::hint(t(lang, "widget_name")))
+                .desired_width(90.0),
         );
         if ui.button(t(lang, "add")).clicked() {
             if let Some(kind) = app.surface.add_kind {
@@ -675,35 +678,45 @@ pub fn edit_panel(app: &mut App, ui: &mut egui::Ui, name: &str) {
     let chosen = app.surface.chosen.clone().and_then(|c| view.widgets.iter().find(|w| w.name == c).cloned());
     if chosen.is_none() {
         ui.horizontal(|ui| {
-            ui.add_enabled(
-                false,
-                egui::TextEdit::singleline(&mut String::new())
-                    .hint_text(t(lang, "choose_widget"))
-                    .desired_width(ui.available_width() - 160.0),
-            );
-            ui.add_enabled(false, egui::Button::new(t(lang, "apply")));
-            ui.add_enabled(false, egui::Button::new(t(lang, "remove_widget")));
+            // the buttons from the right, the field takes what is left (nothing goes under the side)
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(8.0);
+                ui.add_enabled(false, egui::Button::new(t(lang, "remove_widget")));
+                ui.add_enabled(false, egui::Button::new(t(lang, "apply")));
+                ui.add_enabled(
+                    false,
+                    egui::TextEdit::singleline(&mut String::new())
+                        .margin(crate::style::FIELD)
+                        .hint_text(crate::style::hint(t(lang, "choose_widget")))
+                        .desired_width(ui.available_width() - 8.0),
+                );
+            });
         });
     }
     if let Some(chosen) = chosen.map(|w| w.name) {
         if let Some(w) = view.widgets.iter().find(|w| w.name == chosen) {
             ui.horizontal(|ui| {
                 ui.label(RichText::new(format!("{} (line {})", w.name, w.line)).strong());
-                let r = ui.add(
-                    egui::TextEdit::singleline(&mut app.surface.edit_line)
-                        .font(egui::TextStyle::Monospace)
-                        .desired_width(ui.available_width() - 160.0),
-                );
-                let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                if ui.button(t(lang, "apply")).clicked() || enter {
-                    let text = grm_shell::apps::with_line(&view.text, w.line, Some(app.surface.edit_line.trim()));
-                    app.edit_app_text(name, text);
-                }
-                if ui.button(t(lang, "remove_widget")).clicked() {
-                    let text = grm_shell::apps::with_line(&view.text, w.line, None);
-                    app.edit_app_text(name, text);
-                    app.surface.chosen = None;
-                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_space(8.0);
+                    if crate::icons::button(ui, "trash-2", t(lang, "remove_widget")).clicked() {
+                        let text = grm_shell::apps::with_line(&view.text, w.line, None);
+                        app.edit_app_text(name, text);
+                        app.surface.chosen = None;
+                    }
+                    let apply = ui.button(t(lang, "apply")).clicked();
+                    let r = ui.add(
+                        egui::TextEdit::singleline(&mut app.surface.edit_line)
+                            .margin(crate::style::FIELD)
+                            .font(egui::TextStyle::Monospace)
+                            .desired_width(ui.available_width() - 8.0),
+                    );
+                    let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    if apply || enter {
+                        let text = grm_shell::apps::with_line(&view.text, w.line, Some(app.surface.edit_line.trim()));
+                        app.edit_app_text(name, text);
+                    }
+                });
             });
         }
     }

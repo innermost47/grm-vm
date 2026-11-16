@@ -36,10 +36,20 @@ pub struct Window {
     pub side_wish: Option<f32>,
     pub bottom_wish: Option<f32>,
     pub eye_path: String,
+    #[serde(default = "yes")]
+    pub side_open: bool,
+    #[serde(default = "yes")]
+    pub prompt_open: bool,
+    /// The window was full screen.
+    pub fullscreen: bool,
     pub history: Vec<String>,
     /// (kind: s said, d dim, w warning, e error, a ask; text)
     pub log: Vec<(char, String)>,
     pub size: Option<[f32; 2]>,
+}
+
+fn yes() -> bool {
+    true
 }
 
 pub fn path(memory: &Path) -> PathBuf {

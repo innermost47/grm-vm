@@ -164,6 +164,8 @@ pub struct App {
     pub current_file: Option<usize>,
     /// A table waiting for its columns to be chosen: (file, names, as written, chosen).
     pub columns: Option<Columns>,
+    /// A table whose columns would land on nodes holding other data: the names proposed instead.
+    pub collide: Option<crate::files::Collide>,
     /// The guided visit: its step.
     pub touring: Option<usize>,
     /// Where each part of the window is (for the visit).
@@ -183,6 +185,14 @@ pub struct App {
     world_saved_at: Instant,
     /// Where the human has been, and every change that can be taken back.
     pub journey: crate::journey::Journey,
+    /// The side (the inspector...) unfolded, or folded into a rail of signs; the prompt's lines shown, or only
+    /// its line.
+    pub side_open: bool,
+    pub prompt_open: bool,
+    /// What went wrong, said softly in a corner for a few seconds (and kept in the prompt's lines).
+    toasts: Vec<(LineKind, String, Instant)>,
+    /// The window was full screen when it was left.
+    fullscreen_back: bool,
     /// The window that makes a new app: open, and whether its field still has to take the keys.
     new_app_open: bool,
     new_app_focus: bool,
@@ -381,6 +391,11 @@ impl App {
             window_saved_at: Instant::now(),
             world_saved_at: Instant::now(),
             journey: Default::default(),
+            collide: None,
+            side_open: true,
+            prompt_open: true,
+            toasts: vec![],
+            fullscreen_back: false,
             new_app_open: false,
             new_app_focus: false,
             picking: None,
@@ -425,6 +440,9 @@ impl App {
         }
         self.eye_path = w.eye_path.clone();
         self.history = w.history.clone();
+        self.side_open = w.side_open;
+        self.prompt_open = w.prompt_open;
+        self.fullscreen_back = w.fullscreen || w.launched;
         let kind = |c: char| match c {
             'd' => LineKind::Dim,
             'w' => LineKind::Warning,
@@ -464,6 +482,9 @@ impl App {
             side_wish: self.layout.side_wish,
             bottom_wish: self.layout.bottom_wish,
             eye_path: self.eye_path.clone(),
+            side_open: self.side_open,
+            prompt_open: self.prompt_open,
+            fullscreen: ctx.input(|i| i.viewport().fullscreen.unwrap_or(false)),
             history: self.history.iter().rev().take(500).rev().cloned().collect(),
             // the banner is said again at each start: it is not kept
             log: self.log[start..]
@@ -686,7 +707,7 @@ impl App {
                 self.journey.record(crate::journey::Change::World, a.typed.clone());
             }
             for l in a.lines {
-                self.log.push((l.kind, l.text));
+                self.note(l.kind, l.text);
             }
             self.asking = a.asking;
             if let Some(apps) = a.apps {
@@ -753,6 +774,17 @@ impl App {
                         self.settings.lang = if l.starts_with("fr") { Lang::Fr } else { Lang::En };
                     }
                     grm_shell::Order::Clear => self.log.clear(),
+                    grm_shell::Order::Collide { path, stem, columns, into, taken } => {
+                        let rows = columns
+                            .iter()
+                            .map(|c| {
+                                let node = into.get(c).cloned().unwrap_or(c.clone());
+                                let clash = taken.contains(&node);
+                                (c.clone(), if clash { format!("{stem}_{node}") } else { node }, clash)
+                            })
+                            .collect();
+                        self.collide = Some(crate::files::Collide { path, rows });
+                    }
                     grm_shell::Order::Folder => {}
                 }
             }
@@ -966,6 +998,12 @@ impl App {
                 let mut full = rect;
                 full.set_width(rect.width() * h.clamp(0.0, 1.0));
                 ui.painter().rect_filled(full, 3.0, colour);
+                let sounding = self.mixer.lock().map(|m| m.ambient_on || !m.channels.is_empty()).unwrap_or(false);
+                let sign = crate::icons::image("octagon-x", 15.0, if sounding { ink.amber } else { ink.muted });
+                let words = RichText::new(self.tr("panic")).color(if sounding { ink.amber } else { ink.muted });
+                if ui.add(egui::Button::image_and_text(sign, words)).on_hover_text("Ctrl+.").clicked() {
+                    self.say("panic");
+                }
                 ui.label(RichText::new(format!("{} {}", self.picture.ticks, self.tr("ticks"))).color(ink.muted));
                 ui.label(
                     RichText::new(if self.picture.settled { self.tr("settled") } else { self.tr("computing") })
@@ -984,12 +1022,6 @@ impl App {
                     self.areas.insert("settings", settings.rect);
                     if settings.clicked() {
                         self.settings_open = !self.settings_open;
-                    }
-                    let sounding = self.mixer.lock().map(|m| m.ambient_on || !m.channels.is_empty()).unwrap_or(false);
-                    if sounding
-                        && ui.button(RichText::new(self.tr("panic")).color(ink.amber)).on_hover_text("Ctrl+.").clicked()
-                    {
-                        self.say("panic");
                     }
                     if crate::icons::button(ui, "moon", self.tr("sleep"))
                         .on_hover_text(self.memory.display().to_string())
@@ -1010,53 +1042,69 @@ impl App {
         {
             let id = egui::Id::new("prompt-line");
             let line_h = ui.spacing().interact_size.y + 10.0;
-            egui::ScrollArea::vertical()
-                .max_height((ui.available_height() - line_h).max(20.0))
-                .auto_shrink([false, false])
-                .stick_to_bottom(true)
-                .show(ui, |ui| {
-                    for (kind, text) in &self.log {
-                        let colour = match kind {
-                            LineKind::Said => ink.text,
-                            LineKind::Dim => ink.muted,
-                            LineKind::Warning | LineKind::Ask => ink.amber,
-                            LineKind::Error => ink.amber,
-                        };
-                        if let Some(banner) = text.strip_prefix('\u{1}') {
-                            ui.label(RichText::new(banner).monospace().color(ink.accent));
-                            continue;
-                        }
-                        // what was said: coloured as code is
-                        if let Some(said) = text.strip_prefix("› ") {
-                            let mut job = crate::code::highlight_line(&ink, said);
-                            job.sections.iter_mut().for_each(|s| s.format.color = s.format.color.gamma_multiply(0.75));
-                            job.sections.insert(
-                                0,
-                                egui::text::LayoutSection {
-                                    leading_space: 0.0,
-                                    byte_range: 0..0,
-                                    format: Default::default(),
-                                },
-                            );
-                            let mut full = egui::text::LayoutJob::default();
-                            full.append("› ", 0.0, egui::TextFormat::simple(egui::FontId::monospace(13.0), ink.muted));
-                            for sec in job.sections.iter().skip(1) {
-                                full.append(&job.text[sec.byte_range.clone()], 0.0, sec.format.clone());
+            if self.prompt_open {
+                egui::ScrollArea::vertical()
+                    .max_height((ui.available_height() - line_h).max(20.0))
+                    .auto_shrink([false, false])
+                    .stick_to_bottom(true)
+                    .show(ui, |ui| {
+                        for (kind, text) in &self.log {
+                            let colour = match kind {
+                                LineKind::Said => ink.text,
+                                LineKind::Dim => ink.muted,
+                                LineKind::Warning | LineKind::Ask => ink.amber,
+                                LineKind::Error => ink.amber,
+                            };
+                            if let Some(banner) = text.strip_prefix('\u{1}') {
+                                ui.label(RichText::new(banner).monospace().color(ink.accent));
+                                continue;
                             }
-                            ui.label(full);
-                            continue;
+                            // what was said: coloured as code is
+                            if let Some(said) = text.strip_prefix("› ") {
+                                let mut job = crate::code::highlight_line(&ink, said);
+                                job.sections
+                                    .iter_mut()
+                                    .for_each(|s| s.format.color = s.format.color.gamma_multiply(0.75));
+                                job.sections.insert(
+                                    0,
+                                    egui::text::LayoutSection {
+                                        leading_space: 0.0,
+                                        byte_range: 0..0,
+                                        format: Default::default(),
+                                    },
+                                );
+                                let mut full = egui::text::LayoutJob::default();
+                                full.append(
+                                    "› ",
+                                    0.0,
+                                    egui::TextFormat::simple(egui::FontId::monospace(13.0), ink.muted),
+                                );
+                                for sec in job.sections.iter().skip(1) {
+                                    full.append(&job.text[sec.byte_range.clone()], 0.0, sec.format.clone());
+                                }
+                                ui.label(full);
+                                continue;
+                            }
+                            let shown = if self.settings.lang == Lang::Fr && !text.starts_with("› ") {
+                                crate::french::fr(text)
+                            } else {
+                                text.clone()
+                            };
+                            let rich = RichText::new(shown).monospace().color(colour);
+                            let rich = if *kind == LineKind::Error { rich.strong() } else { rich };
+                            ui.label(rich);
                         }
-                        let shown = if self.settings.lang == Lang::Fr && !text.starts_with("› ") {
-                            crate::french::fr(text)
-                        } else {
-                            text.clone()
-                        };
-                        let rich = RichText::new(shown).monospace().color(colour);
-                        let rich = if *kind == LineKind::Error { rich.strong() } else { rich };
-                        ui.label(rich);
-                    }
-                });
+                    });
+            }
             ui.horizontal(|ui| {
+                let (sign, what) = if self.prompt_open {
+                    ("panel-bottom-close", t(self.settings.lang, "fold_prompt"))
+                } else {
+                    ("panel-bottom-open", t(self.settings.lang, "unfold_prompt"))
+                };
+                if crate::icons::sign(ui, sign, what).clicked() {
+                    self.prompt_open = !self.prompt_open;
+                }
                 let here = std::env::current_dir()
                     .map(|d| {
                         let d = d.display().to_string();
@@ -1116,11 +1164,12 @@ impl App {
                     ui.fonts_mut(|f| f.layout_job(job))
                 };
                 let edit = egui::TextEdit::singleline(&mut self.input)
+                    .margin(crate::style::FIELD)
                     .layouter(&mut layouter)
                     .id(id)
                     .lock_focus(true)
                     .font(egui::TextStyle::Monospace)
-                    .hint_text(t(self.settings.lang, "prompt_hint"))
+                    .hint_text(crate::style::hint(t(self.settings.lang, "prompt_hint")))
                     .desired_width(width.max(80.0));
                 let r = ui.add(edit);
                 if self.focus_prompt {
@@ -1322,6 +1371,9 @@ fn textures(ctx: &egui::Context, name: &str, sight: &Sight) -> Vec<(String, egui
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if std::mem::take(&mut self.fullscreen_back) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
+        }
         self.answers(ctx);
         self.follow();
         self.files_dropped(ctx);
@@ -1342,21 +1394,42 @@ impl eframe::App for App {
         let sizes = self.layout.window(size.x, size.y);
         let r = egui::TopBottomPanel::top("top").show(ctx, |ui| self.top(ui));
         self.areas.insert("top", r.response.rect);
-        let r = egui::TopBottomPanel::bottom("prompt")
-            .exact_height(sizes.bottom.min(size.y * 0.5))
-            .show(ctx, |ui| self.prompt(ui));
-        self.areas.insert("prompt", r.response.rect);
-        let r = if sizes.stacked {
-            egui::TopBottomPanel::bottom("side")
-                .exact_height(sizes.band.min(size.y * 0.45))
-                .show(ctx, |ui| crate::panels::show(self, ui))
+        // the side first: it goes down to the bottom (the prompt is under the middle only); its width is the
+        // human's, told to the layout network as a wish
+        if !sizes.stacked {
+            if self.side_open {
+                let r = egui::SidePanel::right("side")
+                    .resizable(true)
+                    .default_width(sizes.side)
+                    .width_range(260.0..=(size.x * 0.6).max(280.0))
+                    .show(ctx, |ui| crate::panels::show(self, ui));
+                self.areas.insert("side", r.response.rect);
+                let w = r.response.rect.width();
+                if (w - self.layout.sizes.side).abs() > 2.0 && r.response.ctx.input(|i| i.pointer.any_down()) {
+                    self.layout.wish_side(w);
+                }
+            } else {
+                let r = egui::SidePanel::right("side-rail")
+                    .exact_width(44.0)
+                    .resizable(false)
+                    .show(ctx, |ui| crate::panels::rail(self, ui));
+                self.areas.insert("side", r.response.rect);
+            }
+        }
+        let prompt = egui::TopBottomPanel::bottom("prompt");
+        let prompt = if self.prompt_open {
+            prompt.resizable(true).default_height(sizes.bottom.min(size.y * 0.5)).height_range(90.0..=size.y * 0.7)
         } else {
-            egui::SidePanel::right("side")
-                .exact_width(sizes.side)
-                .resizable(false)
-                .show(ctx, |ui| crate::panels::show(self, ui))
+            prompt.exact_height(40.0).resizable(false)
         };
-        self.areas.insert("side", r.response.rect);
+        let r = prompt.show(ctx, |ui| self.prompt(ui));
+        self.areas.insert("prompt", r.response.rect);
+        if sizes.stacked && self.side_open {
+            let r = egui::TopBottomPanel::bottom("side")
+                .exact_height(sizes.band.min(size.y * 0.45))
+                .show(ctx, |ui| crate::panels::show(self, ui));
+            self.areas.insert("side", r.response.rect);
+        }
         // the code of the app shown, beside what it makes
         if let (Some(dock), Some(name)) = (self.code_dock, self.current.clone()) {
             if self.mode_of(&name) != Mode::Code && self.current_file.is_none() {
@@ -1392,31 +1465,11 @@ impl eframe::App for App {
         egui::CentralPanel::default().show(ctx, |ui| {
             self.areas.insert("central", ui.max_rect());
             self.central(ui);
-            // the edges: dragging one is a wish the layout network weighs
-            let r = ui.max_rect();
-            if !sizes.stacked {
-                let edge = egui::Rect::from_x_y_ranges(r.right() - 3.0..=r.right() + 6.0, r.y_range());
-                let e = ui.interact(edge, egui::Id::new("side-edge"), egui::Sense::drag());
-                if e.hovered() || e.dragged() {
-                    ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
-                }
-                if e.dragged() {
-                    let dx = e.drag_delta().x;
-                    self.layout.wish_side(self.layout.sizes.side - dx);
-                }
-            }
-            let edge = egui::Rect::from_x_y_ranges(r.x_range(), r.bottom() - 3.0..=r.bottom() + 6.0);
-            let e = ui.interact(edge, egui::Id::new("bottom-edge"), egui::Sense::drag());
-            if e.hovered() || e.dragged() {
-                ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
-            }
-            if e.dragged() && !sizes.stacked {
-                let dy = e.drag_delta().y;
-                self.layout.wish_bottom(self.layout.sizes.bottom - dy);
-            }
         });
         self.windows(ctx);
+        self.toasts(ctx);
         crate::files::columns(self, ctx);
+        crate::files::collide(self, ctx);
         crate::tour::show(self, ctx);
         // repaint: often while something moves, rarely when all is at rest (no busy loop, no flicker)
         let moving = self.graph.motion > 0.05 || self.worker.waiting > 0;
@@ -1484,8 +1537,18 @@ impl App {
                     self.sandbox_shown = None;
                 }
                 r.context_menu(|ui| {
-                    if ui.button(t(lang, "close_app")).clicked() {
+                    if crate::menu::item(ui, "maximize", t(lang, "launch"), t(lang, "m_launch_d")) {
+                        self.current = Some(a.name.clone());
+                        self.launched = true;
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
+                        ui.close();
+                    }
+                    if crate::menu::item(ui, "x", t(lang, "close_app"), t(lang, "m_close_app_d")) {
                         self.say(format!("app close {}", a.name));
+                        ui.close();
+                    }
+                    if crate::menu::item(ui, "trash-2", t(lang, "m_trash_app"), t(lang, "m_trash_app_d")) {
+                        self.say(format!("app trash {}", a.name));
                         ui.close();
                     }
                 });
@@ -1727,7 +1790,10 @@ impl App {
                     None => t(lang, "goes_to_desk").to_string(),
                 });
                 let r = ui.add(
-                    egui::TextEdit::singleline(&mut text).font(egui::TextStyle::Monospace).desired_width(f32::INFINITY),
+                    egui::TextEdit::singleline(&mut text)
+                        .margin(crate::style::FIELD)
+                        .font(egui::TextStyle::Monospace)
+                        .desired_width(f32::INFINITY),
                 );
                 r.request_focus();
                 let enter = ui.input(|i| i.key_pressed(Key::Enter));
@@ -1786,7 +1852,8 @@ impl App {
                 ui.label(t(lang, "new_app_d"));
                 let r = ui.add(
                     egui::TextEdit::singleline(&mut self.new_app)
-                        .hint_text(t(lang, "new_app"))
+                        .margin(crate::style::FIELD)
+                        .hint_text(crate::style::hint(t(lang, "new_app")))
                         .font(egui::TextStyle::Monospace)
                         .desired_width(260.0),
                 );
@@ -1843,13 +1910,13 @@ impl App {
                 self.picking = None;
                 // nothing, at once: the system has no window for it (no file portal on this desktop)
                 if files.is_empty() && took < Duration::from_millis(400) {
-                    self.log.push((LineKind::Warning, self.tr("no_file_window").to_string()));
+                    self.note(LineKind::Warning, self.tr("no_file_window").to_string());
                 }
                 match what {
                     Pick::Eye => {
                         if let Some(f) = files.first() {
                             self.eye_path = f.display().to_string();
-                            let line = format!("see {} {}", self.eye_path, self.eye_name.trim());
+                            let line = format!("see {} {}", grm_shell::quoted(&self.eye_path), self.eye_name.trim());
                             self.say(line);
                         }
                     }
@@ -1894,11 +1961,8 @@ impl App {
 
     /// A file given to the machine (dropped, or chosen): opened as what it is.
     pub fn open_path(&mut self, p: PathBuf) {
-        let shown = p.display().to_string();
-        if shown.contains(char::is_whitespace) {
-            self.log.push((LineKind::Warning, format!("{shown}: {}", self.tr("no_spaces"))));
-            return;
-        }
+        // a path with spaces is said between quotes
+        let shown = grm_shell::quoted(&p.display().to_string());
         if p.is_dir() {
             self.say(format!("cd {shown}"));
             return;
@@ -1906,7 +1970,7 @@ impl App {
         let ext = p.extension().map(|x| x.to_string_lossy().to_lowercase()).unwrap_or_default();
         match ext.as_str() {
             "png" => {
-                self.eye_path = shown.clone();
+                self.eye_path = p.display().to_string();
                 self.tab = Tab::Eye;
                 let line = format!("see {shown} {}", self.eye_name.trim());
                 self.say(line);
@@ -1929,5 +1993,68 @@ impl App {
             }
             _ => self.say(format!("edit {shown}")),
         }
+    }
+}
+
+impl App {
+    /// A line for the human: in the prompt's lines, and (what went wrong) said softly in a corner too.
+    pub fn note(&mut self, kind: LineKind, text: String) {
+        if matches!(kind, LineKind::Warning | LineKind::Error) {
+            self.toasts.push((kind, text.clone(), Instant::now()));
+            if self.toasts.len() > 3 {
+                self.toasts.remove(0);
+            }
+        }
+        self.log.push((kind, text));
+    }
+
+    /// What went wrong, in a corner: it blocks nothing, comes and goes slowly, can be closed.
+    fn toasts(&mut self, ctx: &egui::Context) {
+        const STAY: f32 = 8.0;
+        self.toasts.retain(|(_, _, at)| at.elapsed().as_secs_f32() < STAY);
+        if self.toasts.is_empty() {
+            return;
+        }
+        let ink = Ink::of(ctx);
+        let lang = self.settings.lang;
+        let bottom = self.areas.get("prompt").map(|r| r.top()).unwrap_or(ctx.content_rect().bottom());
+        let right = self.areas.get("side").map(|r| r.left()).unwrap_or(ctx.content_rect().right());
+        let mut closed = None;
+        egui::Area::new(egui::Id::new("toasts"))
+            .order(egui::Order::Foreground)
+            .pivot(egui::Align2::RIGHT_BOTTOM)
+            .fixed_pos(egui::pos2(right - 16.0, bottom - 12.0))
+            .interactable(true)
+            .show(ctx, |ui| {
+                ui.set_max_width(420.0);
+                for (k, (kind, text, at)) in self.toasts.iter().enumerate() {
+                    let age = at.elapsed().as_secs_f32();
+                    // in over half a second, out over the last two: nothing jumps
+                    let a = (age / 0.5).min(1.0) * ((STAY - age) / 2.0).clamp(0.0, 1.0);
+                    let colour = if *kind == LineKind::Error { ink.amber } else { ink.amber.gamma_multiply(0.85) };
+                    let text = text.trim_start_matches("! ").trim_start_matches("? ");
+                    let shown = if lang == Lang::Fr { crate::french::fr(text) } else { text.to_string() };
+                    egui::Frame::new()
+                        .fill(ink.raised)
+                        .stroke(egui::Stroke::new(1.0_f32, colour.gamma_multiply(0.6)))
+                        .corner_radius(8.0)
+                        .inner_margin(egui::Margin::symmetric(12, 8))
+                        .multiply_with_opacity(a)
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                crate::icons::show(ui, "triangle-alert", 16.0, colour.gamma_multiply(a));
+                                ui.add(egui::Label::new(RichText::new(shown).color(ink.text.gamma_multiply(a))).wrap());
+                                if crate::icons::sign(ui, "x", t(lang, "close")).clicked() {
+                                    closed = Some(k);
+                                }
+                            });
+                        });
+                    ui.add_space(6.0);
+                }
+            });
+        if let Some(k) = closed {
+            self.toasts.remove(k);
+        }
+        ctx.request_repaint_after(Duration::from_millis(50));
     }
 }

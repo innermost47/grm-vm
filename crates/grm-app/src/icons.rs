@@ -65,7 +65,7 @@ pub fn button(ui: &mut egui::Ui, name: &str, text: impl Into<egui::WidgetText>) 
 
 /// A button with its sign and its words, shown as chosen or not.
 pub fn toggle(ui: &mut egui::Ui, name: &str, text: impl Into<egui::WidgetText>, on: bool) -> Response {
-    let colour = ui.visuals().text_color();
+    let colour = if on { ui.visuals().selection.stroke.color } else { ui.visuals().text_color() };
     ui.add(egui::Button::image_and_text(image(name, 15.0, colour), text).selected(on))
 }
 
@@ -120,6 +120,23 @@ mod tests {
             "plus",
             "moon",
             "image",
+            "octagon-x",
+            "panel-right-close",
+            "panel-right-open",
+            "panel-bottom-close",
+            "panel-bottom-open",
+            "flask-conical",
+            "waypoints",
+            "scroll-text",
+            "eye",
+            "audio-lines",
+            "x",
+            "sheet",
+            "file-code",
+            "layout-grid",
+            "save",
+            "between-horizontal-end",
+            "between-vertical-end",
         ] {
             assert!(exists(n), "{n}");
         }

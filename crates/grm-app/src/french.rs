@@ -15,6 +15,19 @@ fn rules() -> &'static Vec<Rule> {
         let r = |p: &str, to: &'static str| (Regex::new(p).expect("a rule"), to);
         vec![
             r(r"^node (\S+) = (.*)$", "nœud $1 = $2"),
+            r(
+                r"^(\d+) links / room (\d+) \(([0-9]+) % taken\): a link costs (\S+) bit a tick$",
+                "$1 liens / place $2 ($3 % prise) : un lien coûte $4 bit par tick",
+            ),
+            r(
+                r"^  (\S+): brings (\S+) bits, rent (\S+) \((\d+) links\): pays its rent$",
+                "  $1 : apporte $2 bits, loyer $3 ($4 liens) : paie son loyer",
+            ),
+            r(
+                r"^  (\S+): brings (\S+) bits, rent (\S+) \((\d+) links\): does not pay its rent$",
+                "  $1 : apporte $2 bits, loyer $3 ($4 liens) : ne paie pas son loyer",
+            ),
+            r(r"^made smaller to be seen: (\d+)x(\d+) -> (\d+)x(\d+)$", "réduite pour être vue : $1x$2 -> $3x$4"),
             r(r"^relation (\S+): (.*)$", "relation $1 : $2"),
             r(r"^observed (\S+) = (.*) dex$", "observé $1 = $2 dex"),
             r(r"^observed (\S+) = (.*)$", "observé $1 = $2"),

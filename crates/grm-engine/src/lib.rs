@@ -16,6 +16,7 @@ pub mod hidden;
 pub mod lang;
 pub mod machine;
 pub mod master;
+pub mod mind;
 pub mod network;
 pub mod peers;
 pub mod ports;

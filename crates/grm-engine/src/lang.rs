@@ -896,6 +896,7 @@ fn call(net: &mut Network, rest: &str, base: Option<&std::path::Path>, origin: &
 }
 
 fn use_file(net: &mut Network, rest: &str, base: Option<&std::path::Path>, origin: &Provenance) -> Result<String> {
+    let rest = rest.trim().trim_matches('"');
     let mut path = std::path::PathBuf::from(rest);
     if let Some(b) = base {
         if !path.is_absolute() && !path.exists() {

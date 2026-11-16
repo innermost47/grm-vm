@@ -403,11 +403,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
             None => {}
         }
     }
-    if resp.hovered() {
-        let scroll = ui.input(|i| i.smooth_scroll_delta.y);
-        if scroll != 0.0 {
+    // the wheel, Ctrl and the wheel, two fingers apart on a touchpad: all zoom (even with a card open over it)
+    if resp.contains_pointer() {
+        let (scroll, pinch) = ui.input(|i| (i.smooth_scroll_delta.y, i.zoom_delta()));
+        let factor = (1.0 + scroll * 0.0015) * pinch;
+        if (factor - 1.0).abs() > 1e-4 {
             let old = app.view.zoom;
-            let new = (old * (1.0 + scroll * 0.0015)).clamp(0.2, 4.0);
+            let new = (old * factor).clamp(0.1, 6.0);
             // the point under the pointer stays where it is
             if let Some(m) = pointer {
                 let c = rect.center() + app.view.offset;
@@ -525,7 +527,12 @@ fn fit(app: &mut App, rect: Rect) {
 pub fn reading(value: f64, sigma: f64, signed: bool) -> String {
     let v = grm_engine::lang::g(value);
     if !sigma.is_finite() || (!signed && sigma > 6.0) || (signed && sigma > 1e4 * value.abs().max(1.0)) {
-        "? (nothing measured it yet)".to_string()
+        // a value it starts from, not one it knows: said as such
+        if value.is_finite() {
+            format!("≈ {v} (a guess: nothing measured it yet)")
+        } else {
+            "? (nothing measured it yet)".to_string()
+        }
     } else if signed {
         format!("{v} ± {}", grm_engine::lang::g(sigma))
     } else if sigma < 0.3 {

@@ -141,6 +141,20 @@ pub fn relation(app: &App, ui: &mut egui::Ui, name: &str) {
         state.push_str(&format!(" · {} {:.0} %", t(lang, "integrating"), r.strength * 100.0));
     }
     ui.label(RichText::new(state).small().color(ink.muted));
+    // what it is worth: what it brings against the rent of its links
+    let pays = r.bits >= r.rent;
+    ui.label(
+        RichText::new(format!(
+            "{} {} bits · {} {} · {}",
+            t(lang, "brings"),
+            grm_engine::lang::g(r.bits),
+            t(lang, "rent"),
+            grm_engine::lang::g(r.rent),
+            if pays { t(lang, "pays_rent") } else { t(lang, "no_rent") }
+        ))
+        .small()
+        .color(if pays { ink.muted } else { ink.amber }),
+    );
     for n in r.nodes.iter().filter(|n| !n.contains("__next")) {
         if let Some(v) = app.picture.node(n) {
             ui.label(RichText::new(format!("{n} = {}", reading(v.value, v.sigma, v.signed))).monospace().small());

@@ -89,11 +89,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, k: usize) {
             && crate::icons::button(ui, "play", t(lang, "run")).on_hover_text("F5").clicked()
         {
             let _ = f.save();
-            said = Some(format!("use {}", f.path.display()));
+            said = Some(format!("use {}", grm_shell::quoted(&f.path.display().to_string())));
         }
         if f.table.is_some() && ui.button(t(lang, "load_it")).clicked() {
             let _ = f.save();
-            said = Some(format!("load {}", f.path.display()));
+            said = Some(format!("load {}", grm_shell::quoted(&f.path.display().to_string())));
         }
         if ui.button(t(lang, "close")).clicked() {
             close = true;
@@ -115,8 +115,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, k: usize) {
         let mut cell = |ui: &mut egui::Ui, text: &mut String, row: usize, col: usize, changed: &mut bool| {
             let id = egui::Id::new(("cell", k, row, col));
             let before = ui.memory(|m| m.has_focus(id)).then(|| text.clone());
-            let r =
-                ui.add_sized([120.0, 22.0], egui::TextEdit::singleline(text).id(id).font(egui::TextStyle::Monospace));
+            let r = ui.add_sized(
+                [120.0, 22.0],
+                egui::TextEdit::singleline(text).margin(crate::style::FIELD).id(id).font(egui::TextStyle::Monospace),
+            );
             if r.changed() {
                 *changed = true;
                 if let Some(b) = before {
@@ -186,6 +188,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, k: usize) {
             };
             ui.add(
                 egui::TextEdit::multiline(&mut f.text)
+                    .margin(crate::style::FIELD)
                     .code_editor()
                     .desired_width(f32::INFINITY)
                     .desired_rows(30)
@@ -245,8 +248,100 @@ pub fn columns(app: &mut App, ctx: &egui::Context) {
     } else if go {
         let cols: Vec<String> = names.iter().zip(&checks).filter(|(_, c)| **c).map(|(n, _)| n.clone()).collect();
         app.columns = None;
-        app.say(format!("load {} {}", path.display(), cols.join(" ")));
+        app.say(format!("load {} {}", grm_shell::quoted(&path.display().to_string()), cols.join(" ")));
     } else {
         app.columns = Some((path, names, written, checks));
+    }
+}
+
+/// Columns that would land on nodes holding other data: the name each goes into.
+#[derive(Debug, Clone)]
+pub struct Collide {
+    pub path: PathBuf,
+    /// (column, node it goes into, whether that name was taken)
+    pub rows: Vec<(String, String, bool)>,
+}
+
+/// The window that proposes other names (so that data from two tables is never mixed without being asked).
+pub fn collide(app: &mut App, ctx: &egui::Context) {
+    let Some(mut c) = app.collide.clone() else { return };
+    let lang = app.settings.lang;
+    let ink = Ink::of(ctx);
+    let mut open = true;
+    let mut said: Option<String> = None;
+    egui::Window::new(t(lang, "collide_title"))
+        .open(&mut open)
+        .collapsible(false)
+        .pivot(egui::Align2::CENTER_CENTER)
+        .default_pos(ctx.content_rect().center())
+        .default_width(460.0)
+        .show(ctx, |ui| {
+            ui.label(t(lang, "collide_d"));
+            ui.label(RichText::new(c.path.display().to_string()).monospace().small().color(ink.muted));
+            ui.add_space(6.0);
+            egui::Grid::new("collide").num_columns(3).spacing([10.0, 6.0]).show(ui, |ui| {
+                for (col, node, clash) in c.rows.iter_mut() {
+                    ui.label(RichText::new(col.as_str()).monospace());
+                    crate::icons::show(ui, "arrow-right", 14.0, ink.muted);
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::TextEdit::singleline(node)
+                                .margin(crate::style::FIELD)
+                                .font(egui::TextStyle::Monospace)
+                                .desired_width(200.0),
+                        );
+                        if *clash {
+                            crate::icons::show(ui, "triangle-alert", 14.0, ink.amber)
+                                .on_hover_text(t(lang, "collide_was_taken"));
+                        }
+                    });
+                    ui.end_row();
+                }
+            });
+            let names_ok = c.rows.iter().all(|(_, n, _)| grm_engine::lang::is_name(n.trim()));
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                let path = grm_shell::quoted(&c.path.display().to_string());
+                if ui
+                    .add_enabled(
+                        names_ok,
+                        egui::Button::image_and_text(
+                            crate::icons::image("check", 15.0, ink.text),
+                            t(lang, "collide_load"),
+                        ),
+                    )
+                    .clicked()
+                {
+                    let cols: Vec<String> = c
+                        .rows
+                        .iter()
+                        .map(
+                            |(col, node, _)| {
+                                if col == node.trim() {
+                                    col.clone()
+                                } else {
+                                    format!("{col}={}", node.trim())
+                                }
+                            },
+                        )
+                        .collect();
+                    said = Some(format!("load {path} {}", cols.join(" ")));
+                }
+                if crate::icons::button(ui, "merge", t(lang, "collide_mix"))
+                    .on_hover_text(t(lang, "collide_mix_d"))
+                    .clicked()
+                {
+                    let cols: Vec<String> = c.rows.iter().map(|(col, _, _)| col.clone()).collect();
+                    said = Some(format!("load {path} {} --mix", cols.join(" ")));
+                }
+            });
+        });
+    if !open {
+        app.collide = None;
+    } else if let Some(line) = said {
+        app.collide = None;
+        app.say(line);
+    } else {
+        app.collide = Some(c);
     }
 }

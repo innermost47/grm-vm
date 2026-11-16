@@ -1,4 +1,15 @@
+<pre align="center">
+ ██████  ██████  ███    ███     o───o
+██       ██   ██ ████  ████    / \ / \
+██   ███ ██████  ██ ████ ██   o───o───o
+██    ██ ██   ██ ██  ██  ██    \ / \ /
+ ██████  ██   ██ ██      ██     o───o
+    the Global Relational Model machine
+</pre>
+
 # grm-vm
+
+![grm-vm: an app's network beside its code, live](docs/hero.png)
 
 The GRM machine, in Rust: a network of nodes and relations that settles by itself (Gaussian belief propagation),
 where every node and every relation is a small processor that only talks to its neighbours, and only works when a
@@ -387,7 +398,34 @@ STATEMENT` says anything of the language into that network (`style relate breath
 - **The prompt is coloured** as code is, as it is typed and in what was said.
 - **Signs, never emoji**: every sign is a Lucide icon, drawn and tinted with the palette; an app wears one
   (`icon audio-waveform` in its file, any of the 2 359).
-- **A new app**: + then *New app*: its name, Enter.
+- **A new app**: + then *New app*: its name, Enter. Right click on an app's tab: launch it, close it, or put it in
+  the **trash** (`app trash NAME`; it comes back with `app restore NAME`, from the Sources tab, or by Ctrl+Z).
+- **The side folds** into a rail of signs, and opens again on the tab whose sign is clicked; its width is the
+  human's (drag its edge), and it goes down to the bottom of the window. **The prompt folds** to its one line.
+  The **panic** button is always at the top, beside the harmony.
+- **What goes wrong is said softly** in a corner for a few seconds (it blocks nothing, comes and goes slowly, can
+  be closed), and kept in the prompt's lines.
+- **Paths with spaces** are said between quotes (dropped or chosen files are quoted by the window); typed without
+  quotes, words that together name a file that exists are one (`see C:\Pictures\Capture d'écran 1.png eye`).
+- **A big picture** is made smaller before the eye sees it (its longest side at most 160 points: seconds, not
+  minutes).
+- **Two tables with the same column names**: before their data would be mixed in the same nodes, the window
+  proposes other names (`load FILE COLUMN=NODE`, or `--mix` to mix them on purpose).
+- The code beside **wraps** its long lines (each number stays on its line's first row); fields have room inside
+  and what they wait for is written in italics.
+
+![The side, the prompt, a soft warning](docs/panels.png)
+
+### What a relation is worth: its rent
+
+Ported from the Python machine. Every relation brings information: how much it narrows what its nodes can be. For
+Gaussian beliefs it is exact: without its message a node's entropy would rise by 1/2 log2(precision / (precision -
+its message)) bits; one that alone fixes a node brings tens of bits, an echo (a relation that says what another
+says) almost nothing. Holding a link (one node in one relation) costs a rent, in bits per tick, whose price grows as
+room runs out (0.1 × occupancy / (1 - occupancy): nothing in an empty network, more and more in a full one;
+Rissanen's minimum description length, with a price set by scarcity). The room is the host's: a quarter of the
+memory available now, about 4 kB a link (`capacity N` sets it by hand, `capacity auto` gives it back). `rent`
+shows each relation's account; under the pointer, a relation says what it brings and whether it pays its rent.
 
 ### Files, folders, data, and the words of the Python machine
 
@@ -498,8 +536,9 @@ python3 tools/bench_python.py path/to/grm-core/vm FILE.grm [ROUNDS]
 ## What it does not do yet
 
 - Taking back the world gives the world back as it was, not the apps' texts (they are taken back on their own,
-  in the same list). A path with spaces cannot be said at the prompt yet (dropped or chosen, it is refused with a
-  word). Sound files dropped are not read yet.
+  in the same list). Sound files dropped are not read yet.
+- The rent is counted and shown; what does not pay it is not yet forgotten at night (the night, pruning by use,
+  pleasure and displeasure of the Python machine's mind come with the organism).
 - Not ported yet from the Python machine: `step` (one pass at a time), `watch` (breakpoints), `mood`, `capacity`,
   `prune`, the night (fusions, forgetting), the journal written for a human; `why` tells shares and what each
   relation says, not yet what each heard. A table opened shows its first 500 rows.

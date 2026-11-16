@@ -171,6 +171,7 @@ impl Shell {
         let mut words = rest.split_whitespace();
         let what = words.next().unwrap_or("");
         let arg = words.collect::<Vec<_>>().join(" ");
+        let arg = arg.trim().trim_matches('"').to_string();
         match what {
             "" | "list" => {
                 let mut out: Vec<Line> = self
@@ -207,9 +208,14 @@ impl Shell {
             }
             "new" => self.new_app(engine, &arg),
             "close" => self.close_app(engine, &arg),
+            "trash" => self.trash_app(engine, &arg),
+            "restore" => self.restore_app(engine, &arg),
             "undo" => self.undo_app(engine, &arg, true),
             "redo" => self.undo_app(engine, &arg, false),
-            _ => vec![Line::warn("? app open FILE|NAME, app new NAME, app close NAME, app undo|redo NAME, apps")],
+            _ => vec![Line::warn(
+                "? app open FILE|NAME, app new NAME, app close NAME, app trash [NAME], app restore NAME, app undo|redo \
+                 NAME, apps",
+            )],
         }
     }
 
@@ -272,6 +278,81 @@ impl Shell {
         let state = self.rt.closed.shift_remove(&name).unwrap_or_default();
         let mut out = self.apply(engine, &name, text, state, false);
         out.insert(0, Line::said(format!("{name} opens ({})", path.display())));
+        out
+    }
+
+    /// The trash: apps put away, kept as they were (they can come back), as a quarantine does for sources.
+    pub fn trash_dir(&self) -> PathBuf {
+        self.apps_dir().join(".trash")
+    }
+
+    /// `app trash NAME`: closed, its file put in the trash. `app trash`: what is in it.
+    fn trash_app(&mut self, engine: &Engine, name: &str) -> Vec<Line> {
+        let dir = self.trash_dir();
+        if name.is_empty() {
+            let mut names: Vec<String> = std::fs::read_dir(&dir)
+                .map(|d| {
+                    d.flatten().filter_map(|e| e.path().file_stem().map(|s| s.to_string_lossy().to_string())).collect()
+                })
+                .unwrap_or_default();
+            names.sort();
+            if names.is_empty() {
+                return vec![Line::dim("the trash is empty")];
+            }
+            let mut out = vec![Line::said(format!("in the trash ({}):", dir.display()))];
+            out.extend(names.into_iter().map(|n| Line::dim(format!("  {n} (app restore {n})"))));
+            return out;
+        }
+        let path = self.rt.apps.get(name).map(|a| a.path.clone()).unwrap_or_else(|| self.find_app(name));
+        if !path.exists() {
+            return vec![Line::warn(format!("? {name}: no such app"))];
+        }
+        let mut out = vec![];
+        if self.rt.apps.contains_key(name) {
+            out.extend(self.close_app(engine, name));
+        }
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            return vec![Line::error(format!("! {}: {e}", dir.display()))];
+        }
+        let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or(name.to_string());
+        // never over another one put away before
+        let mut to = dir.join(format!("{stem}.grm"));
+        let mut k = 2;
+        while to.exists() {
+            to = dir.join(format!("{stem}_{k}.grm"));
+            k += 1;
+        }
+        match std::fs::rename(&path, &to)
+            .or_else(|_| std::fs::copy(&path, &to).and_then(|_| std::fs::remove_file(&path)))
+        {
+            Ok(()) => out.push(Line::dim(format!(
+                "{name} put in the trash (app restore {})",
+                to.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default()
+            ))),
+            Err(e) => out.push(Line::error(format!("! {}: {e}", path.display()))),
+        }
+        out
+    }
+
+    /// `app restore NAME`: back from the trash, and open.
+    fn restore_app(&mut self, engine: &Engine, name: &str) -> Vec<Line> {
+        let from = self.trash_dir().join(format!("{}.grm", name.trim_end_matches(".grm")));
+        if !from.exists() {
+            return vec![Line::warn(format!("? {name} is not in the trash (app trash)"))];
+        }
+        let base = name.trim_end_matches(".grm");
+        // a name taken meanwhile: it comes back beside it
+        let mut to = self.apps_dir().join(format!("{base}.grm"));
+        let mut k = 2;
+        while to.exists() {
+            to = self.apps_dir().join(format!("{base}_{k}.grm"));
+            k += 1;
+        }
+        if let Err(e) = std::fs::rename(&from, &to) {
+            return vec![Line::error(format!("! {}: {e}", from.display()))];
+        }
+        let mut out = vec![Line::dim(format!("{base} back from the trash"))];
+        out.extend(self.open_app(engine, &to));
         out
     }
 

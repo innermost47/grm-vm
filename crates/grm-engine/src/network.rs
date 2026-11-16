@@ -173,6 +173,9 @@ pub struct Template {
 /// Everything said: the description of the network (what the machine compiles and runs).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Network {
+    /// The links it may hold, set by hand (`capacity N`); None: what the host's memory allows.
+    #[serde(default)]
+    pub capacity: Option<usize>,
     pub nodes: IndexMap<String, NodeSpec>,
     pub relations: Vec<Relation>,
     /// name -> (value, sigma): dex for a positive node, its own unit for a signed one.

@@ -210,7 +210,9 @@ pub fn apply(ctx: &egui::Context, p: &Palette, typewriter: bool, zoom: f32) {
     ctx.data_mut(|d| d.insert_temp(egui::Id::NULL, ink));
     let mut v = if p.dark { egui::Visuals::dark() } else { egui::Visuals::light() };
     let lift = |c: Color32, k: f32| if p.dark { lighter(c, k) } else { darker(c, k) };
-    v.override_text_color = Some(ink.text);
+    // no override: the text on the accent (a chosen tab, a selected button) takes the colour that stands on it
+    v.override_text_color = None;
+    v.weak_text_color = Some(mixed(ink.panel, ink.muted, 0.62));
     v.panel_fill = ink.panel;
     v.window_fill = ink.panel;
     v.extreme_bg_color = ink.surface;
@@ -273,6 +275,14 @@ pub fn apply(ctx: &egui::Context, p: &Palette, typewriter: bool, zoom: f32) {
     ctx.set_zoom_factor(zoom.clamp(0.8, 2.0));
 }
 
+/// The room inside a field where words are written.
+pub const FIELD: egui::Margin = egui::Margin { left: 8, right: 8, top: 5, bottom: 5 };
+
+/// What a field waits for: in italics and quiet, so that it is not taken for something written.
+pub fn hint(text: impl Into<String>) -> egui::RichText {
+    egui::RichText::new(text.into()).italics()
+}
+
 /// A selected tab or button: the accent behind, the text that stands on it.
 pub fn chosen(ui: &mut egui::Ui, on: bool, text: &str) -> egui::Response {
     let ink = Ink::of(ui.ctx());
@@ -282,10 +292,11 @@ pub fn chosen(ui: &mut egui::Ui, on: bool, text: &str) -> egui::Response {
 }
 
 /// The machine's name, in block letters, with a small network beside it.
-pub const BANNER: &str = "\
- ██████  ██████  ███    ███     o───o
-██       ██   ██ ████  ████    / \\ / \\
-██   ███ ██████  ██ ████ ██   o───o───o
-██    ██ ██   ██ ██  ██  ██    \\ / \\ /
- ██████  ██   ██ ██      ██     o───o
-    the Global Relational Model machine";
+pub const BANNER: &str = concat!(
+    " ██████  ██████  ███    ███     o───o\n",
+    "██       ██   ██ ████  ████    / \\ / \\\n",
+    "██   ███ ██████  ██ ████ ██   o───o───o\n",
+    "██    ██ ██   ██ ██  ██  ██    \\ / \\ /\n",
+    " ██████  ██   ██ ██      ██     o───o\n",
+    "    the Global Relational Model machine",
+);

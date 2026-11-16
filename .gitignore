@@ -2,3 +2,16 @@
 *.world
 *.desk.json
 *.window.json
+
+# The human's own programs stay theirs: only the official apps are shared.
+/apps/*
+!/apps/oscillator.grm
+!/apps/swing.grm
+!/apps/weather.grm
+!/apps/networks/
+/apps/networks/*
+!/apps/networks/osc.grm
+/apps/.trash/
+/*.grm
+/*.csv
+*.grm.bak

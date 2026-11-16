@@ -116,15 +116,19 @@ pub const WORDS_HELP: &[(&str, &str, &str)] = &[
     ),
     ("undo", "undo / redo: the world as it was before the last change (30 kept)", "undo"),
     ("stats", "stats: the network counted, by source; what the human says most", "stats"),
+    ("rent", "rent: what each relation brings, in bits a tick, against the rent of its links (the price grows as room runs out)", "rent"),
+    ("capacity", "capacity [N | auto]: the links the network may hold (auto: a quarter of the memory available now)", "capacity 20000"),
     ("look", "look NAME: accent = #E8A33D, round = 8, size = 1.2 (a look for widgets)", "look big: size = 1.5"),
 ];
 
 impl Shell {
     /// The words of this file; None: not one of them.
     pub(crate) fn more(&mut self, engine: &Engine, word: &str, rest: &str) -> Option<Vec<Line>> {
-        let args: Vec<&str> = rest.split_whitespace().collect();
+        let words = crate::path_words(rest);
+        let args: Vec<&str> = words.iter().map(String::as_str).collect();
         let flags: Vec<&str> = args.iter().copied().filter(|a| a.starts_with('-') && a.len() > 1).collect();
-        let paths: Vec<&str> = args.iter().copied().filter(|a| !(a.starts_with('-') && a.len() > 1)).collect();
+        let paths: Vec<&str> =
+            args.iter().copied().filter(|a| !(a.starts_with('-') && a.len() > 1) || *a == "--mix").collect();
         let err = |e: std::io::Error, p: &dyn std::fmt::Display| vec![Line::error(format!("! {p}: {e}"))];
         Some(match word {
             "pwd" => vec![Line::said(std::env::current_dir().map(|d| d.display().to_string()).unwrap_or_default())],
@@ -553,6 +557,62 @@ impl Shell {
                     None => vec![Line::dim("nothing to take back")],
                 }
             }
+            "capacity" => match args.first().copied() {
+                None => {
+                    let host = crate::host_capacity();
+                    let Some((held, room, by_hand)) = engine.query(move |w| {
+                        (
+                            grm_engine::mind::links(&w.machine.net),
+                            grm_engine::mind::capacity(&w.machine.net, host),
+                            w.machine.net.capacity.is_some(),
+                        )
+                    }) else {
+                        return Some(vec![Line::error("! the engine has stopped")]);
+                    };
+                    vec![Line::said(format!(
+                        "{held} links held, room for {room} ({}); the host's memory allows {host}",
+                        if by_hand { "set by hand" } else { "the host's" }
+                    ))]
+                }
+                Some(a) => {
+                    let n = if a == "auto" { None } else { a.parse::<usize>().ok() };
+                    if a != "auto" && n.is_none() {
+                        return Some(vec![Line::warn("? capacity N | auto")]);
+                    }
+                    let _ = engine
+                        .query(move |w| w.machine.net.capacity = n.map(|n| n.max(grm_engine::mind::MIN_CAPACITY)));
+                    vec![Line::dim(match n {
+                        Some(n) => format!("room for {} links", n.max(grm_engine::mind::MIN_CAPACITY)),
+                        None => format!("room: the host's ({} links)", crate::host_capacity()),
+                    })]
+                }
+            },
+            "rent" => {
+                let host = crate::host_capacity();
+                let Some((held, room, price, mut acc)) =
+                    engine.query(move |w| grm_engine::mind::accounts(&w.machine, host))
+                else {
+                    return Some(vec![Line::error("! the engine has stopped")]);
+                };
+                acc.sort_by(|a, b| a.worth().partial_cmp(&b.worth()).unwrap_or(std::cmp::Ordering::Equal));
+                let mut out = vec![Line::said(format!(
+                    "{held} links / room {room} ({:.0} % taken): a link costs {} bit a tick",
+                    100.0 * held as f64 / room as f64,
+                    grm_engine::lang::g(price)
+                ))];
+                for a in acc {
+                    let pays = if a.worth() >= 0.0 { "pays its rent" } else { "does not pay its rent" };
+                    let line = format!(
+                        "  {}: brings {} bits, rent {} ({} links): {pays}",
+                        a.name,
+                        grm_engine::lang::g(a.bits),
+                        grm_engine::lang::g(a.rent),
+                        a.links
+                    );
+                    out.push(if a.worth() >= 0.0 { Line::dim(line) } else { Line::warn(line) });
+                }
+                out
+            }
             "stats" => {
                 let mut said_words: IndexMap<String, usize> = IndexMap::new();
                 for h in &self.history {
@@ -612,7 +672,7 @@ impl Shell {
         };
         let table = grm_connect::csv::read(&grm_connect::csv::text_of(&bytes));
         let numeric: Vec<bool> = (0..table.names.len()).map(|k| table.numeric(k)).collect();
-        let mut chosen: Vec<String> = paths[1..].iter().map(|s| s.to_string()).collect();
+        let mut chosen: Vec<String> = paths[1..].iter().filter(|s| **s != "--mix").map(|s| s.to_string()).collect();
         if chosen.is_empty() {
             if self.window {
                 // the window asks which columns
@@ -631,6 +691,59 @@ impl Shell {
             chosen = table.names.iter().zip(&numeric).filter(|(_, n)| **n).map(|(c, _)| c.clone()).collect();
         }
         let _ = rest;
+        // COLUMN=NODE: a column into a node of another name
+        let mut into: IndexMap<String, String> = IndexMap::new();
+        for c in &mut chosen {
+            if let Some((col, node)) = c.split_once('=') {
+                into.insert(col.to_string(), node.to_string());
+                *c = col.to_string();
+            }
+        }
+        if let Some(bad) = into.values().find(|n| !grm_engine::lang::is_name(n)) {
+            return vec![Line::warn(format!("? {bad}: a node's name (a letter first, then letters, digits or _)"))];
+        }
+        let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+        let source = format!("file:{stem}");
+        // a node of the same name, from somewhere else: its data would be mixed with this table's
+        let wanted: Vec<String> = chosen
+            .iter()
+            .filter(|c| table.names.contains(c))
+            .map(|c| into.get(c).cloned().unwrap_or(c.clone()))
+            .collect();
+        let probe = (wanted.clone(), source.clone());
+        let taken: Vec<(String, String)> = engine
+            .query(move |w| {
+                probe
+                    .0
+                    .iter()
+                    .filter_map(|n| {
+                        w.machine
+                            .net
+                            .nodes
+                            .get(n)
+                            .filter(|s| s.origin.source != probe.1)
+                            .map(|s| (n.clone(), s.origin.source.clone()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        if !taken.is_empty() && !paths.contains(&"--mix") {
+            let list = taken.iter().map(|(n, s)| format!("{n} ({s})")).collect::<Vec<_>>().join(", ");
+            if self.window {
+                let columns: Vec<String> = chosen.iter().filter(|c| table.names.contains(c)).cloned().collect();
+                self.orders.push(Order::Collide {
+                    path: path.clone(),
+                    stem: grm_connect::csv::name_of(&stem),
+                    columns,
+                    into: into.clone(),
+                    taken: taken.iter().map(|(n, _)| n.clone()).collect(),
+                });
+            }
+            return vec![Line::warn(format!(
+                "? these nodes already hold other data: {list}. Load into other names (`load {file} COLUMN=NAME`) \
+                 or mix them (`--mix`)"
+            ))];
+        }
         let mut out = vec![];
         let renamed: Vec<String> =
             table.written.iter().zip(&table.names).filter(|(w, n)| w != n).map(|(w, n)| format!("{w} → {n}")).collect();
@@ -641,17 +754,15 @@ impl Shell {
         if cols.is_empty() {
             return vec![Line::warn(format!("? none of these columns: {}", table.names.join(", ")))];
         }
-        let names: Vec<String> = cols.iter().map(|k| table.names[*k].clone()).collect();
+        let node_of = |k: usize| into.get(&table.names[k]).cloned().unwrap_or(table.names[k].clone());
+        let names: Vec<String> = cols.iter().map(|k| node_of(*k)).collect();
         let rows: Vec<(f64, IndexMap<String, f64>)> = table
             .rows
             .iter()
             .enumerate()
-            .map(|(t, r)| (t as f64, cols.iter().filter_map(|k| r[*k].map(|v| (table.names[*k].clone(), v))).collect()))
+            .map(|(t, r)| (t as f64, cols.iter().filter_map(|k| r[*k].map(|v| (node_of(*k), v))).collect()))
             .collect();
-        let origin = grm_engine::Provenance::of(format!(
-            "file:{}",
-            path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default()
-        ));
+        let origin = grm_engine::Provenance::of(source);
         let n = rows.len();
         // a column that is never below zero is a quantity (positive: its laws are products and powers)
         let positive: Vec<bool> =
