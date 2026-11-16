@@ -1,0 +1,15 @@
+[package]
+name = "grm-connect"
+description = "The GRM machine's connections to the world: web APIs (HTTP, WebSocket), their fields, their rows"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+grm-engine = { path = "../grm-engine" }
+indexmap = "2"
+png = "0.17"
+serde_json = { version = "1", features = ["preserve_order"] }
+ureq = "2"
+tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }

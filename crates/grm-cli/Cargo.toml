@@ -1,0 +1,16 @@
+[package]
+name = "grm-cli"
+description = "A prompt to talk to the GRM machine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "grm"
+path = "src/main.rs"
+
+[dependencies]
+grm-engine = { path = "../grm-engine" }
+grm-shell = { path = "../grm-shell" }
+grm-sound = { path = "../grm-sound" }

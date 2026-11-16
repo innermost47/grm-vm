@@ -1,0 +1,10 @@
+# An oscillator that does not drift (symplectic Euler: its amplitude holds for ever).
+# {name}_s is its sound; {step} is the node saying how far it turns at each sample (2 pi frequency / 48 000).
+network osc(name, step)
+  var {name}_c = 1
+  var {name}_s = 0
+  node {name}_new signed
+  relate {name}_turn: {name}_new = {name}_c - {step} * {name}_s
+  set {name}_c = {name}_new
+  set {name}_s = {name}_s + {step} * {name}_new
+end

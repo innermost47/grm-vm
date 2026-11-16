@@ -1,0 +1,20 @@
+app Weather in Lyon
+# The weather of Lyon, asked again every ten minutes (Open-Meteo: free, no key).
+api meteo: get https://api.open-meteo.com/v1/forecast?latitude=45.76&longitude=4.84&current=temperature_2m,relative_humidity_2m,wind_speed_10m every 600
+read meteo current.temperature_2m -> temp ± 0.5
+read meteo current.relative_humidity_2m -> humidity ± 2
+read meteo current.wind_speed_10m -> wind ± 1
+node temp signed
+node humidity signed
+node wind signed
+# What the machine computes from it: the temperature in Fahrenheit.
+node temp_f signed
+relate fahrenheit: temp_f = 1.8 * temp + 32
+# Its surface.
+widget about: text "Read from Open-Meteo every ten minutes; each value with how sure it is." at 0 0 size 12 1
+widget t: value temp at 0 1 size 4 1 "temperature (°C)"
+widget f: value temp_f at 4 1 size 4 1 "in Fahrenheit"
+widget h: value humidity at 8 1 size 4 1 "humidity (%)"
+widget tm: meter temp -10 .. 40 at 0 2 size 6 1 "temperature"
+widget wm: meter wind 0 .. 80 at 6 2 size 6 1 "wind (km/h)"
+widget tp: plot temp -10 .. 40 at 0 3 size 12 3 "temperature, as it comes"

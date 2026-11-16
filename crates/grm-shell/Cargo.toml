@@ -1,0 +1,15 @@
+[package]
+name = "grm-shell"
+description = "The GRM machine's prompt: every command, shared by the terminal and the window"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+grm-engine = { path = "../grm-engine" }
+grm-connect = { path = "../grm-connect" }
+grm-sound = { path = "../grm-sound" }
+indexmap = "2"
+serde_json = { version = "1", features = ["preserve_order"] }
+serde = { version = "1", features = ["derive"] }

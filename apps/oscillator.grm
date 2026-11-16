@@ -1,0 +1,27 @@
+app Oscillator bench
+# What the human sets: a pitch (Hz), a volume, a drone (always on) or keys (on while a key is held).
+input pitch = 220 positive
+input volume = 0.5 positive
+input drone = 1
+input hold = 0
+# The pitch, turned into how far the oscillator turns at each of the 48 000 samples of a second.
+node step = 0.0288
+relate turn_rate: step = 0.000130899693899575 * pitch
+# The oscillator itself, written once in networks/osc.grm.
+use networks/osc.grm
+call osc(name=lead, step=step)
+# What is heard: the oscillator, as loud as the volume, while the drone is on or a key is held.
+node out signed
+relate loudness: out = volume * drone * lead_s + volume * hold * lead_s
+# Its looks: style as a network (see the README). What is not said is inherited from the machine.
+look app: round = 10
+look big: size = 1.3, accent = #7fb8f0
+# Its surface.
+widget about: text "A sine computed by its network 48 000 times a second. Play it, then move the pitch or play the keys." at 0 0 size 12 1
+widget p: slider pitch 55 .. 880 at 0 1 size 6 1 "pitch (Hz)"
+widget v: slider volume 0.01 .. 1 at 6 1 size 6 1 "volume"
+widget go: play out at 0 2 size 3 1 "sound" look big
+widget d: toggle drone at 0 3 size 3 1 "drone"
+widget now: value pitch at 0 4 size 3 1 "pitch now"
+widget wave: scope out -1 .. 1 at 3 2 size 9 3 "the wave"
+widget kb: keys pitch hold at 0 5 size 12 2 "keys (or A W S E D F T G Y H U J K)"

@@ -1,0 +1,22 @@
+[package]
+name = "grm-app"
+description = "The GRM machine's window: its network, its prompt, what it knows, its time, its eye, its sound"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "grm-app"
+path = "src/main.rs"
+
+[dependencies]
+grm-engine = { path = "../grm-engine" }
+grm-connect = { path = "../grm-connect" }
+grm-sound = { path = "../grm-sound" }
+grm-shell = { path = "../grm-shell" }
+indexmap = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+regex = "1"
+eframe = { version = "0.33", default-features = false, features = ["accesskit", "default_fonts", "glow", "wayland", "x11"] }

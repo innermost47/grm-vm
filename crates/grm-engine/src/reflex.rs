@@ -1,0 +1,356 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Anthony Charretier
+//! Clocks: the machine lives at several speeds, as a brain does.
+//!
+//! - **Reflection** (the machine): belief propagation settles the network, learns, weighs what it is told. It
+//!   takes rounds; its clock is the frame or the tick.
+//! - **Reflex** (this file): what must happen at the speed of sound (48 000 times a second) cannot wait for rounds.
+//!   A reflex runs a network's `set`s directly, each written from the values before (as a tick writes them), with
+//!   the rest of the network (its parameters) as the machine last settled it. A guitar string, an oscillator, a
+//!   filter of a DAW live here; the machine above tunes them and learns.
+
+use indexmap::IndexMap;
+
+use crate::bail;
+use crate::error::Result;
+use crate::machine::Machine;
+use crate::network::{Cond, Kind, Relation};
+
+/// How fast a region of the network lives.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Clock {
+    /// Sound: so many samples a second (a reflex).
+    Audio { rate: u32 },
+    /// Pictures: so many frames a second (the machine, a frame's budget at a time).
+    Frame { hz: f64 },
+    /// When something happens (a click, a row of a file).
+    Event,
+}
+
+#[derive(Debug, Clone)]
+enum Expr {
+    /// The value of another node.
+    Copy(usize),
+    /// -(sum of the other terms) / coefficient of the node: a sum solved for it.
+    Sum {
+        terms: Vec<(f64, Vec<(usize, f64)>)>,
+        over: f64,
+    },
+    /// (10^rhs / product of the others)^(1/power): a product solved for it.
+    Product {
+        rhs: f64,
+        others: Vec<(usize, f64)>,
+        power: f64,
+    },
+    /// ln(y) or e^L.
+    Ln(usize),
+    Exp(usize),
+}
+
+#[derive(Debug, Clone)]
+struct Step {
+    target: usize,
+    expr: Expr,
+    when: Vec<(usize, f64, f64)>,
+}
+
+/// A network's `set`s (and the nodes that follow from them), run directly at the speed of a clock.
+#[derive(Debug, Clone)]
+pub struct Reflex {
+    pub clock: Clock,
+    pub names: IndexMap<String, usize>,
+    pub values: Vec<f64>,
+    sets: Vec<Step>,
+    follow: Vec<Step>,
+    pub samples: u64,
+}
+
+impl Reflex {
+    /// The reflex of a machine: its `set`s, its nodes as it last settled them (in SI), its `when`s.
+    pub fn of(machine: &Machine, clock: Clock) -> Result<Reflex> {
+        let net = &machine.net;
+        let names: IndexMap<String, usize> = net.nodes.keys().enumerate().map(|(k, n)| (n.clone(), k)).collect();
+        let values: Vec<f64> = net
+            .nodes
+            .keys()
+            .map(|n| {
+                // a set's target is what was last written to it
+                net.measured
+                    .get(n)
+                    .filter(|_| net.sets.iter().any(|s| s.target == *n))
+                    .map(|m| m.0)
+                    .unwrap_or_else(|| machine.value_si(n))
+            })
+            .collect();
+        let mut r = Reflex { clock, names, values, sets: vec![], follow: vec![], samples: 0 };
+        for st in &net.sets {
+            let expr = if let Some((_, k)) = st.source.rsplit_once("__next") {
+                let rel = net.relation(&format!("set_{}_{}", st.target, k));
+                let Some(rel) = rel else { bail!("the relation of set {} is missing", st.target) };
+                r.solve(rel, &st.source)?
+            } else {
+                Expr::Copy(r.slot(&st.source)?)
+            };
+            let when = r.conds(&st.when)?;
+            r.sets.push(Step { target: r.slot(&st.target)?, expr, when });
+        }
+        Ok(r)
+    }
+
+    fn slot(&self, n: &str) -> Result<usize> {
+        match self.names.get(n) {
+            Some(&i) => Ok(i),
+            None => bail!("no node {n}"),
+        }
+    }
+
+    fn conds(&self, when: &[Cond]) -> Result<Vec<(usize, f64, f64)>> {
+        when.iter().map(|c| Ok((self.slot(&c.node)?, c.lo, c.hi))).collect()
+    }
+
+    /// A relation solved for one of its nodes.
+    fn solve(&self, rel: &Relation, node: &str) -> Result<Expr> {
+        match &rel.kind {
+            Kind::Sum { terms } => {
+                let mut over = None;
+                let mut rest = vec![];
+                for (c, t) in terms {
+                    if t.len() == 1 && t.get(node).is_some_and(|p| *p == 1.0) && over.is_none() {
+                        over = Some(*c);
+                    } else if t.contains_key(node) {
+                        bail!("{}: {node} is not alone in its term (a reflex solves straight relations)", rel.name);
+                    } else {
+                        let parts = t.iter().map(|(n, p)| Ok((self.slot(n)?, *p))).collect::<Result<Vec<_>>>()?;
+                        rest.push((*c, parts));
+                    }
+                }
+                let Some(over) = over else { bail!("{}: {node} is not in it", rel.name) };
+                Ok(Expr::Sum { terms: rest, over })
+            }
+            Kind::Product { terms, rhs } => {
+                let Some(&power) = terms.get(node) else { bail!("{}: {node} is not in it", rel.name) };
+                let others = terms
+                    .iter()
+                    .filter(|(n, _)| *n != node)
+                    .map(|(n, p)| Ok((self.slot(n)?, *p)))
+                    .collect::<Result<Vec<_>>>()?;
+                Ok(Expr::Product { rhs: *rhs, others, power })
+            }
+            Kind::Log { log, node: y } if log == node => Ok(Expr::Ln(self.slot(y)?)),
+            Kind::Log { log, node: y } if y == node => Ok(Expr::Exp(self.slot(log)?)),
+            _ => bail!("{}: a reflex does not run this kind of relation", rel.name),
+        }
+    }
+
+    /// A node that follows the `set`s at every sample, computed by one of its relations (an output, a mix).
+    pub fn follow(&mut self, machine: &Machine, node: &str) -> Result<()> {
+        let rel = machine.net.relations.iter().find(|r| matches!(&r.kind, Kind::Sum { terms } if terms.iter().any(|(_, t)| t.len() == 1 && t.get(node) == Some(&1.0)))
+            || matches!(&r.kind, Kind::Product { terms, .. } if terms.contains_key(node)));
+        let Some(rel) = rel else { bail!("no relation gives {node}") };
+        let expr = self.solve(rel, node)?;
+        let target = self.slot(node)?;
+        let when = self.conds(&rel.when)?;
+        self.follow.push(Step { target, expr, when });
+        Ok(())
+    }
+
+    /// Takes the values of the parameters the machine has settled since (the reflex keeps its own `set`s).
+    pub fn tune(&mut self, machine: &Machine) {
+        let written: Vec<usize> =
+            self.sets.iter().map(|s| s.target).chain(self.follow.iter().map(|s| s.target)).collect();
+        for (n, &i) in &self.names {
+            if !written.contains(&i) && (machine.index.contains_key(n) || machine.fixed.contains_key(n)) {
+                self.values[i] = machine.value_si(n);
+            }
+        }
+    }
+
+    fn written(&self) -> Vec<usize> {
+        self.sets.iter().map(|s| s.target).chain(self.follow.iter().map(|s| s.target)).collect()
+    }
+
+    /// Its parameters: the nodes it reads but does not write (what the machine above tunes).
+    pub fn params(&self) -> Vec<String> {
+        let written = self.written();
+        self.names.iter().filter(|(_, i)| !written.contains(i)).map(|(n, _)| n.clone()).collect()
+    }
+
+    /// Takes these values (in SI) for its parameters; what it writes itself is left alone.
+    pub fn tune_values(&mut self, values: &IndexMap<String, f64>) {
+        let written = self.written();
+        for (n, v) in values {
+            if let Some(&i) = self.names.get(n) {
+                if !written.contains(&i) && v.is_finite() {
+                    self.values[i] = *v;
+                }
+            }
+        }
+    }
+
+    /// Where a node is kept (to read it at each sample without looking its name up).
+    pub fn slot_of(&self, node: &str) -> Option<usize> {
+        self.names.get(node).copied()
+    }
+
+    /// One sample, and the value at `slot` after it.
+    pub fn step_read(&mut self, slot: usize) -> f64 {
+        self.step();
+        self.values[slot]
+    }
+
+    fn eval(&self, e: &Expr) -> f64 {
+        let v = &self.values;
+        match e {
+            Expr::Copy(i) => v[*i],
+            Expr::Sum { terms, over } => {
+                let mut s = 0.0;
+                for (c, parts) in terms {
+                    let mut t = *c;
+                    for &(i, p) in parts {
+                        t *= if p == 1.0 { v[i] } else { v[i].powf(p) };
+                    }
+                    s += t;
+                }
+                -s / over
+            }
+            Expr::Product { rhs, others, power } => {
+                let mut prod = 1.0;
+                for &(i, p) in others {
+                    prod *= v[i].powf(p);
+                }
+                (10f64.powf(*rhs) / prod).powf(1.0 / power)
+            }
+            Expr::Ln(i) => v[*i].ln(),
+            Expr::Exp(i) => v[*i].exp(),
+        }
+    }
+
+    fn holds(&self, when: &[(usize, f64, f64)]) -> bool {
+        when.iter().all(|&(i, lo, hi)| lo <= self.values[i] && self.values[i] <= hi)
+    }
+
+    /// One sample: every `set` whose conditions hold writes its node, all at once from the values before; then the
+    /// nodes that follow.
+    pub fn step(&mut self) {
+        let writes: Vec<(usize, f64)> =
+            self.sets.iter().filter(|s| self.holds(&s.when)).map(|s| (s.target, self.eval(&s.expr))).collect();
+        for (i, v) in writes {
+            self.values[i] = v;
+        }
+        for k in 0..self.follow.len() {
+            if self.holds(&self.follow[k].when) {
+                let v = self.eval(&self.follow[k].expr);
+                self.values[self.follow[k].target] = v;
+            }
+        }
+        self.samples += 1;
+    }
+
+    /// `n` samples of a node (a block of sound).
+    pub fn block(&mut self, node: &str, n: usize) -> Result<Vec<f32>> {
+        let i = self.slot(node)?;
+        let mut out = Vec::with_capacity(n);
+        for _ in 0..n {
+            self.step();
+            out.push(self.values[i] as f32);
+        }
+        Ok(out)
+    }
+
+    pub fn value(&self, node: &str) -> Option<f64> {
+        self.names.get(node).map(|&i| self.values[i])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::network::Provenance;
+    use crate::world::World;
+
+    const SINE: [&str; 14] = [
+        "node omega = 1",
+        "node dt = 0.01",
+        "node step = 0.01",
+        "relate step_def: step = omega * dt",
+        "observe omega = 1",
+        "observe dt = 0.01",
+        "var cos_val = 1",
+        "var sine_wave = 0",
+        "set cos_val = cos_val - step * sine_wave",
+        "set sine_wave = sine_wave + step * cos_val",
+        "node modulated_signal signed",
+        "relate modulation: modulated_signal = sine_wave * 5.0 + 2.0",
+        "output final_output",
+        "relate out_link: final_output = modulated_signal",
+    ];
+
+    #[test]
+    fn a_reflex_writes_what_the_ticks_write() {
+        let mut slow = World::new();
+        slow.say_all(&SINE, &Provenance::default()).unwrap();
+        let mut fast = World::new();
+        fast.say_all(&SINE, &Provenance::default()).unwrap();
+        fast.machine.run(1000);
+        let mut reflex = Reflex::of(&fast.machine, Clock::Audio { rate: 48000 }).unwrap();
+        reflex.follow(&fast.machine, "modulated_signal").unwrap();
+        reflex.follow(&fast.machine, "final_output").unwrap();
+        for _ in 0..40 {
+            slow.tick(false);
+            reflex.step();
+            for n in ["cos_val", "sine_wave"] {
+                let (a, b) = (slow.machine.net.measured[n].0, reflex.value(n).unwrap());
+                assert!((a - b).abs() < 1e-6, "{n}: ticks {a}, reflex {b}");
+            }
+        }
+        let s = reflex.value("sine_wave").unwrap();
+        assert!((reflex.value("final_output").unwrap() - (5.0 * s + 2.0)).abs() < 1e-12);
+    }
+
+    #[test]
+    fn a_second_of_sound_is_computed_faster_than_it_lasts() {
+        let mut w = World::new();
+        w.say_all(&SINE, &Provenance::default()).unwrap();
+        w.machine.run(1000);
+        let mut reflex = Reflex::of(&w.machine, Clock::Audio { rate: 48000 }).unwrap();
+        reflex.follow(&w.machine, "modulated_signal").unwrap();
+        let t0 = std::time::Instant::now();
+        let block = reflex.block("modulated_signal", 48000).unwrap();
+        assert!(t0.elapsed() < std::time::Duration::from_secs(1), "{:?}", t0.elapsed());
+        assert_eq!(block.len(), 48000);
+        // the two sets write at once, from the values before (explicit Euler): the circle opens a little at each
+        // step, by (1 + step^2), as the Python machine does too
+        let (c, s) = (reflex.value("cos_val").unwrap(), reflex.value("sine_wave").unwrap());
+        let want = 1.0001f64.powi(48000);
+        assert!(((c * c + s * s) / want - 1.0).abs() < 1e-6, "{} vs {want}", c * c + s * s);
+    }
+
+    #[test]
+    fn written_as_symplectic_euler_the_circle_stays_closed() {
+        // the new cosine is a node of its own; the sine is written from it: the amplitude holds for ever
+        let mut w = World::new();
+        w.say_all(
+            &[
+                "node step = 0.01 fixed",
+                "var cos_val = 1",
+                "var sine_wave = 0",
+                "node cos_new signed",
+                "relate turn: cos_new = cos_val - step * sine_wave",
+                "set cos_val = cos_new",
+                "set sine_wave = sine_wave + step * cos_new",
+            ],
+            &Provenance::default(),
+        )
+        .unwrap();
+        w.machine.run(1000);
+        let mut reflex = Reflex::of(&w.machine, Clock::Audio { rate: 48000 }).unwrap();
+        reflex.follow(&w.machine, "cos_new").unwrap();
+        let mut worst: f64 = 0.0;
+        for _ in 0..48000 {
+            reflex.step();
+            let (c, s) = (reflex.value("cos_val").unwrap(), reflex.value("sine_wave").unwrap());
+            worst = worst.max((c * c + s * s - 1.0).abs());
+        }
+        assert!(worst < 0.01, "{worst}");
+    }
+}

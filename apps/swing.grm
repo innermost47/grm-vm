@@ -1,0 +1,17 @@
+app A swing in time
+# A swing the machine watches: it remembers it, learns how it moves, and foresees it.
+# The world ticks four times a second while this app runs.
+clock 0.25
+node turn = 0.2 fixed
+var swing_c = 1
+var swing_x = 0
+node swing_next signed
+relate swing_step: swing_next = swing_c - turn * swing_x
+set swing_c = swing_next
+set swing_x = swing_x + turn * swing_next
+track swing_x 2
+# Its surface.
+widget about: text "Select swing_x in the network (or the inspector): its memory, its forecast and why." at 0 0 size 12 1
+widget now: value swing_x at 0 1 size 4 1 "where it is"
+widget m: meter swing_x -1.2 .. 1.2 at 4 1 size 8 1 "swing"
+widget path: plot swing_x -1.2 .. 1.2 at 0 2 size 12 4 "its path"

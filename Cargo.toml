@@ -1,0 +1,13 @@
+[workspace]
+resolver = "2"
+members = ["crates/grm-engine", "crates/grm-cli", "crates/grm-connect", "crates/grm-sound", "crates/grm-shell", "crates/grm-app"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+authors = ["Anthony Charretier"]
+
+[profile.release]
+opt-level = 3
+debug = false

@@ -1,0 +1,17 @@
+[package]
+name = "grm-sound"
+description = "The GRM machine heard: its own calm voice, and the sounds its networks make, through one mixer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+grm-engine = { path = "../grm-engine" }
+indexmap = "2"
+cpal = { version = "0.18", optional = true }
+
+[features]
+default = ["device"]
+# playing through the computer's sound device (without it: rendering to WAV files only)
+device = ["dep:cpal"]
