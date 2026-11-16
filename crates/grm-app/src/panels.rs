@@ -417,7 +417,7 @@ fn sources_list(app: &mut App, ui: &mut egui::Ui) {
 
 /// What the machine feels, as it is now and as it went: pleasure and displeasure, flourishing, progress; and what
 /// moved it (all of it real quantities: its surprise against what it expected, its room, its learning).
-fn feelings(app: &mut App, ui: &mut egui::Ui) {
+pub fn feelings(app: &mut App, ui: &mut egui::Ui) {
     let ink = Ink::of(ui.ctx());
     let lang = app.settings.lang;
     let m = app.picture.mood.clone();

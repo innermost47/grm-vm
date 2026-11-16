@@ -26,6 +26,7 @@ mod model;
 mod panels;
 mod plot;
 mod settings;
+mod space;
 mod style;
 mod surface;
 mod text;

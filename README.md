@@ -88,27 +88,27 @@ grm> status
 
 ## What is in it
 
-|                   | file                                  |                                                                                                                                                                                                                       |
-| ----------------- | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| the language      | `lang.rs`                             | GRML, statement by statement, as grm-core reads it                                                                                                                                                                    |
-| the network       | `network.rs`                          | nodes, relations, measurements; each with its **provenance** (who said it, from where) and its **strength**                                                                                                           |
-| the machine       | `machine.rs`                          | belief propagation: rounds, ticks, `set`s, learning                                                                                                                                                                   |
-| the world         | `world.rs`                            | the global network, **sandboxes**, **trial merges**, **integration little by little**, **quarantine**, **recall**, `remove`, the logbook                                                                              |
-| the engine        | `engine.rs`                           | the machine in a thread of its own, computing a frame at a time, publishing snapshots                                                                                                                                 |
-| ports             | `ports.rs`                            | what comes in and goes out: values, vectors, events (a click, a key), images and sounds (their adapters come with the senses)                                                                                         |
-| clocks            | `reflex.rs`                           | the speed of sound: a network's `set`s run directly, 48 000 times a second, tuned by the machine above                                                                                                                |
-| peers             | `peers.rs`                            | machines that share what they believe, never their data, without a centre                                                                                                                                             |
-| hidden state      | `hidden.rs`                           | what a node really is behind what is measured of it: a Kalman filter that follows it, an expectation-maximisation that consolidates its law, the world's noise told from the senses'                                  |
-| time              | `time.rs`                             | nodes that **remember** (precise near the present, coarser further back), **learn how they move** in real time, **find links by themselves**, are **foreseen** with a confidence, and say **why**                     |
-| the world outside | `grm-connect`                         | web APIs: what an answer can give (fields, kinds, units), the chosen fields into a sandbox, their rows each at its moment; Open-Meteo and Our World in Data to begin with                                             |
-| laws              | `discover.rs`                         | what holds between nodes at the same moment (a line, a power, a product of powers), found in the rows it has seen and proposed through a sandbox                                                                      |
-| the eye           | `vision.rs`                           | pictures: a network of its own near what it sees (pixels tied to their neighbours, a pyramid above them), that cleans, fills, keeps edges, is surprised, sees what changed, and sends a glance to the world's network |
-| units             | `units.rs`                            | a node with a dimension is given in SI, counted inside in Planck units                                                                                                                                                |
-| the prompt        | `grm-shell`                           | every command, the same in the terminal and in the window: a line goes in, lines come out (said, dim, a warning, an error, a question waiting for y/n)                                                                |
-| the sound         | `grm-sound`                           | the machine's own voice, the mixer of the human's channels, the sound device, WAV files                                                                                                                               |
-| the window        | `grm-app`                             | the network, the prompt, the inspector, sandboxes, sources, journal, eye, sound; apps as code, network and surface; placed by a GRM network                                                                           |
-| apps              | `grm-shell` (`apps.rs`, `runtime.rs`) | an app's file read (`use` and `call` unfolded, its surface and APIs set apart), run, edited while it runs, closed, kept with the desk                                                                                 |
-| APIs              | `grm-connect` (`api.rs`)              | GET every so often, POST, WebSocket, each in its thread, what it reads into nodes                                                                                                                                     |
+| | file | |
+|---|---|---|
+| the language | `lang.rs` | GRML, statement by statement, as grm-core reads it |
+| the network | `network.rs` | nodes, relations, measurements; each with its **provenance** (who said it, from where) and its **strength** |
+| the machine | `machine.rs` | belief propagation: rounds, ticks, `set`s, learning |
+| the world | `world.rs` | the global network, **sandboxes**, **trial merges**, **integration little by little**, **quarantine**, **recall**, `remove`, the logbook |
+| the engine | `engine.rs` | the machine in a thread of its own, computing a frame at a time, publishing snapshots |
+| ports | `ports.rs` | what comes in and goes out: values, vectors, events (a click, a key), images and sounds (their adapters come with the senses) |
+| clocks | `reflex.rs` | the speed of sound: a network's `set`s run directly, 48 000 times a second, tuned by the machine above |
+| peers | `peers.rs` | machines that share what they believe, never their data, without a centre |
+| hidden state | `hidden.rs` | what a node really is behind what is measured of it: a Kalman filter that follows it, an expectation-maximisation that consolidates its law, the world's noise told from the senses' |
+| time | `time.rs` | nodes that **remember** (precise near the present, coarser further back), **learn how they move** in real time, **find links by themselves**, are **foreseen** with a confidence, and say **why** |
+| the world outside | `grm-connect` | web APIs: what an answer can give (fields, kinds, units), the chosen fields into a sandbox, their rows each at its moment; Open-Meteo and Our World in Data to begin with |
+| laws | `discover.rs` | what holds between nodes at the same moment (a line, a power, a product of powers), found in the rows it has seen and proposed through a sandbox |
+| the eye | `vision.rs` | pictures: a network of its own near what it sees (pixels tied to their neighbours, a pyramid above them), that cleans, fills, keeps edges, is surprised, sees what changed, and sends a glance to the world's network |
+| units | `units.rs` | a node with a dimension is given in SI, counted inside in Planck units |
+| the prompt | `grm-shell` | every command, the same in the terminal and in the window: a line goes in, lines come out (said, dim, a warning, an error, a question waiting for y/n) |
+| the sound | `grm-sound` | the machine's own voice, the mixer of the human's channels, the sound device, WAV files |
+| the window | `grm-app` | the network, the prompt, the inspector, sandboxes, sources, journal, eye, sound; apps as code, network and surface; placed by a GRM network |
+| apps | `grm-shell` (`apps.rs`, `runtime.rs`) | an app's file read (`use` and `call` unfolded, its surface and APIs set apart), run, edited while it runs, closed, kept with the desk |
+| APIs | `grm-connect` (`api.rs`) | GET every so often, POST, WebSocket, each in its thread, what it reads into nodes |
 
 ### Never waiting, never computing for nothing
 
@@ -445,6 +445,21 @@ STATEMENT` says anything of the language into that network (`style relate breath
 
 ![The side, the prompt, a soft warning](docs/panels.png)
 
+### The space: a table, not a desk
+
+The first tab is a **space**: an infinite table (drag the background to move around, Ctrl and the wheel or two
+fingers to zoom) where the human puts what they want, in their own order or their own mess, and a button tidies
+it. On it: **apps** (an app and a widget are the same thing: small on the table it is a widget, bigger a window,
+double clicked it opens whole), **networks** (each looked at its own way), files, plots, what the machine feels, a
+clock. Several apps live side by side and play at once. A frame moves by its title and grows by its corner.
+
+**The space is itself a file**, `space.grm` beside the memory, one line per thing on the table
+(`place app weather at 40 60 size 420 300`): *Its code* opens it, and what is written there is what is shown.
+
+The machine's voice (the wind, the pad) is turned on or off from anywhere: the speaker at the top, or Ctrl+M.
+
+![The space: a clock, the network, what it feels, two apps playing side by side](docs/space.png)
+
 ### The inspector as a tree, formulas as mathematics, from the large to the small
 
 - **The inspector is a tree**, browsed as a file explorer: the networks (each with its sign: an app's own, a
@@ -602,10 +617,10 @@ PYTHONPATH=path/to/pygrm/src python3 tools/golden.py path/to/grm-core/vm
 The same grid (`tools/grid.py`), the same 100 rounds, the same messages, on one core of the machine it was
 written on:
 
-|                | nodes  | processors | messages | Python (grm-core) | Rust   |
-| -------------- | ------ | ---------- | -------- | ----------------- | ------ |
-| grid 40 x 40   | 1 600  | 4 720      | 1.39 M   | 2.41 s            | 0.11 s |
-| grid 200 x 200 | 40 000 | 119 600    | 26.4 M   | —                 | 2.3 s  |
+| | nodes | processors | messages | Python (grm-core) | Rust |
+|---|---|---|---|---|---|
+| grid 40 x 40 | 1 600 | 4 720 | 1.39 M | 2.41 s | 0.11 s |
+| grid 200 x 200 | 40 000 | 119 600 | 26.4 M | — | 2.3 s |
 
 About 20 times faster on one core; more cores share each round (measured on the host it runs on: the machine it
 was written on has 2 shared cores, too few to say).
@@ -624,6 +639,8 @@ python3 tools/bench_python.py path/to/grm-core/vm FILE.grm [ROUNDS]
   itself. Zooming out gathers networks by where they come from (sources), not yet the sub-networks an app calls.
 - Workshops live while the machine runs: they are not yet kept when it sleeps (the file stays: loading it again
   makes the workshop again). The window's own networks (its layout, its looks) are not yet shown in the global view.
+- The space is a first version: the tabs are still there beside it; frames are placed by hand (a tidy in rows),
+  not yet by soft relations; the weather and the clock are not yet apps with their own drawn signs.
 - Not ported yet from the Python machine: `step` (one pass at a time), `watch` (breakpoints), `mood`, `capacity`,
   `prune`, the night (fusions, forgetting), the journal written for a human; `why` tells shares and what each
   relation says, not yet what each heard. A table opened shows its first 500 rows.

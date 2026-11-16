@@ -39,6 +39,8 @@ pub struct Window {
     #[serde(default = "yes")]
     pub side_open: bool,
     #[serde(default = "yes")]
+    pub space_on: bool,
+    #[serde(default = "yes")]
     pub prompt_open: bool,
     /// The window was full screen.
     pub fullscreen: bool,

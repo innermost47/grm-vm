@@ -156,6 +156,10 @@ pub struct App {
     pub focus: Option<String>,
     /// The network the view went into (double click): only it is shown.
     pub dived: Option<String>,
+    /// The space (a table where the human puts what they want), and whether it is shown.
+    pub space: crate::space::Space,
+    pub space_on: bool,
+    space_ready: bool,
     /// The master equation of everything, and of what is shown.
     pub master: (Option<Said>, Option<Said>),
     master_pull: Pull<Masters>,
@@ -427,6 +431,9 @@ impl App {
             world_saved_at: Instant::now(),
             journey: Default::default(),
             dived: None,
+            space: Default::default(),
+            space_on: true,
+            space_ready: false,
             masters: Default::default(),
             tree_open: Default::default(),
             tree_detail: Default::default(),
@@ -487,6 +494,7 @@ impl App {
         self.eye_path = w.eye_path.clone();
         self.history = w.history.clone();
         self.side_open = w.side_open;
+        self.space_on = w.space_on;
         self.prompt_open = w.prompt_open;
         self.fullscreen_back = w.fullscreen || w.launched;
         let kind = |c: char| match c {
@@ -529,6 +537,7 @@ impl App {
             bottom_wish: self.layout.bottom_wish,
             eye_path: self.eye_path.clone(),
             side_open: self.side_open,
+            space_on: self.space_on,
             prompt_open: self.prompt_open,
             fullscreen: ctx.input(|i| i.viewport().fullscreen.unwrap_or(false)),
             history: self.history.iter().rev().take(500).rev().cloned().collect(),
@@ -827,6 +836,7 @@ impl App {
                             }
                         };
                         self.current_file = Some(k);
+                        self.space_on = false;
                     }
                     grm_shell::Order::Columns { path, names, written, numeric } => {
                         self.columns = Some((path, names, written, numeric));
@@ -840,6 +850,7 @@ impl App {
                     grm_shell::Order::Workshop(n) => {
                         // a table just learned: its network shown at once
                         self.workshop_shown = Some(n);
+                        self.space_on = false;
                         self.sandbox_shown = None;
                         self.current = None;
                         self.current_file = None;
@@ -968,6 +979,9 @@ impl App {
                 self.take_back(false);
             }
         }
+        if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::M)) {
+            self.toggle_voice();
+        }
         if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::O)) {
             self.pick(Pick::Open);
         }
@@ -1076,6 +1090,12 @@ impl App {
                 let words = RichText::new(self.tr("panic")).color(if sounding { ink.amber } else { ink.muted });
                 if ui.add(egui::Button::image_and_text(sign, words)).on_hover_text("Ctrl+.").clicked() {
                     self.say("panic");
+                }
+                // the machine's own voice (the wind, the pad): on or off from anywhere
+                let voice = self.mixer.lock().map(|m| m.ambient_on).unwrap_or(false);
+                let (sign, what) = if voice { ("volume-2", "voice_off_d") } else { ("volume-x", "voice_on_d") };
+                if crate::icons::sign(ui, sign, &format!("{} (Ctrl+M)", self.tr(what))).clicked() {
+                    self.toggle_voice();
                 }
                 ui.label(RichText::new(format!("{} {}", self.picture.ticks, self.tr("ticks"))).color(ink.muted));
                 ui.label(
@@ -1453,6 +1473,10 @@ impl eframe::App for App {
         ctx.data_mut(|d| d.insert_temp(egui::Id::new("grm-lang"), self.settings.lang));
         self.breath(ctx);
         self.answers(ctx);
+        if !self.space_ready && self.apps_known {
+            self.space = crate::space::Space::load(&self.memory).unwrap_or_else(|| crate::space::first(self));
+            self.space_ready = true;
+        }
         self.follow();
         self.files_dropped(ctx);
         self.picked();
@@ -1586,17 +1610,32 @@ impl App {
     fn central(&mut self, ui: &mut egui::Ui) {
         let ink = Ink::of(ui.ctx());
         let lang = self.settings.lang;
-        // the tabs: the desk, each app that runs, and what can be opened
+        // the tabs: the space, the whole network, each app that runs, and what can be opened
+        let before = (self.current.clone(), self.current_file, self.sandbox_shown.clone(), self.workshop_shown.clone());
+        let mut to_space = false;
         ui.horizontal_wrapped(|ui| {
-            let desk_on = self.current.is_none() && self.current_file.is_none() && self.sandbox_shown.is_none();
-            if crate::icons::toggle(ui, "layout-grid", t(lang, "desk"), desk_on).clicked() {
+            if crate::icons::toggle(ui, "layout-dashboard", t(lang, "space"), self.space_on)
+                .on_hover_text(t(lang, "space_d"))
+                .clicked()
+            {
+                to_space = true;
+            }
+            let desk_on = !self.space_on
+                && self.current.is_none()
+                && self.current_file.is_none()
+                && self.sandbox_shown.is_none()
+                && self.workshop_shown.is_none();
+            if crate::icons::toggle(ui, "network", t(lang, "desk"), desk_on).clicked() {
+                self.space_on = false;
+                self.workshop_shown = None;
                 self.current = None;
                 self.current_file = None;
                 self.sandbox_shown = None;
                 self.editing = false;
             }
             for a in self.apps.clone() {
-                let on = self.current.as_deref() == Some(a.name.as_str())
+                let on = !self.space_on
+                    && self.current.as_deref() == Some(a.name.as_str())
                     && self.current_file.is_none()
                     && self.sandbox_shown.is_none();
                 let sign = a.icon.clone().filter(|i| crate::icons::exists(i)).unwrap_or("app-window".into());
@@ -1624,6 +1663,8 @@ impl App {
                     self.current = Some(a.name.clone());
                     self.current_file = None;
                     self.sandbox_shown = None;
+                    self.workshop_shown = None;
+                    self.space_on = false;
                 }
                 r.context_menu(|ui| {
                     if crate::menu::item(ui, "maximize", t(lang, "launch"), t(lang, "m_launch_d")) {
@@ -1634,6 +1675,12 @@ impl App {
                     }
                     if crate::menu::item(ui, "x", t(lang, "close_app"), t(lang, "m_close_app_d")) {
                         self.say(format!("app close {}", a.name));
+                        ui.close();
+                    }
+                    if crate::menu::item(ui, "layout-dashboard", t(lang, "space_put_it"), t(lang, "space_put_it_d")) {
+                        self.space.put(crate::space::Kind::App(a.name.clone()));
+                        self.space_on = true;
+                        self.space.seen = egui::Rect::NOTHING;
                         ui.close();
                     }
                     if crate::menu::item(ui, "trash-2", t(lang, "m_trash_app"), t(lang, "m_trash_app_d")) {
@@ -1689,6 +1736,18 @@ impl App {
             });
         });
         self.areas.insert("tabs", ui.min_rect());
+        if to_space {
+            self.space_on = true;
+        } else if before
+            != (self.current.clone(), self.current_file, self.sandbox_shown.clone(), self.workshop_shown.clone())
+        {
+            self.space_on = false;
+        }
+        if self.space_on {
+            ui.separator();
+            crate::space::show(self, ui);
+            return;
+        }
         if let Some(k) = self.current_file {
             if k < self.files.len() {
                 ui.separator();
@@ -2339,5 +2398,14 @@ impl App {
             Some(false) => self.confirm = None,
             None => {}
         }
+    }
+}
+
+impl App {
+    /// The machine's voice on, or off (it fades either way).
+    pub fn toggle_voice(&mut self) {
+        let on = !self.mixer.lock().map(|m| m.ambient_on).unwrap_or(false);
+        self.say(if on { "sound on" } else { "sound off" });
+        self.settings.voice_on = on;
     }
 }

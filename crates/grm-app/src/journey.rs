@@ -32,6 +32,7 @@ pub struct Place {
     selected: Vec<String>,
     tab: Tab,
     dived: Option<String>,
+    space: bool,
     zoom: f32,
     offset: [f32; 2],
 }
@@ -48,6 +49,7 @@ impl Place {
             && self.selected == o.selected
             && self.tab == o.tab
             && self.dived == o.dived
+            && self.space == o.space
     }
 }
 
@@ -164,6 +166,7 @@ impl App {
             selected: self.selected.clone(),
             tab: self.tab,
             dived: self.dived.clone(),
+            space: self.space_on,
             zoom: self.view.zoom,
             offset: [self.view.offset.x, self.view.offset.y],
         }
@@ -180,6 +183,7 @@ impl App {
         self.workshop_shown = p.workshop.clone().filter(|w| self.picture.workshops.iter().any(|x| &x.0 == w));
         self.selected = p.selected.iter().filter(|s| self.picture.node(s).is_some()).cloned().collect();
         self.tab = p.tab;
+        self.space_on = p.space;
         self.dived = p.dived.clone().filter(|d| self.picture.nodes.iter().any(|n| &n.source == d));
         self.view.zoom = p.zoom;
         self.view.offset = egui::vec2(p.offset[0], p.offset[1]);

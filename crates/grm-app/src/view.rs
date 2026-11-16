@@ -19,6 +19,8 @@ pub struct View {
     relating: Option<String>,
     menu_at: Option<(Pos2, Option<String>)>,
     pub fitted: bool,
+    /// Shown small (on the space): the wheel is the space's, not this view's.
+    pub passive: bool,
 }
 
 impl Default for View {
@@ -31,6 +33,7 @@ impl Default for View {
             relating: None,
             menu_at: None,
             fitted: false,
+            passive: false,
         }
     }
 }
@@ -286,6 +289,35 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
             let radius = (18.0 + (pts.len() as f32).sqrt() * 6.0).max(spread * 0.5).min(90.0);
             centres.insert(s.clone(), (c.to_pos2(), radius, pts.len()));
         }
+        // gathered, they must not lie on one another: they push each other apart (a few rounds), keeping room
+        // for their names
+        {
+            let keys: Vec<String> = centres.keys().cloned().collect();
+            for _ in 0..60 {
+                let mut moved = false;
+                for a in 0..keys.len() {
+                    for b in a + 1..keys.len() {
+                        let (pa, ra, _) = centres[&keys[a]];
+                        let (pb, rb, _) = centres[&keys[b]];
+                        let need = ra + rb + 36.0;
+                        let mut d = pb - pa;
+                        if d.length() < 1e-3 {
+                            d = vec2(1.0, 0.3 * (b as f32 - a as f32));
+                        }
+                        let dist = d.length();
+                        if dist < need {
+                            let push = d / dist * (need - dist) / 2.0;
+                            centres.get_mut(&keys[a]).unwrap().0 -= push;
+                            centres.get_mut(&keys[b]).unwrap().0 += push;
+                            moved = true;
+                        }
+                    }
+                }
+                if !moved {
+                    break;
+                }
+            }
+        }
         // what joins networks: relations that hold nodes of several, as thick as how many
         let mut joins: indexmap::IndexMap<(String, String), usize> = indexmap::IndexMap::new();
         for r in &pic.relations {
@@ -318,14 +350,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
                 Stroke::new(if over { 2.5_f32 } else { 1.5_f32 }, faded(colour, collapse)),
             );
             painter.text(
-                *c - vec2(0.0, 7.0),
-                egui::Align2::CENTER_CENTER,
+                *c + vec2(0.0, *radius + 4.0),
+                egui::Align2::CENTER_TOP,
                 s,
                 egui::FontId::proportional(13.0),
                 faded(ink.text, collapse),
             );
             painter.text(
-                *c + vec2(0.0, 9.0),
+                *c,
                 egui::Align2::CENTER_CENTER,
                 format!("{count} {}", t(lang, "all_nodes")),
                 egui::FontId::proportional(10.0),
@@ -532,7 +564,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
         }
     }
     // the wheel, Ctrl and the wheel, two fingers apart on a touchpad: all zoom (even with a card open over it)
-    if resp.contains_pointer() {
+    if resp.contains_pointer() && !app.view.passive {
         let (scroll, pinch) = ui.input(|i| (i.smooth_scroll_delta.y, i.zoom_delta()));
         let factor = (1.0 + scroll * 0.0015) * pinch;
         if (factor - 1.0).abs() > 1e-4 {

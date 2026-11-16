@@ -57,7 +57,10 @@
    panes; a menu on the networks' chips. Next: workshops kept when the machine sleeps; the window's own networks
    (layout, looks) shown in the global view; sharing chosen networks with chosen circles (friends, family) and
    with the world.
-   **Then, in this order**: the space (above); detachable windows; an app's surface, network and code together;
+   *Then done*: the space (a table: apps as widgets or windows, networks, files, plots, feelings, a clock; a
+   tidy; written as `space.grm`); the voice on or off from anywhere.
+   **Then, in this order**: the space further (no tabs at all, frames held by soft relations when asked, several
+   spaces, the weather as an app with drawn signs); detachable windows; an app's surface, network and code together;
    outputs as small live screens (beside the network, in the inspector, on the node itself as in TouchDesigner);
    a file explorer in the side; a system view (memory, processor, disk, and the machine's share); the eye, the
    ear, files as input nodes a file is dropped on; the flow made visible (direction, propagation, weight: paths as
