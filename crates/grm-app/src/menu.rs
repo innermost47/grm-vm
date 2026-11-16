@@ -12,11 +12,13 @@ use crate::text::t;
 pub fn item(ui: &mut egui::Ui, sign: &str, title: &str, what: &str) -> bool {
     let ink = Ink::of(ui.ctx());
     let r = ui.add(
-        egui::Button::new(RichText::new(format!("{sign}  {title}")).strong())
+        egui::Button::image_and_text(crate::icons::image(sign, 16.0, ink.accent), RichText::new(title).strong())
             .frame(false)
             .min_size(egui::vec2(260.0, 0.0)),
     );
-    ui.label(RichText::new(format!("     {what}")).small().color(ink.muted));
+    egui::Frame::new().inner_margin(egui::Margin { left: 24, ..Default::default() }).show(ui, |ui| {
+        ui.label(RichText::new(what).small().color(ink.muted));
+    });
     ui.add_space(2.0);
     r.clicked()
 }
@@ -29,61 +31,61 @@ pub fn node_menu(app: &mut App, ui: &mut egui::Ui, n: &str) {
     ui.separator();
     let node = app.picture.node(n).cloned();
     let tracked = node.as_ref().is_some_and(|x| x.tracked);
-    if item(ui, "🔍", t(lang, "m_inspect"), t(lang, "m_inspect_d")) {
+    if item(ui, "search", t(lang, "m_inspect"), t(lang, "m_inspect_d")) {
         app.select(n, false);
         ui.close();
     }
-    if !tracked && item(ui, "⏱", t(lang, "track"), t(lang, "m_track_d")) {
+    if !tracked && item(ui, "timer", t(lang, "track"), t(lang, "m_track_d")) {
         app.say(format!("track {n}"));
         ui.close();
     }
-    if tracked && item(ui, "🔮", t(lang, "forecast"), t(lang, "m_forecast_d")) {
+    if tracked && item(ui, "trending-up", t(lang, "forecast"), t(lang, "m_forecast_d")) {
         app.say(format!("forecast {n} 12"));
         ui.close();
     }
     let playing = app.mixer.lock().map(|m| m.playing().contains(&n.to_string())).unwrap_or(false);
     if playing {
-        if item(ui, "■", t(lang, "stop"), t(lang, "m_stop_d")) {
+        if item(ui, "square", t(lang, "stop"), t(lang, "m_stop_d")) {
             app.say(format!("stop {n}"));
             ui.close();
         }
-    } else if item(ui, "▶", t(lang, "play"), t(lang, "m_play_d")) {
+    } else if item(ui, "play", t(lang, "play"), t(lang, "m_play_d")) {
         app.say(format!("play {n}"));
         ui.close();
     }
-    if item(ui, "📈", t(lang, "m_plot"), t(lang, "m_plot_d")) {
+    if item(ui, "chart-line", t(lang, "m_plot"), t(lang, "m_plot_d")) {
         if !app.plotted.contains(&n.to_string()) {
             app.plotted.push(n.to_string());
         }
         app.show_plot();
         ui.close();
     }
-    if item(ui, "🔗", t(lang, "m_relate"), t(lang, "m_relate_d")) {
+    if item(ui, "link", t(lang, "m_relate"), t(lang, "m_relate_d")) {
         app.relate_from = Some(n.to_string());
         ui.close();
     }
     if let Some((a, l)) = app.line_in_app(n) {
-        if item(ui, "✏", t(lang, "edit_line"), &format!("{a}, {} {l}", t(lang, "line"))) {
+        if item(ui, "pencil", t(lang, "edit_line"), &format!("{a}, {} {l}", t(lang, "line"))) {
             let text =
                 app.apps.iter().find(|x| x.name == a).and_then(|x| x.text.lines().nth(l - 1)).unwrap_or("").to_string();
             app.line_draft = Some((Some(a), Some(l), text.trim().to_string()));
             ui.close();
         }
     }
-    if app.graph.pinned.contains(&format!("n:{n}")) && item(ui, "📌", t(lang, "unpin"), t(lang, "m_unpin_d")) {
+    if app.graph.pinned.contains(&format!("n:{n}")) && item(ui, "pin-off", t(lang, "unpin"), t(lang, "m_unpin_d")) {
         app.graph.pinned.remove(&format!("n:{n}"));
         app.graph.motion = 1.0;
         ui.close();
     }
     if let Some(src) = node.as_ref().map(|x| x.source.clone()) {
         if !app.picture.quarantine.contains(&src)
-            && item(ui, "⚠", t(lang, "quarantine_source"), &format!("{src}: {}", t(lang, "m_quarantine_d")))
+            && item(ui, "shield-alert", t(lang, "quarantine_source"), &format!("{src}: {}", t(lang, "m_quarantine_d")))
         {
             app.say(format!("quarantine {src}"));
             ui.close();
         }
     }
-    if item(ui, "🗑", t(lang, "remove"), t(lang, "m_remove_d")) {
+    if item(ui, "trash-2", t(lang, "remove"), t(lang, "m_remove_d")) {
         app.say(format!("remove {n}"));
         ui.close();
     }
@@ -92,19 +94,19 @@ pub fn node_menu(app: &mut App, ui: &mut egui::Ui, n: &str) {
 /// The menu of the background.
 pub fn background_menu(app: &mut App, ui: &mut egui::Ui, at: [f32; 2]) {
     let lang = app.settings.lang;
-    if item(ui, "➕", t(lang, "new_node"), t(lang, "m_new_node_d")) {
+    if item(ui, "circle-plus", t(lang, "new_node"), t(lang, "m_new_node_d")) {
         app.node_form = Some(NodeForm { at, ..Default::default() });
         ui.close();
     }
-    if item(ui, "🔗", t(lang, "m_new_relation"), t(lang, "m_new_relation_d")) {
+    if item(ui, "link", t(lang, "m_new_relation"), t(lang, "m_new_relation_d")) {
         app.line_draft = Some((app.current.clone(), None, "relate r: a = 2 * b".into()));
         ui.close();
     }
-    if item(ui, "🔭", t(lang, "fit"), t(lang, "m_fit_d")) {
+    if item(ui, "scan-search", t(lang, "fit"), t(lang, "m_fit_d")) {
         app.view.fitted = false;
         ui.close();
     }
-    if item(ui, "📈", t(lang, "m_plots"), t(lang, "m_plots_d")) {
+    if item(ui, "chart-line", t(lang, "m_plots"), t(lang, "m_plots_d")) {
         app.show_plot();
         ui.close();
     }

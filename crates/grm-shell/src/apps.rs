@@ -4,6 +4,7 @@
 //!
 //! ```text
 //! app Oscillator bench                         its title
+//! icon audio-waveform                          its sign
 //! use osc.grm                                  networks written elsewhere (`network NAME(p) ... end`)
 //! call osc(name=lead, step=0.0576)             a network called, its names made from what it is given
 //! node volume = 0.5                            the language, as everywhere
@@ -277,6 +278,8 @@ pub struct Flat {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Parsed {
     pub title: Option<String>,
+    /// `icon NAME`: its sign (a Lucide icon's name).
+    pub icon: Option<String>,
     /// `clock S`: the world ticks every S seconds while it runs.
     pub clock: Option<f64>,
     pub flat: Vec<Flat>,
@@ -383,6 +386,10 @@ fn unfold(
         let (word, rest) = text.split_once(char::is_whitespace).map(|(a, b)| (a, b.trim())).unwrap_or((text, ""));
         match word.to_lowercase().as_str() {
             "app" if outer.is_none() => p.title = Some(rest.to_string()),
+            "icon" if outer.is_none() => match rest.split_whitespace().next() {
+                Some(i) => p.icon = Some(i.to_lowercase()),
+                None => p.errors.push((line_no, "icon NAME (a sign's name: play, music, cloud-sun...)".into())),
+            },
             "clock" if outer.is_none() => match rest.trim().parse::<f64>() {
                 Ok(s) if s >= 0.01 => p.clock = Some(s),
                 _ => p.errors.push((line_no, "clock SECONDS (the world ticks every so often while it runs)".into())),

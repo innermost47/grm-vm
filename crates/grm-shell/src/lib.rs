@@ -152,7 +152,7 @@ pub fn wake_or_born(path: &std::path::Path) -> (World, Option<Line>) {
             );
             (w, Some(Line::dim(said)))
         }
-        Err(e) => (World::new(), Some(Line::warn(format!("⚠ {e}: it starts afresh (the file is left as it is)")))),
+        Err(e) => (World::new(), Some(Line::warn(format!("{e}: it starts afresh (the file is left as it is)")))),
     }
 }
 
@@ -219,6 +219,8 @@ pub struct Shell {
     /// The world as it was before each change (`undo`), and what was taken back (`redo`).
     pub(crate) undo_world: Vec<World>,
     pub(crate) redo_world: Vec<World>,
+    /// How many times the world was kept before a change (the window counts what can be taken back).
+    pub snapshots: u64,
 }
 
 pub(crate) fn said(answer: grm_engine::Result<String>) -> Vec<Line> {
@@ -247,6 +249,7 @@ impl Shell {
             before_cd: None,
             undo_world: vec![],
             redo_world: vec![],
+            snapshots: 0,
         }
     }
 
@@ -341,8 +344,11 @@ impl Shell {
             "panic", "stop", "trial", "play", "pause", "render", "edit", "open", "new", "threads", "sleep", "mkdir",
             "touch", "cp", "mv", "rm",
         ];
-        if !READING.contains(&word) {
+        // an app keeps its own texts, and opening or closing one is taken back by closing or opening it: the world
+        // is not kept for them
+        if !READING.contains(&word) && word != "app" {
             if let Some(w) = engine.query(|w| w.clone()) {
+                self.snapshots += 1;
                 self.undo_world.push(w);
                 if self.undo_world.len() > 30 {
                     self.undo_world.remove(0);
@@ -403,7 +409,7 @@ impl Shell {
                     if s.settled { ", settled" } else { ", computing" }
                 ))];
                 if !s.quarantine.is_empty() {
-                    out.push(Line::warn(format!("⚠ in quarantine: {}", s.quarantine.join(", "))));
+                    out.push(Line::warn(format!("in quarantine: {}", s.quarantine.join(", "))));
                 }
                 out
             }

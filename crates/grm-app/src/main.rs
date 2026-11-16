@@ -16,6 +16,8 @@ mod files;
 mod french;
 mod graph;
 mod hover;
+mod icons;
+mod journey;
 mod layout;
 mod looks;
 mod menu;
@@ -133,5 +135,12 @@ fn main() -> eframe::Result<()> {
             .with_icon(std::sync::Arc::new(icon())),
         ..Default::default()
     };
-    eframe::run_native("grm-vm", options, Box::new(move |cc| Ok(Box::new(app::App::new(cc, args)))))
+    eframe::run_native(
+        "grm-vm",
+        options,
+        Box::new(move |cc| {
+            egui_extras::install_image_loaders(&cc.egui_ctx);
+            Ok(Box::new(app::App::new(cc, args)))
+        }),
+    )
 }

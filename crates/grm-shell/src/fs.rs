@@ -497,12 +497,11 @@ impl Shell {
                     })
                     .filter_map(|(k, f)| {
                         let r = m.residual(k);
-                        (r.abs() > 1.0)
-                            .then(|| format!("⚠ {} does not hold: {:.1} sigma ({})", f.name, r.abs(), f.text))
+                        (r.abs() > 1.0).then(|| format!("{} does not hold: {:.1} sigma ({})", f.name, r.abs(), f.text))
                     })
                     .collect();
                 for q in &w.quarantine {
-                    out.push(format!("⚠ {q} is in quarantine"));
+                    out.push(format!("{q} is in quarantine"));
                 }
                 if out.is_empty() {
                     out.push(format!("everything holds (harmony {:.3})", m.harmony()));

@@ -25,6 +25,8 @@ use crate::{Line, Shell};
 pub struct AppView {
     pub name: String,
     pub title: String,
+    /// Its sign's name (`icon NAME`).
+    pub icon: Option<String>,
     pub path: PathBuf,
     pub text: String,
     /// (line, why): what it could not say.
@@ -126,6 +128,7 @@ impl Shell {
             .map(|a| AppView {
                 name: a.name.clone(),
                 title: a.parsed.title.clone().unwrap_or_else(|| a.name.clone()),
+                icon: a.parsed.icon.clone(),
                 path: a.path.clone(),
                 text: a.text.clone(),
                 errors: a.errors.clone(),
@@ -583,13 +586,13 @@ impl Shell {
         }
         let Ok(text) = std::fs::read_to_string(desk_path(&self.memory)) else { return vec![] };
         let Ok(desk) = serde_json::from_str::<Desk>(&text) else {
-            return vec![Line::warn("⚠ the desk could not be read: it starts empty")];
+            return vec![Line::warn("the desk could not be read: it starts empty")];
         };
         self.rt.closed = desk.closed.clone();
         let mut out = vec![];
         for (name, path, prefix) in &desk.running {
             let Ok(text) = std::fs::read_to_string(path) else {
-                out.push(Line::warn(format!("⚠ {name}: {} is not there any more", path.display())));
+                out.push(Line::warn(format!("{name}: {} is not there any more", path.display())));
                 continue;
             };
             self.rt.apps.insert(

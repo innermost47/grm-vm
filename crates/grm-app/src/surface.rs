@@ -299,9 +299,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
             }
             WidgetKind::Play => {
                 let playing = app.mixer.lock().map(|m| m.playing().contains(&w.nodes[0])).unwrap_or(false);
-                let text = if playing { format!("■ {label}") } else { format!("▶ {label}") };
-                if ui.put(rect, egui::Button::new(RichText::new(text).size(15.0 * lk.size)).selected(playing)).clicked()
-                {
+                let sign = crate::icons::image(if playing { "square" } else { "play" }, 15.0 * lk.size, lk.text);
+                let b =
+                    egui::Button::image_and_text(sign, RichText::new(&label).size(15.0 * lk.size)).selected(playing);
+                if ui.put(rect, b).clicked() {
                     app.say(if playing { format!("stop {}", w.nodes[0]) } else { format!("play {}", w.nodes[0]) });
                 }
             }

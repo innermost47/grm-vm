@@ -337,6 +337,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
         } else if shift {
             app.view.box_from = origin.or(resp.interact_pointer_pos());
         } else if let Some(n) = &pressed_on {
+            let before = app.layout_change();
+            app.journey.record(before, format!("{} {n}", crate::text::t(app.settings.lang, "moved")));
             app.view.dragging = Some(n.clone());
         }
     }

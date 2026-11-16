@@ -72,7 +72,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, k: usize) {
     ui.horizontal(|ui| {
         ui.label(RichText::new(f.path.display().to_string()).monospace().small().color(ink.muted));
         let save = ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::S));
-        if ui.add_enabled(f.dirty(), egui::Button::new(t(lang, "save"))).on_hover_text("Ctrl+S").clicked()
+        if ui
+            .add_enabled(
+                f.dirty(),
+                egui::Button::image_and_text(crate::icons::image("save", 15.0, ink.text), t(lang, "save")),
+            )
+            .on_hover_text("Ctrl+S")
+            .clicked()
             || (save && f.dirty())
         {
             if let Err(e) = f.save() {
@@ -80,7 +86,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, k: usize) {
             }
         }
         if f.path.extension().is_some_and(|x| x == "grm")
-            && ui.button(format!("▶ {}", t(lang, "run"))).on_hover_text("F5").clicked()
+            && crate::icons::button(ui, "play", t(lang, "run")).on_hover_text("F5").clicked()
         {
             let _ = f.save();
             said = Some(format!("use {}", f.path.display()));
@@ -97,35 +103,52 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, k: usize) {
         }
     });
     ui.separator();
-    if let Some((written, cells, _)) = &mut f.table {
+    let path = f.path.clone();
+    // what changed, to be taken back: (row, column, what it was) or the whole table
+    let mut cell_was: Vec<(usize, usize, String)> = vec![];
+    let mut table_was: Option<crate::journey::Table> = None;
+    if let Some(table) = &mut f.table {
+        let (written, cells, sep) = table;
+        let sep = *sep;
         let mut changed = false;
+        // one cell, kept as it was while it is being written in
+        let mut cell = |ui: &mut egui::Ui, text: &mut String, row: usize, col: usize, changed: &mut bool| {
+            let id = egui::Id::new(("cell", k, row, col));
+            let before = ui.memory(|m| m.has_focus(id)).then(|| text.clone());
+            let r =
+                ui.add_sized([120.0, 22.0], egui::TextEdit::singleline(text).id(id).font(egui::TextStyle::Monospace));
+            if r.changed() {
+                *changed = true;
+                if let Some(b) = before {
+                    cell_was.push((row, col, b));
+                }
+            }
+        };
         egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
             egui::Grid::new(("table", k)).striped(true).spacing([4.0, 2.0]).show(ui, |ui| {
                 ui.label("");
-                for h in written.iter_mut() {
-                    changed |= ui
-                        .add_sized([120.0, 22.0], egui::TextEdit::singleline(h).font(egui::TextStyle::Monospace))
-                        .changed();
+                for (c, h) in written.iter_mut().enumerate() {
+                    cell(ui, h, usize::MAX, c, &mut changed);
                 }
                 ui.end_row();
                 let cols = written.len();
                 for (r, row) in cells.iter_mut().enumerate().take(500) {
                     ui.label(RichText::new(format!("{}", r + 1)).small().color(ink.muted));
                     row.resize(cols, String::new());
-                    for c in row.iter_mut() {
-                        changed |= ui
-                            .add_sized([120.0, 22.0], egui::TextEdit::singleline(c).font(egui::TextStyle::Monospace))
-                            .changed();
+                    for (c, text) in row.iter_mut().enumerate() {
+                        cell(ui, text, r, c, &mut changed);
                     }
                     ui.end_row();
                 }
             });
             ui.horizontal(|ui| {
-                if ui.button(t(lang, "add_row")).clicked() {
+                if crate::icons::button(ui, "between-horizontal-end", t(lang, "add_row")).clicked() {
+                    table_was = Some((written.clone(), cells.clone(), sep));
                     cells.push(vec![String::new(); written.len()]);
                     changed = true;
                 }
-                if ui.button(t(lang, "add_column")).clicked() {
+                if crate::icons::button(ui, "between-vertical-end", t(lang, "add_column")).clicked() {
+                    table_was = Some((written.clone(), cells.clone(), sep));
                     written.push(format!("column{}", written.len() + 1));
                     for r in cells.iter_mut() {
                         r.push(String::new());
@@ -170,6 +193,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, k: usize) {
                     .layouter(&mut layouter),
             );
         });
+    }
+    for (row, col, text) in cell_was {
+        let what = format!("{} {}", t(lang, "cell"), path.display());
+        app.journey.record(crate::journey::Change::Cell { path: path.clone(), row, col, text }, what);
+    }
+    if let Some(table) = table_was {
+        let what = format!("{} {}", t(lang, "table_shape"), path.display());
+        app.journey.record(crate::journey::Change::Table { path: path.clone(), table }, what);
     }
     if close {
         app.files.remove(k);

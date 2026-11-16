@@ -27,7 +27,115 @@ const STATEMENTS: &[&str] = &[
 ];
 const APP_WORDS: &[&str] = &["app", "widget", "api", "read"];
 
+/// The words the prompt knows (completed with Tab, coloured as commands).
+pub const PROMPT_WORDS: &[&str] = &[
+    "node",
+    "relate",
+    "keep",
+    "observe",
+    "forget",
+    "var",
+    "set",
+    "carry",
+    "learn",
+    "input",
+    "output",
+    "fuse",
+    "network",
+    "call",
+    "use",
+    "tick",
+    "show",
+    "status",
+    "joint",
+    "sandbox",
+    "in",
+    "run",
+    "trial",
+    "merge",
+    "refuse",
+    "sources",
+    "quarantine",
+    "release",
+    "recall",
+    "remove",
+    "journal",
+    "track",
+    "forecast",
+    "why",
+    "rewind",
+    "embody",
+    "insights",
+    "discover",
+    "connect",
+    "take",
+    "feed",
+    "see",
+    "sound",
+    "voice",
+    "volume",
+    "play",
+    "pause",
+    "stop",
+    "mute",
+    "unmute",
+    "solo",
+    "gain",
+    "pan",
+    "mixer",
+    "panic",
+    "render",
+    "sleep",
+    "wake",
+    "threads",
+    "help",
+    "quit",
+    "ask",
+    "put",
+    "inspect",
+    "outputs",
+    "check",
+    "master",
+    "focus",
+    "history",
+    "clear",
+    "tour",
+    "lang",
+    "load",
+    "undo",
+    "redo",
+    "stats",
+    "pwd",
+    "cd",
+    "ls",
+    "head",
+    "tail",
+    "cat",
+    "mkdir",
+    "touch",
+    "cp",
+    "mv",
+    "rm",
+    "new",
+    "edit",
+    "open",
+    "programs",
+    "app",
+    "apps",
+];
+
+/// One line said at the prompt, coloured as code is (its first word: a statement, or a command of the prompt).
+pub fn highlight_line(ink: &Ink, text: &str) -> LayoutJob {
+    colour_code(ink, text, &[], true)
+}
+
+/// A program, coloured: statements, the app's words, commands, numbers, comments; the lines it could not say
+/// underlined.
 pub fn highlight(ink: &Ink, text: &str, errors: &[usize]) -> LayoutJob {
+    colour_code(ink, text, errors, false)
+}
+
+fn colour_code(ink: &Ink, text: &str, errors: &[usize], prompt: bool) -> LayoutJob {
     let mut job = LayoutJob::default();
     let font = FontId::monospace(13.0);
     for (k, line) in text.split_inclusive('\n').enumerate() {
@@ -58,7 +166,10 @@ pub fn highlight(ink: &Ink, text: &str, errors: &[usize]) -> LayoutJob {
                 ink.accent
             } else if *first && APP_WORDS.contains(&lower.as_str()) {
                 ink.source(1)
-            } else if *first && grm_shell::apps::COMMANDS.contains(&lower.as_str()) {
+            } else if *first
+                && (grm_shell::apps::COMMANDS.contains(&lower.as_str())
+                    || prompt && PROMPT_WORDS.contains(&lower.as_str()))
+            {
                 ink.source(2)
             } else if word.chars().next().is_some_and(|c| c.is_ascii_digit() || c == '.' || c == '-') {
                 ink.source(4)

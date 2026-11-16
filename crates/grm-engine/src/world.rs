@@ -151,10 +151,10 @@ impl MergeReport {
             self.new_relations.len()
         )];
         if !self.replaced.is_empty() {
-            out.push(format!("  ⚠ it would replace: {}", self.replaced.join(", ")));
+            out.push(format!("  ! it would replace: {}", self.replaced.join(", ")));
         }
         if !self.conflicts.is_empty() {
-            out.push(format!("  ⚠ said differently: {}", self.conflicts.join(", ")));
+            out.push(format!("  ! said differently: {}", self.conflicts.join(", ")));
         }
         out.push(format!("  harmony {:.3} -> {:.3}", self.harmony_before, self.harmony_after));
         for (n, a, b) in self.tensions.iter().take(5) {

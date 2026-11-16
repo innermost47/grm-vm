@@ -36,6 +36,8 @@ pub struct Answer {
     pub answered: bool,
     /// What the prompt asks of the window.
     pub orders: Vec<grm_shell::Order>,
+    /// Whether the world was kept before this line changed it (it can be taken back).
+    pub kept: bool,
 }
 
 pub struct Worker {
@@ -76,7 +78,9 @@ impl Worker {
                         Ok(Request::Line(typed)) => {
                             let seen = shell.sights.len();
                             let last = shell.sights.last().map(|(k, s)| (k.clone(), s.rounds, s.elapsed));
+                            let before = shell.snapshots;
                             let (lines, quit) = shell.run(&engine, &typed);
+                            let kept = shell.snapshots != before;
                             let now = shell.sights.last().map(|(k, s)| (k.clone(), s.rounds, s.elapsed));
                             let sight = if shell.sights.len() != seen || now != last {
                                 shell.sights.last().map(|(k, s)| (k.clone(), s.clone()))
@@ -84,7 +88,16 @@ impl Worker {
                                 None
                             };
                             let asking = shell.asking();
-                            let a = Answer { typed, lines, quit, asking, sight, answered: true, ..Default::default() };
+                            let a = Answer {
+                                typed,
+                                lines,
+                                quit,
+                                asking,
+                                sight,
+                                kept,
+                                answered: true,
+                                ..Default::default()
+                            };
                             if answers.send(news(&mut shell, a)).is_err() {
                                 return;
                             }

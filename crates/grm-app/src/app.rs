@@ -181,6 +181,25 @@ pub struct App {
     wanted_app: Option<String>,
     window_saved_at: Instant,
     world_saved_at: Instant,
+    /// Where the human has been, and every change that can be taken back.
+    pub journey: crate::journey::Journey,
+    /// The window that makes a new app: open, and whether its field still has to take the keys.
+    new_app_open: bool,
+    new_app_focus: bool,
+    /// Files being chosen in the system's window (it answers when the human has chosen).
+    picking: Option<(Pick, Chosen)>,
+}
+
+/// The files chosen in the system's window, and how long it took to answer (when it comes).
+type Chosen = std::sync::mpsc::Receiver<(Vec<PathBuf>, Duration)>;
+
+/// What files chosen in the system's window are for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pick {
+    /// Opened, each as what it is.
+    Open,
+    /// A picture for the eye.
+    Eye,
 }
 
 impl App {
@@ -361,6 +380,10 @@ impl App {
             wanted_app: args.app.clone(),
             window_saved_at: Instant::now(),
             world_saved_at: Instant::now(),
+            journey: Default::default(),
+            new_app_open: false,
+            new_app_focus: false,
+            picking: None,
         }
         .restored(args.fresh || args.screenshot.is_some())
         .first_visit(args.screenshot.is_none())
@@ -530,6 +553,7 @@ impl App {
             }
             v.text = text.clone();
         }
+        self.journey.record(crate::journey::Change::App(name.to_string()), format!("app {name}"));
         self.worker.request(Request::Edit(name.to_string(), text));
     }
 
@@ -658,7 +682,9 @@ impl App {
 
     fn answers(&mut self, ctx: &egui::Context) {
         for a in self.worker.answers() {
-            let _ = a.typed;
+            if a.kept {
+                self.journey.record(crate::journey::Change::World, a.typed.clone());
+            }
             for l in a.lines {
                 self.log.push((l.kind, l.text));
             }
@@ -667,8 +693,19 @@ impl App {
                 if self.apps_known {
                     for v in &apps {
                         if !self.apps.iter().any(|x| x.name == v.name) {
-                            // an app that just opened is shown
+                            // an app that just opened is shown (and can be closed again by taking it back)
                             self.current = Some(v.name.clone());
+                            if !self.journey.quiet.remove(&v.name) {
+                                let change =
+                                    crate::journey::Change::Opened { name: v.name.clone(), path: v.path.clone() };
+                                self.journey.record(change, format!("app open {}", v.name));
+                            }
+                        }
+                    }
+                    for x in &self.apps {
+                        if !apps.iter().any(|v| v.name == x.name) && !self.journey.quiet.remove(&x.name) {
+                            let change = crate::journey::Change::Closed { name: x.name.clone(), path: x.path.clone() };
+                            self.journey.record(change, format!("app close {}", x.name));
                         }
                     }
                 }
@@ -796,6 +833,39 @@ impl App {
         if help {
             self.help_open = !self.help_open;
         }
+        // back and forward, as in a browser
+        let (back, forward) = ctx.input_mut(|i| {
+            (
+                i.consume_key(Modifiers::ALT, Key::ArrowLeft) || i.pointer.button_pressed(egui::PointerButton::Extra1),
+                i.consume_key(Modifiers::ALT, Key::ArrowRight) || i.pointer.button_pressed(egui::PointerButton::Extra2),
+            )
+        });
+        if back {
+            self.go_back();
+        }
+        if forward {
+            self.go_forward();
+        }
+        // take back, give again: unless words are being written (they have their own)
+        let typing =
+            ctx.memory(|m| m.focused()).is_some_and(|id| id != egui::Id::new("prompt-line") || !self.input.is_empty());
+        if !typing {
+            let (undo, redo) = ctx.input_mut(|i| {
+                (
+                    i.consume_key(Modifiers::COMMAND, Key::Z),
+                    i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z)
+                        || i.consume_key(Modifiers::COMMAND, Key::Y),
+                )
+            });
+            if redo {
+                self.take_back(true);
+            } else if undo {
+                self.take_back(false);
+            }
+        }
+        if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::O)) {
+            self.pick(Pick::Open);
+        }
         if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::Q)) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
@@ -842,6 +912,7 @@ impl App {
                 self.line_draft = None;
                 self.relate_from = None;
                 self.node_form = None;
+                self.new_app_open = false;
             }
         }
         if prompt {
@@ -862,6 +933,28 @@ impl App {
         let ink = Ink::of(ui.ctx());
         {
             ui.horizontal(|ui| {
+                let lang = self.settings.lang;
+                if crate::icons::sign_enabled(ui, self.journey.can_back(), "arrow-left", t(lang, "go_back")).clicked() {
+                    self.go_back();
+                }
+                if crate::icons::sign_enabled(ui, self.journey.can_forward(), "arrow-right", t(lang, "go_forward"))
+                    .clicked()
+                {
+                    self.go_forward();
+                }
+                let last = |e: Option<&crate::journey::Entry>| e.map(|e| e.what.clone()).unwrap_or_default();
+                let undo_what = format!("{} (Ctrl+Z)  {}", t(lang, "undo"), last(self.journey.undo.last()));
+                if crate::icons::sign_enabled(ui, !self.journey.undo.is_empty(), "undo-2", &undo_what).clicked() {
+                    self.take_back(false);
+                }
+                let redo_what = format!("{} (Ctrl+Y)  {}", t(lang, "redo"), last(self.journey.redo.last()));
+                if crate::icons::sign_enabled(ui, !self.journey.redo.is_empty(), "redo-2", &redo_what).clicked() {
+                    self.take_back(true);
+                }
+                if crate::icons::sign(ui, "folder-open", &format!("{} (Ctrl+O)", t(lang, "open_files"))).clicked() {
+                    self.pick(Pick::Open);
+                }
+                ui.separator();
                 ui.label(RichText::new("grm-vm").strong());
                 ui.separator();
                 let h = self.harmony_shown;
@@ -882,12 +975,12 @@ impl App {
                     ui.label(RichText::new(self.tr("busy")).color(ink.muted));
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let help = ui.button(self.tr("help")).on_hover_text("F1");
+                    let help = crate::icons::button(ui, "circle-help", self.tr("help")).on_hover_text("F1");
                     self.areas.insert("help", help.rect);
                     if help.clicked() {
                         self.help_open = !self.help_open;
                     }
-                    let settings = ui.button(self.tr("settings"));
+                    let settings = crate::icons::button(ui, "settings", self.tr("settings"));
                     self.areas.insert("settings", settings.rect);
                     if settings.clicked() {
                         self.settings_open = !self.settings_open;
@@ -898,7 +991,10 @@ impl App {
                     {
                         self.say("panic");
                     }
-                    if ui.button(self.tr("sleep")).on_hover_text(self.memory.display().to_string()).clicked() {
+                    if crate::icons::button(ui, "moon", self.tr("sleep"))
+                        .on_hover_text(self.memory.display().to_string())
+                        .clicked()
+                    {
                         self.say("sleep");
                     }
                     if ui.button(self.tr("tick")).clicked() {
@@ -928,6 +1024,26 @@ impl App {
                         };
                         if let Some(banner) = text.strip_prefix('\u{1}') {
                             ui.label(RichText::new(banner).monospace().color(ink.accent));
+                            continue;
+                        }
+                        // what was said: coloured as code is
+                        if let Some(said) = text.strip_prefix("› ") {
+                            let mut job = crate::code::highlight_line(&ink, said);
+                            job.sections.iter_mut().for_each(|s| s.format.color = s.format.color.gamma_multiply(0.75));
+                            job.sections.insert(
+                                0,
+                                egui::text::LayoutSection {
+                                    leading_space: 0.0,
+                                    byte_range: 0..0,
+                                    format: Default::default(),
+                                },
+                            );
+                            let mut full = egui::text::LayoutJob::default();
+                            full.append("› ", 0.0, egui::TextFormat::simple(egui::FontId::monospace(13.0), ink.muted));
+                            for sec in job.sections.iter().skip(1) {
+                                full.append(&job.text[sec.byte_range.clone()], 0.0, sec.format.clone());
+                            }
+                            ui.label(full);
                             continue;
                         }
                         let shown = if self.settings.lang == Lang::Fr && !text.starts_with("› ") {
@@ -995,7 +1111,12 @@ impl App {
                 }
                 let asking = self.asking;
                 let width = ui.available_width() - if asking { 140.0 } else { 0.0 };
+                let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, _w: f32| {
+                    let job = crate::code::highlight_line(&ink, text.as_str());
+                    ui.fonts_mut(|f| f.layout_job(job))
+                };
                 let edit = egui::TextEdit::singleline(&mut self.input)
+                    .layouter(&mut layouter)
                     .id(id)
                     .lock_focus(true)
                     .font(egui::TextStyle::Monospace)
@@ -1028,68 +1149,7 @@ impl App {
 
     /// Completes the last word: a command, then a node.
     fn complete(&self, input: &str) -> String {
-        const WORDS: &[&str] = &[
-            "node",
-            "relate",
-            "keep",
-            "observe",
-            "forget",
-            "var",
-            "set",
-            "carry",
-            "learn",
-            "input",
-            "output",
-            "fuse",
-            "network",
-            "call",
-            "use",
-            "tick",
-            "show",
-            "status",
-            "joint",
-            "sandbox",
-            "in",
-            "run",
-            "trial",
-            "merge",
-            "refuse",
-            "sources",
-            "quarantine",
-            "release",
-            "recall",
-            "remove",
-            "journal",
-            "track",
-            "forecast",
-            "why",
-            "rewind",
-            "embody",
-            "insights",
-            "discover",
-            "connect",
-            "take",
-            "feed",
-            "see",
-            "sound",
-            "voice",
-            "volume",
-            "play",
-            "stop",
-            "mute",
-            "unmute",
-            "solo",
-            "gain",
-            "pan",
-            "mixer",
-            "panic",
-            "render",
-            "sleep",
-            "wake",
-            "threads",
-            "help",
-            "quit",
-        ];
+        const WORDS: &[&str] = crate::code::PROMPT_WORDS;
         let start = input.rfind(|c: char| c.is_whitespace() || "=+-*/(),:".contains(c)).map(|k| k + 1).unwrap_or(0);
         let (head, word) = input.split_at(start);
         if word.is_empty() {
@@ -1120,6 +1180,7 @@ impl App {
 
     fn windows(&mut self, ctx: &egui::Context) {
         self.line_window(ctx);
+        self.new_app_window(ctx);
         crate::menu::node_form(self, ctx);
         let lang = self.settings.lang;
         let mut open = self.help_open;
@@ -1129,6 +1190,7 @@ impl App {
             }
             ui.heading(t(lang, "shortcuts"));
             ui.label(RichText::new(t(lang, "keys_text")).monospace());
+            ui.label(format!("{} {} (Lucide, ISC)", crate::icons::names().count(), t(lang, "icons_note")));
             ui.separator();
             ui.label(t(lang, "engine_english"));
             ui.label(RichText::new(grm_shell::HELP).monospace().small());
@@ -1205,6 +1267,7 @@ impl App {
         }
         self.settings_open = open;
         if self.settings != self.saved {
+            self.journey.record(crate::journey::Change::Settings(Box::new(self.saved.clone())), t(lang, "settings"));
             apply_look(ctx, &self.settings);
             self.settings.save();
             self.saved = self.settings.clone();
@@ -1260,6 +1323,9 @@ fn textures(ctx: &egui::Context, name: &str, sight: &Sight) -> Vec<(String, egui
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.answers(ctx);
+        self.follow();
+        self.files_dropped(ctx);
+        self.picked();
         self.pull(ctx);
         self.script(ctx);
         self.keys(ctx);
@@ -1387,7 +1453,7 @@ impl App {
         // the tabs: the desk, each app that runs, and what can be opened
         ui.horizontal_wrapped(|ui| {
             let desk_on = self.current.is_none() && self.current_file.is_none() && self.sandbox_shown.is_none();
-            if crate::style::chosen(ui, desk_on, t(lang, "desk")).clicked() {
+            if crate::icons::toggle(ui, "layout-grid", t(lang, "desk"), desk_on).clicked() {
                 self.current = None;
                 self.current_file = None;
                 self.sandbox_shown = None;
@@ -1397,11 +1463,21 @@ impl App {
                 let on = self.current.as_deref() == Some(a.name.as_str())
                     && self.current_file.is_none()
                     && self.sandbox_shown.is_none();
-                let mut title = a.title.clone();
-                if !a.errors.is_empty() {
-                    title.push_str(" ·⚠");
-                }
-                let r = crate::style::chosen(ui, on, &title).on_hover_text(a.path.display().to_string());
+                let sign = a.icon.clone().filter(|i| crate::icons::exists(i)).unwrap_or("app-window".into());
+                let colour = if a.errors.is_empty() { ui.visuals().text_color() } else { ink.amber };
+                let r = ui
+                    .add(
+                        egui::Button::image_and_text(
+                            crate::icons::image(&sign, 15.0, colour),
+                            RichText::new(&a.title).color(colour),
+                        )
+                        .selected(on),
+                    )
+                    .on_hover_text(if a.errors.is_empty() {
+                        a.path.display().to_string()
+                    } else {
+                        format!("{}\n{} {}", a.path.display(), a.errors.len(), t(lang, "errors_in_app"))
+                    });
                 if r.clicked() {
                     self.current = Some(a.name.clone());
                     self.current_file = None;
@@ -1416,11 +1492,18 @@ impl App {
             }
             for k in 0..self.files.len() {
                 let on = self.current_file == Some(k);
-                let mut title = format!("≡ {}", self.files[k].name());
+                let mut title = self.files[k].name();
                 if self.files[k].dirty() {
                     title.push_str(" •");
                 }
-                if crate::style::chosen(ui, on, &title)
+                let sign = if self.files[k].table.is_some() {
+                    "sheet"
+                } else if self.files[k].path.extension().is_some_and(|x| x == "grm") {
+                    "file-code"
+                } else {
+                    "file-text"
+                };
+                if crate::icons::toggle(ui, sign, title, on)
                     .on_hover_text(self.files[k].path.display().to_string())
                     .clicked()
                 {
@@ -1428,31 +1511,29 @@ impl App {
                     self.sandbox_shown = None;
                 }
             }
-            ui.menu_button("+", |ui| {
+            let plus = egui::Button::image(crate::icons::image("plus", 16.0, ui.visuals().text_color()));
+            egui::containers::menu::MenuButton::from_button(plus).ui(ui, |ui| {
+                if crate::menu::item(ui, "circle-plus", t(lang, "new_app_title"), t(lang, "new_app_d")) {
+                    self.new_app_open = true;
+                    self.new_app_focus = true;
+                    ui.close();
+                }
+                if crate::menu::item(ui, "folder-open", t(lang, "open_files"), t(lang, "open_files_d")) {
+                    self.pick(Pick::Open);
+                    ui.close();
+                }
+                ui.separator();
                 ui.label(RichText::new(t(lang, "open_app")).strong());
                 for f in self.app_files.clone() {
                     let n = f.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
                     if self.apps.iter().any(|a| a.name == n) {
                         continue;
                     }
-                    if ui.button(&n).on_hover_text(f.display().to_string()).clicked() {
+                    if crate::icons::button(ui, "app-window", &n).on_hover_text(f.display().to_string()).clicked() {
                         self.say(format!("app open {}", f.display()));
                         ui.close();
                     }
                 }
-                ui.separator();
-                ui.horizontal(|ui| {
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.new_app)
-                            .hint_text(t(lang, "new_app"))
-                            .desired_width(120.0),
-                    );
-                    if ui.button(t(lang, "create")).clicked() && !self.new_app.trim().is_empty() {
-                        let n = std::mem::take(&mut self.new_app);
-                        self.say(format!("app new {}", n.trim()));
-                        ui.close();
-                    }
-                });
             });
         });
         self.areas.insert("tabs", ui.min_rect());
@@ -1520,16 +1601,13 @@ impl App {
             }
             self.modes.insert(name.clone(), mode);
             ui.separator();
-            if ui.button(format!("▶ {}", t(lang, "launch"))).on_hover_text("F5").clicked() {
+            if crate::icons::button(ui, "maximize", t(lang, "launch")).on_hover_text("F5").clicked() {
                 self.launched = true;
                 self.modes.insert(name.clone(), Mode::App);
                 ui.ctx().send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
             }
             let docked = self.code_dock.is_some();
-            if crate::style::chosen(ui, docked, &format!("</> {}", t(lang, "code_beside")))
-                .on_hover_text("Ctrl+K")
-                .clicked()
-            {
+            if crate::icons::toggle(ui, "code", t(lang, "code_beside"), docked).on_hover_text("Ctrl+K").clicked() {
                 self.code_dock = if docked { None } else { Some(self.settings.dock) };
             }
             if docked {
@@ -1561,13 +1639,6 @@ impl App {
             }
             if ui.add(egui::Button::new(t(lang, "xray")).selected(self.xray)).on_hover_text("Ctrl+R").clicked() {
                 self.xray = !self.xray;
-            }
-            ui.separator();
-            if ui.add_enabled(view.can_undo, egui::Button::new(t(lang, "undo"))).clicked() {
-                self.say(format!("app undo {name}"));
-            }
-            if ui.add_enabled(view.can_redo, egui::Button::new(t(lang, "redo"))).clicked() {
-                self.say(format!("app redo {name}"));
             }
             if !view.prefix.is_empty() {
                 ui.label(RichText::new(t(lang, "own_copy")).small().color(ink.amber)).on_hover_text(
@@ -1607,7 +1678,7 @@ impl App {
                 ui.label(RichText::new(&title).strong());
                 ui.label(RichText::new(t(lang, "launched_note")).small().color(ink.muted));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button(t(lang, "back")).clicked() {
+                    if crate::icons::button(ui, "arrow-left", t(lang, "back")).clicked() {
                         self.launched = false;
                         ui.ctx().send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
                     }
@@ -1692,6 +1763,171 @@ impl App {
             }
         } else {
             self.line_draft = Some((app, line, text));
+        }
+    }
+}
+
+impl App {
+    /// The window that makes a new app: its name, and Enter.
+    fn new_app_window(&mut self, ctx: &egui::Context) {
+        if !self.new_app_open {
+            return;
+        }
+        let lang = self.settings.lang;
+        let mut open = true;
+        let mut made = false;
+        egui::Window::new(t(lang, "new_app_title"))
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .pivot(egui::Align2::CENTER_CENTER)
+            .default_pos(ctx.content_rect().center())
+            .show(ctx, |ui| {
+                ui.label(t(lang, "new_app_d"));
+                let r = ui.add(
+                    egui::TextEdit::singleline(&mut self.new_app)
+                        .hint_text(t(lang, "new_app"))
+                        .font(egui::TextStyle::Monospace)
+                        .desired_width(260.0),
+                );
+                if self.new_app_focus {
+                    r.request_focus();
+                    self.new_app_focus = false;
+                }
+                let name = self.new_app.trim().to_string();
+                let fine = grm_engine::lang::is_name(&name);
+                if !name.is_empty() && !fine {
+                    ui.label(RichText::new(t(lang, "name_rule")).small().color(Ink::of(ui.ctx()).amber));
+                }
+                let enter = r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+                ui.horizontal(|ui| {
+                    if crate::icons::button(ui, "circle-plus", t(lang, "create")).clicked() || enter {
+                        made = fine;
+                    }
+                });
+            });
+        if made {
+            let n = std::mem::take(&mut self.new_app);
+            self.say(format!("app new {}", n.trim()));
+            self.new_app_open = false;
+        } else if !open {
+            self.new_app_open = false;
+        }
+    }
+
+    /// Asks the system's own window for files (it answers later: the window goes on meanwhile).
+    pub fn pick(&mut self, what: Pick) {
+        if self.picking.is_some() {
+            return;
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        let here = std::env::current_dir().unwrap_or_default();
+        let title = t(self.settings.lang, "open_files").to_string();
+        let _ = std::thread::Builder::new().name("grm-files".into()).spawn(move || {
+            let start = Instant::now();
+            let dialog = rfd::FileDialog::new().set_directory(here).set_title(title);
+            let chosen = match what {
+                Pick::Eye => dialog.add_filter("PNG", &["png"]).pick_file().map(|f| vec![f]),
+                Pick::Open => dialog.pick_files(),
+            };
+            let _ = tx.send((chosen.unwrap_or_default(), start.elapsed()));
+        });
+        self.picking = Some((what, rx));
+    }
+
+    fn picked(&mut self) {
+        let Some((what, rx)) = &self.picking else { return };
+        let what = *what;
+        match rx.try_recv() {
+            Ok((files, took)) => {
+                self.picking = None;
+                // nothing, at once: the system has no window for it (no file portal on this desktop)
+                if files.is_empty() && took < Duration::from_millis(400) {
+                    self.log.push((LineKind::Warning, self.tr("no_file_window").to_string()));
+                }
+                match what {
+                    Pick::Eye => {
+                        if let Some(f) = files.first() {
+                            self.eye_path = f.display().to_string();
+                            let line = format!("see {} {}", self.eye_path, self.eye_name.trim());
+                            self.say(line);
+                        }
+                    }
+                    Pick::Open => {
+                        for f in files {
+                            self.open_path(f);
+                        }
+                    }
+                }
+            }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => self.picking = None,
+            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+        }
+    }
+
+    /// Files dropped on the window: each opened as what it is. While they are held above it, it says so (quietly).
+    fn files_dropped(&mut self, ctx: &egui::Context) {
+        let dropped: Vec<PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().filter_map(|f| f.path.clone()).collect());
+        for p in dropped {
+            self.open_path(p);
+        }
+        if ctx.input(|i| !i.raw.hovered_files.is_empty()) {
+            let ink = Ink::of(ctx);
+            let rect = ctx.content_rect();
+            let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("dropping")));
+            painter.rect_filled(rect, 0.0, ink.surface.gamma_multiply(0.85));
+            painter.rect_stroke(
+                rect.shrink(12.0),
+                12.0,
+                egui::Stroke::new(2.0_f32, ink.accent),
+                egui::StrokeKind::Inside,
+            );
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                t(self.settings.lang, "drop_here"),
+                egui::FontId::proportional(22.0),
+                ink.text,
+            );
+        }
+    }
+
+    /// A file given to the machine (dropped, or chosen): opened as what it is.
+    pub fn open_path(&mut self, p: PathBuf) {
+        let shown = p.display().to_string();
+        if shown.contains(char::is_whitespace) {
+            self.log.push((LineKind::Warning, format!("{shown}: {}", self.tr("no_spaces"))));
+            return;
+        }
+        if p.is_dir() {
+            self.say(format!("cd {shown}"));
+            return;
+        }
+        let ext = p.extension().map(|x| x.to_string_lossy().to_lowercase()).unwrap_or_default();
+        match ext.as_str() {
+            "png" => {
+                self.eye_path = shown.clone();
+                self.tab = Tab::Eye;
+                let line = format!("see {shown} {}", self.eye_name.trim());
+                self.say(line);
+            }
+            "grm" => {
+                let app = std::fs::read_to_string(&p).is_ok_and(|text| {
+                    text.lines().any(|l| {
+                        let w = l.split_whitespace().next().unwrap_or("");
+                        w == "app" || w == "widget"
+                    })
+                });
+                if app {
+                    self.say(format!("app open {shown}"));
+                } else {
+                    self.say(format!("edit {shown}"));
+                }
+            }
+            "wav" | "mp3" | "flac" | "ogg" => {
+                self.log.push((LineKind::Dim, format!("{shown}: {}", self.tr("sound_files_later"))));
+            }
+            _ => self.say(format!("edit {shown}")),
         }
     }
 }

@@ -28,6 +28,25 @@
    files, folders and tables (a table editor, columns chosen); `ask`, `put`, `why`, `check`, `stats`, `undo` of the
    whole world; a guided visit. Next: `step`/`watch`, the night (fusions, forgetting), an organism that adapts to
    the one who uses it (the global network watching how it is used: what is touched, when, together).
+   *Then done*: back and forward; one undo for every change; files dropped or chosen; the inspector as an
+   accordion; a coloured prompt; Lucide signs everywhere (and on apps).
+   **Agreed next, in this order** (with Anthony):
+   1. *A space, not a desk*: no tabs; an infinite table where the human puts what they want, in their own mess,
+      with a button that tidies it (relations only when asked). An app and a widget are the same thing: small on
+      the table it is a widget, bigger a window, or the whole screen. The space is itself a `.grm` file, coded and
+      changed while it runs; several views of it (free table, grid, list, one thing); several spaces. The clock and
+      the weather become ordinary apps.
+   2. *Sound*: nodes that send impulses to others (a `pulse`, relations that act on it, a clock inside the sound
+      thread so that pulses fall on the sample); sequencers made of it; a player of sound files (WAV, then MP3,
+      FLAC, OGG by a pure-Rust decoder) whose features come in as nodes, and a screen drawn by the network from
+      them, calm.
+   3. *Apps of its own, written in GRM*: a spreadsheet (a cell a node with its spread, a formula a relation;
+      the result fixed, the input found); a text editor; an SVG maker with nodes (shapes as nodes, geometry as
+      relations), and a free paint that keeps what is drawn in the GRM.
+   4. *Questions to data*: for any analyst, in the plots, buttons with questions ready-made from the data given
+      (what next, what if, what drives what, how sure), then the prompt; forecasts drawn with their bands, and an
+      honest confidence (the machine tests its bands on data it has not seen and says how often they held).
+      Later, talking to the GRM in natural language.
 4. **The senses**: images (a pyramid of patches), sounds (bands of frequency), seeing the network pulse, dreaming.
 5. **The decentralised network**: the internet transport (no central server), public, private and closed networks,
    signatures, the sas (identity, form, permissions, quarantine, compatibility, earned trust), debates between

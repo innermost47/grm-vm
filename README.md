@@ -10,7 +10,8 @@ It is meant as a reactor: it starts with little, every way in and out within rea
 tools they want on it (apps), each one open, readable and changeable while it runs.
 The Python machine of [grm-core](https://github.com/innermost47/grm-core) was its proof of concept; this one gives the same numbers.
 
-Licence: AGPL-3.0-or-later. © 2026 Anthony Charretier.
+Licence: AGPL-3.0-or-later. © 2026 Anthony Charretier. The icons are [Lucide](https://lucide.dev)'s (ISC licence,
+`assets/icons/LICENSE-lucide`).
 
 ## Build and run
 
@@ -367,6 +368,27 @@ not say is inherited. A look with `when` holds only while its condition does; th
 with "follow the hour" the evening warms the accent and dims the background (relations, not code). `style
 STATEMENT` says anything of the language into that network (`style relate breathe: big_size = 1 + 0.2 * warmth`).
 
+### Getting around, and taking back
+
+- **Back and forward**, as in a browser (the arrows top left, Alt+Left / Alt+Right, the mouse's side buttons): the
+  places the human has been (the desk or an app, in which view; a file; a sandbox; what was selected; the side tab;
+  where the view looked).
+- **One undo for everything** (Ctrl+Z, Ctrl+Shift+Z or Ctrl+Y, or the arrows top left): the world (the prompt keeps
+  it as it was before each change), an app's text, an app opened or closed, where the nodes were put, the settings,
+  a table's cells and its rows and columns. One list, in the order the changes were made, shown in the journal
+  (what can be taken back, and what was and can be given again). While words are written in a field, Ctrl+Z is the
+  field's own.
+- **Files dropped on the window** are opened as what they are: a picture (PNG) is seen by the eye, an app runs,
+  a table opens as a table, any other text opens to write; a folder becomes where the machine works. Or **Ctrl+O**
+  (the folder sign): the system's own window to choose them (where the desktop has a file portal; otherwise it
+  says so).
+- **The inspector is an accordion**: every node a line; a click unfolds what it is in place (several can be open);
+  a node chosen in the network unfolds there, and the list goes to it.
+- **The prompt is coloured** as code is, as it is typed and in what was said.
+- **Signs, never emoji**: every sign is a Lucide icon, drawn and tinted with the palette; an app wears one
+  (`icon audio-waveform` in its file, any of the 2 359).
+- **A new app**: + then *New app*: its name, Enter.
+
 ### Files, folders, data, and the words of the Python machine
 
 The machine works in a folder, as a shell does, and the prompt says which (`grm ~/data›`): `pwd`, `cd [DIR | .. | ~ |
@@ -475,6 +497,9 @@ python3 tools/bench_python.py path/to/grm-core/vm FILE.grm [ROUNDS]
 
 ## What it does not do yet
 
+- Taking back the world gives the world back as it was, not the apps' texts (they are taken back on their own,
+  in the same list). A path with spaces cannot be said at the prompt yet (dropped or chosen, it is refused with a
+  word). Sound files dropped are not read yet.
 - Not ported yet from the Python machine: `step` (one pass at a time), `watch` (breakpoints), `mood`, `capacity`,
   `prune`, the night (fusions, forgetting), the journal written for a human; `why` tells shares and what each
   relation says, not yet what each heard. A table opened shows its first 500 rows.

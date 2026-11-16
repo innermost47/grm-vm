@@ -38,40 +38,16 @@ fn chip(ui: &mut egui::Ui, text: &str, colour: Color32) {
     );
 }
 
+/// The nodes, each a line; a click unfolds what it is in place (an accordion: several can be open; a node chosen in
+/// the network opens there, and the list goes to it).
 fn inspector(app: &mut App, ui: &mut egui::Ui) {
     let ink = Ink::of(ui.ctx());
     let lang = app.settings.lang;
     let pic = app.picture.clone();
-    if app.selected.is_empty() {
-        ui.label(t(lang, "nothing_selected"));
-        ui.add(egui::TextEdit::singleline(&mut app.filter).hint_text(t(lang, "filter")));
-        let filter = app.filter.to_lowercase();
-        for n in pic.nodes.iter().filter(|n| filter.is_empty() || n.name.to_lowercase().contains(&filter)).take(400) {
-            let k = app.colours.get(&n.source).copied().unwrap_or(0);
-            ui.horizontal(|ui| {
-                let (r, _) = ui.allocate_exact_size(vec2(10.0, 10.0), Sense::hover());
-                ui.painter().circle_filled(r.center(), 4.0, ink.source(k));
-                if ui.selectable_label(false, &n.name).clicked() {
-                    app.select(&n.name, false);
-                }
-                ui.label(RichText::new(reading(n.value, n.sigma, n.signed)).color(ink.muted).small());
-            });
-        }
-        return;
-    }
+    ui.add(egui::TextEdit::singleline(&mut app.filter).hint_text(t(lang, "filter")).desired_width(f32::INFINITY));
     if app.selected.len() > 1 {
-        ui.label(format!("{} {}", app.selected.len(), t(lang, "selected_many")));
-        for n in app.selected.clone() {
-            if let Some(v) = pic.node(&n) {
-                ui.horizontal(|ui| {
-                    if ui.selectable_label(false, &n).clicked() {
-                        app.select(&n, false);
-                    }
-                    ui.label(RichText::new(reading(v.value, v.sigma, v.signed)).color(ink.muted));
-                });
-            }
-        }
         ui.horizontal(|ui| {
+            ui.label(format!("{} {}", app.selected.len(), t(lang, "selected_many")));
             if ui.button(t(lang, "joint")).clicked() {
                 let names = app.selected.join(" ");
                 app.say(format!("joint {names}"));
@@ -80,11 +56,62 @@ fn inspector(app: &mut App, ui: &mut egui::Ui) {
                 app.selected.clear();
             }
         });
-        return;
     }
-    let name = app.selected[0].clone();
+    ui.add_space(4.0);
+    let memory = egui::Id::new("inspector-open");
+    let was_open: Vec<String> = ui.ctx().data(|d| d.get_temp(memory)).unwrap_or_default();
+    let filter = app.filter.to_lowercase();
+    let mut shown = 0;
+    for n in &pic.nodes {
+        let open = app.selected.contains(&n.name);
+        if !open && (shown >= 400 || !(filter.is_empty() || n.name.to_lowercase().contains(&filter))) {
+            continue;
+        }
+        if n.name.contains("__next") {
+            continue;
+        }
+        shown += 1;
+        let k = app.colours.get(&n.source).copied().unwrap_or(0);
+        let r = ui
+            .horizontal(|ui| {
+                crate::icons::show(ui, if open { "chevron-down" } else { "chevron-right" }, 14.0, ink.muted);
+                let (r, _) = ui.allocate_exact_size(vec2(10.0, 10.0), Sense::hover());
+                ui.painter().circle_filled(r.center(), 4.0, ink.source(k));
+                let name = RichText::new(&n.name).color(if open { ink.accent } else { ink.text });
+                let name = if open { name.strong() } else { name };
+                ui.label(name);
+                ui.label(RichText::new(reading(n.value, n.sigma, n.signed)).color(ink.muted).small());
+            })
+            .response;
+        let r = ui.interact(r.rect, egui::Id::new(("inspector-row", &n.name)), Sense::click());
+        if r.hovered() {
+            ui.painter().rect_filled(r.rect.expand(1.0), 3.0, ink.faint.gamma_multiply(0.25));
+        }
+        if r.clicked() {
+            app.select(&n.name, true);
+        }
+        if open && !was_open.contains(&n.name) {
+            r.scroll_to_me(Some(egui::Align::TOP));
+        }
+        if open {
+            let name = n.name.clone();
+            egui::Frame::new()
+                .inner_margin(egui::Margin { left: 18, right: 4, top: 4, bottom: 10 })
+                .show(ui, |ui| sheet(app, ui, &name, &pic));
+            let (line, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
+            ui.painter().rect_filled(line, 0.0, ink.faint);
+        }
+    }
+    let open_now = app.selected.clone();
+    ui.ctx().data_mut(|d| d.insert_temp(memory, open_now));
+}
+
+/// What a node is, unfolded.
+fn sheet(app: &mut App, ui: &mut egui::Ui, name: &str, pic: &crate::model::Picture) {
+    let ink = Ink::of(ui.ctx());
+    let lang = app.settings.lang;
+    let name = name.to_string();
     let Some(n) = pic.node(&name).cloned() else { return };
-    ui.heading(&n.name);
     ui.label(RichText::new(reading(n.value, n.sigma, n.signed)).size(18.0).monospace());
     ui.horizontal_wrapped(|ui| {
         let k = app.colours.get(&n.source).copied().unwrap_or(0);
@@ -372,6 +399,24 @@ fn sources(app: &mut App, ui: &mut egui::Ui) {
 
 fn journal(app: &mut App, ui: &mut egui::Ui) {
     let ink = Ink::of(ui.ctx());
+    let lang = app.settings.lang;
+    // the window's changes: each can be taken back (Ctrl+Z), in the order they were made
+    if !app.journey.undo.is_empty() || !app.journey.redo.is_empty() {
+        ui.label(RichText::new(t(lang, "changes")).strong());
+        for e in app.journey.redo.iter().take(5) {
+            ui.horizontal(|ui| {
+                crate::icons::show(ui, "redo-2", 13.0, ink.faint);
+                ui.label(RichText::new(&e.what).small().color(ink.faint)).on_hover_text(t(lang, "taken_back"));
+            });
+        }
+        for e in app.journey.undo.iter().rev().take(12) {
+            ui.horizontal(|ui| {
+                crate::icons::show(ui, "undo-2", 13.0, ink.muted);
+                ui.label(RichText::new(&e.what).small().monospace());
+            });
+        }
+        ui.separator();
+    }
     for (tick, kind, text) in app.picture.journal.iter().rev() {
         let colour =
             if matches!(kind.as_str(), "quarantine" | "revised" | "recall" | "refused") { ink.amber } else { ink.text };
@@ -387,7 +432,10 @@ fn eye(app: &mut App, ui: &mut egui::Ui) {
     let ink = Ink::of(ui.ctx());
     let lang = app.settings.lang;
     ui.horizontal(|ui| {
-        ui.add(egui::TextEdit::singleline(&mut app.eye_path).hint_text(t(lang, "picture_path")).desired_width(170.0));
+        ui.add(egui::TextEdit::singleline(&mut app.eye_path).hint_text(t(lang, "picture_path")).desired_width(150.0));
+        if crate::icons::sign(ui, "folder-open", t(lang, "choose")).clicked() {
+            app.pick(crate::app::Pick::Eye);
+        }
         ui.add(egui::TextEdit::singleline(&mut app.eye_name).hint_text(t(lang, "eye_name")).desired_width(60.0));
         if ui.button(t(lang, "see")).clicked() && !app.eye_path.trim().is_empty() {
             let line = format!("see {} {}", app.eye_path.trim(), app.eye_name.trim());
