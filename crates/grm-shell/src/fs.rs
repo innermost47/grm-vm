@@ -118,6 +118,11 @@ pub const WORDS_HELP: &[(&str, &str, &str)] = &[
     ("stats", "stats: the network counted, by source; what the human says most", "stats"),
     ("rent", "rent: what each relation brings, in bits a tick, against the rent of its links (the price grows as room runs out)", "rent"),
     ("workshop", "workshop [list | new NAME | show NAME | say NAME LINE | unsay NAME K | play NAME NODE | merge NAME | close NAME]: networks made apart (load FILE.csv [--into NAME] makes one; merge: through the airlock)", "workshop say fall relate r: h = 4.9 * t^2"),
+    ("bias", "bias FILE.csv: what a table leans towards (groups less represented, values missing more for some, gaps between groups), before learning from it; also said by load", "bias cv.csv"),
+    ("trash", "trash [SOURCE]: a network in the network (a file, what was typed...) goes to the trash, kept to be given back; alone: what is in it. What came with the machine never goes", "trash file:fall"),
+    ("restore", "restore SOURCE: a network given back from the trash", "restore file:fall"),
+    ("witness", "witness [fr|en] (or conscience): the node that only observes, says what passes through the whole now, in the third person; it changes nothing and keeps nothing", "witness"),
+    ("human", "human [NAME]: who the machine speaks of (by default the host's user name, else the human)", "human Anthony"),
     ("capacity", "capacity [N | auto]: the links the network may hold (auto: a quarter of the memory available now)", "capacity 20000"),
     ("look", "look NAME: accent = #E8A33D, round = 8, size = 1.2 (a look for widgets)", "look big: size = 1.5"),
 ];
@@ -401,6 +406,7 @@ impl Shell {
                 vec![]
             }
             "lang" => {
+                self.french = rest.trim() == "fr";
                 self.orders.push(Order::Lang(rest.trim().to_string()));
                 vec![]
             }
@@ -540,7 +546,20 @@ impl Shell {
                 self.rt.desk_hz = None;
                 vec![Line::said("the clock stops")]
             }
-            "load" | "ld" => self.load(engine, &paths, rest),
+            "load" | "ld" => {
+                let mut out = self.load(engine, &paths, rest);
+                // without a window, what the table leans towards is said after it is learned (a window says it
+                // when it asks for the columns)
+                if !self.window && !out.iter().any(|l| l.text.contains("(bias ")) {
+                    if let Some(f) = paths.first() {
+                        if let Ok(b) = std::fs::read(expand(f)) {
+                            let t = grm_connect::csv::read(&grm_connect::csv::text_of(&b));
+                            out.extend(self.leaning(f, &t));
+                        }
+                    }
+                }
+                out
+            }
             "undo" | "redo" if rest.trim().is_empty() => {
                 let (from, to) = if word == "undo" {
                     (&mut self.undo_world, &mut self.redo_world)
@@ -592,6 +611,79 @@ impl Shell {
                     })]
                 }
             },
+            "bias" => {
+                let file = rest.trim().trim_matches('"');
+                if file.is_empty() {
+                    return Some(vec![Line::warn("? bias FILE.csv")]);
+                }
+                let path = expand(file);
+                match std::fs::read(&path) {
+                    Ok(b) => {
+                        let table = grm_connect::csv::read(&grm_connect::csv::text_of(&b));
+                        let out = self.leaning(file, &table);
+                        if out.is_empty() {
+                            vec![Line::dim(if self.french {
+                                "rien de déséquilibré n'a été vu"
+                            } else {
+                                "nothing uneven was seen"
+                            })]
+                        } else {
+                            out
+                        }
+                    }
+                    Err(e) => vec![Line::error(format!("! {file}: {e}"))],
+                }
+            }
+            "trash" => {
+                let src = rest.trim().to_string();
+                if src.is_empty() {
+                    let Some(list) = engine.query(|w| {
+                        w.trash.iter().map(|(s, t)| (s.clone(), t.nodes.len(), t.relations.len())).collect::<Vec<_>>()
+                    }) else {
+                        return Some(vec![Line::error("! the engine has stopped")]);
+                    };
+                    if list.is_empty() {
+                        return Some(vec![Line::dim("the trash is empty")]);
+                    }
+                    return Some(
+                        list.into_iter()
+                            .map(|(s, n, r)| Line::said(format!("{s}: {n} node(s), {r} relation(s)")))
+                            .collect(),
+                    );
+                }
+                match engine.query(move |w| w.trash_source(&src)) {
+                    Some(Ok(t)) => vec![Line::said(t)],
+                    Some(Err(e)) => vec![Line::warn(format!("! {e}"))],
+                    None => vec![Line::error("! the engine has stopped")],
+                }
+            }
+            "restore" => {
+                let src = rest.trim().to_string();
+                match engine.query(move |w| w.restore_source(&src)) {
+                    Some(Ok(t)) => vec![Line::said(t)],
+                    Some(Err(e)) => vec![Line::warn(format!("! {e}"))],
+                    None => vec![Line::error("! the engine has stopped")],
+                }
+            }
+            "witness" | "conscience" => {
+                let french = match rest.trim() {
+                    "fr" => true,
+                    "en" => false,
+                    _ => self.french || word == "conscience",
+                };
+                let human = grm_engine::witness::human(self.human.as_deref(), french);
+                let Some(g) = engine.query(|w| grm_engine::witness::glance(w)) else {
+                    return Some(vec![Line::error("! the engine has stopped")]);
+                };
+                grm_engine::witness::words(&g, &human, french).into_iter().map(Line::said).collect()
+            }
+            "human" => {
+                let n = rest.trim();
+                if !n.is_empty() {
+                    self.human = Some(n.to_string());
+                }
+                vec![Line::dim(grm_engine::witness::human(self.human.as_deref(), self.french))]
+            }
             "rent" => {
                 let host = crate::host_capacity();
                 let Some((held, room, price, mut acc)) =
@@ -668,6 +760,23 @@ impl Shell {
     }
 
     /// `load FILE [COLUMN...]`: its rows, one a tick, into the chosen columns' nodes; then the laws it finds.
+    /// What a table leans towards, said before it is learned (its biases: who is less represented, what is
+    /// missing more for some, what differs between groups).
+    fn leaning(&self, file: &str, table: &grm_connect::csv::Csv) -> Vec<Line> {
+        let leans = grm_connect::bias::leans(table);
+        if leans.is_empty() {
+            return vec![];
+        }
+        let fr = self.french;
+        let mut out = vec![Line::warn(if fr {
+            format!("{file} penche : {} chose(s) à savoir avant d'en apprendre (bias {file})", leans.len())
+        } else {
+            format!("{file} leans: {} thing(s) to know before learning from it (bias {file})", leans.len())
+        })];
+        out.extend(leans.iter().map(|l| Line::said(format!("  {}", grm_connect::bias::words(l, fr)))));
+        out
+    }
+
     fn load(&mut self, engine: &Engine, paths: &[&str], rest: &str) -> Vec<Line> {
         let Some(file) = paths.first() else { return vec![Line::warn("? load FILE.csv [COLUMN...]")] };
         let path = expand(file);
@@ -676,6 +785,7 @@ impl Shell {
             Err(e) => return vec![Line::error(format!("! {file}: {e}"))],
         };
         let table = grm_connect::csv::read(&grm_connect::csv::text_of(&bytes));
+        let leaning = self.leaning(file, &table);
         let numeric: Vec<bool> = (0..table.names.len()).map(|k| table.numeric(k)).collect();
         let mut chosen: Vec<String> =
             paths[1..].iter().filter(|s| **s != "--mix" && **s != "--here").map(|s| s.to_string()).collect();
@@ -694,11 +804,13 @@ impl Shell {
                     written: table.written.clone(),
                     numeric,
                 });
-                return vec![Line::dim(format!(
+                let mut out = vec![Line::dim(format!(
                     "{file}: {} column(s), {} row(s): which ones?",
                     table.names.len(),
                     table.rows.len()
                 ))];
+                out.extend(leaning);
+                return out;
             }
             chosen = table.names.iter().zip(&numeric).filter(|(_, n)| **n).map(|(c, _)| c.clone()).collect();
         }

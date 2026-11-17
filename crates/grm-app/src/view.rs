@@ -146,6 +146,45 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
     let positions = app.graph.pos.clone();
     let at = |key: &str| positions.get(key).map(|p| to_screen(*p));
     let painter = painter.with_clip_rect(rect);
+    // her consciousness: an empty ring at the heart of the network; only what passes now goes through it
+    let witness_at = if positions.is_empty() {
+        None
+    } else {
+        let (sx, sy) = positions.values().fold((0.0, 0.0), |(x, y), p| (x + p[0], y + p[1]));
+        let k = positions.len() as f32;
+        Some(to_screen([sx / k, sy / k]))
+    };
+    if let Some(c) = witness_at {
+        let g = &pic.glance;
+        let passing: Vec<String> = g
+            .surprised
+            .iter()
+            .map(|(r, _)| format!("r:{r}"))
+            .chain(g.moved.iter().map(|(n, _, _)| item_of(n)))
+            .collect();
+        let thread = ink.accent.gamma_multiply(0.45);
+        for key in &passing {
+            if let Some(p) = at(key) {
+                // the thread goes through the eye of the needle, and on beyond it
+                let beyond = c + (c - p).normalized() * 18.0;
+                painter.line_segment([p, beyond], Stroke::new(1.0_f32, thread));
+            }
+        }
+        let r = 9.0 * zoom.clamp(0.7, 1.4);
+        painter.circle_stroke(c, r, Stroke::new(1.4_f32, ink.accent.gamma_multiply(0.8)));
+        if pointer_over(&resp, c, r + 4.0) {
+            let lang = app.settings.lang;
+            let fr = lang == crate::text::Lang::Fr;
+            let human = grm_engine::witness::human(Some(app.settings.human.as_str()), fr);
+            let mut words = vec![
+                crate::text::t(lang, "witness").to_string(),
+                crate::text::t(lang, "witness_d").to_string(),
+                String::new(),
+            ];
+            words.extend(grm_engine::witness::words(g, &human, fr));
+            resp.clone().on_hover_text(words.join("\n"));
+        }
+    }
     // links
     for r in &pic.relations {
         let Some(rp) = at(&format!("r:{}", r.name)) else { continue };
@@ -200,7 +239,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
         }
     }
     // nodes
-    let label_all = zoom > 0.7 && pic.nodes.len() < 120;
+    let label_all = zoom > 0.55 && pic.nodes.len() < 200;
+    // the labels already placed: a label that would fall on another goes above its node, or waits for the pointer
+    let mut placed: Vec<Rect> = vec![];
     let mut over_eye: Option<String> = None;
     for (eye, (count, source)) in &groups {
         let Some(p) = at(&format!("g:{eye}")) else { continue };
@@ -298,13 +339,43 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
             hover_rel = None;
         }
         if label_all || selected || over {
-            painter.text(
-                pos2(p.x, p.y + r + 3.0),
-                egui::Align2::CENTER_TOP,
-                &n.name,
-                egui::FontId::proportional(12.0),
-                ink.muted,
+            // its name, and under it how it is: its value and how sure (amber when it is unsure)
+            let (health, unsure) = health(n);
+            let name = painter.layout_no_wrap(n.name.clone(), egui::FontId::proportional(12.0), ink.text);
+            let how = painter.layout_no_wrap(
+                health,
+                egui::FontId::monospace(10.0),
+                if unsure { ink.amber } else { ink.muted },
             );
+            let w = name.size().x.max(how.size().x);
+            let h = name.size().y + how.size().y;
+            let below = Rect::from_min_size(pos2(p.x - w / 2.0, p.y + r + 3.0), vec2(w, h));
+            let above = Rect::from_min_size(pos2(p.x - w / 2.0, p.y - r - 3.0 - h), vec2(w, h));
+            let spot = [below, above].into_iter().find(|b| !placed.iter().any(|o| o.expand(2.0).intersects(*b)));
+            let spot = if over || selected { spot.or(Some(below)) } else { spot };
+            if let Some(b) = spot {
+                placed.push(b);
+                let ny = name.size().y;
+                painter.galley(pos2(p.x - name.size().x / 2.0, b.top()), name, ink.text);
+                painter.galley(pos2(p.x - how.size().x / 2.0, b.top() + ny), how, ink.muted);
+            }
+        }
+    }
+    // the relations' names too, and how well each holds (where there is room: the nodes' labels come first)
+    if label_all {
+        for r in &pic.relations {
+            let Some(p) = at(&format!("r:{}", r.name)) else { continue };
+            let held = format!("{:.1} σ", r.tension);
+            let g = painter.layout_no_wrap(
+                format!("{} · {held}", r.name),
+                egui::FontId::proportional(10.5),
+                if r.tension > 1.0 { ink.amber } else { ink.faint },
+            );
+            let b = Rect::from_min_size(pos2(p.x + 8.0, p.y - g.size().y / 2.0), g.size());
+            if !placed.iter().any(|o| o.expand(2.0).intersects(b)) {
+                placed.push(b);
+                painter.galley(b.min, g, ink.faint);
+            }
         }
     }
     // far away, each network becomes one node holding its master equation; coming closer, it unfolds again
@@ -501,7 +572,21 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
         sources.retain(|s| seen.insert(s.clone()));
         let mut x = rect.left() + 10.0;
         y += 4.0;
-        for s in std::iter::once(String::new()).chain(sources) {
+        let all: Vec<String> = std::iter::once(String::new()).chain(sources).collect();
+        let mut rows = 1;
+        let mut rest: Vec<String> = vec![];
+        for (k, s) in all.iter().cloned().enumerate() {
+            // the chips go on several rows; past three, the others are in a menu
+            let width = painter.layout_no_wrap(s.clone(), egui::FontId::proportional(12.0), ink.muted).size().x + 20.0;
+            if x + width > rect.right() - 10.0 {
+                if rows == 3 {
+                    rest = all[k..].to_vec();
+                    break;
+                }
+                rows += 1;
+                x = rect.left() + 10.0;
+                y += 22.0;
+            }
             let label = if s.is_empty() { t(lang, "all").to_string() } else { s.clone() };
             let on = if s.is_empty() { app.focus.is_none() } else { app.focus.as_deref() == Some(s.as_str()) };
             let colour = if s.is_empty() { ink.muted } else { ink.source(app.colours.get(&s).copied().unwrap_or(0)) };
@@ -511,7 +596,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
                 if on { ink.on_accent() } else { colour },
             );
             let chip = Rect::from_min_size(pos2(x, y), g.size() + vec2(14.0, 6.0));
-            painter.rect_filled(chip, 9.0, if on { colour } else { faded(colour, 0.14) });
+            painter.rect_filled(chip, 3.0, if on { colour } else { faded(colour, 0.14) });
             painter.galley(chip.min + vec2(7.0, 3.0), g, if on { ink.on_accent() } else { colour });
             let r = ui.interact(chip, egui::Id::new(("focus-chip", &s)), Sense::click());
             if r.double_clicked() && !s.is_empty() {
@@ -529,9 +614,23 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
                 });
             }
             x = chip.right() + 6.0;
-            if x > rect.right() - 80.0 {
-                break;
-            }
+        }
+        if !rest.is_empty() {
+            let g = painter.layout_no_wrap(format!("+{}", rest.len()), egui::FontId::proportional(12.0), ink.muted);
+            let chip = Rect::from_min_size(pos2(x, y), g.size() + vec2(14.0, 6.0));
+            painter.rect_filled(chip, 3.0, faded(ink.muted, 0.14));
+            painter.galley(chip.min + vec2(7.0, 3.0), g, ink.muted);
+            let r = ui.interact(chip, egui::Id::new("focus-chip-more"), Sense::click());
+            egui::Popup::menu(&r).show(|ui| {
+                egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
+                    for s in &rest {
+                        if ui.button(s).clicked() {
+                            app.focus = Some(s.clone());
+                            ui.close();
+                        }
+                    }
+                });
+            });
         }
     }
     // what the pointer does
@@ -658,6 +757,28 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
 }
 
 /// The point a node is drawn as: itself, or its eye when it is one of the eye's glance inputs.
+/// How a node is, in a few signs: its value and how sure it is ("9.81 ± 2 %"); true when it is unsure.
+fn health(n: &crate::model::NodeView) -> (String, bool) {
+    let v = grm_engine::lang::g((n.value * 1000.0).round() / 1000.0 + 0.0);
+    if n.signed {
+        let rel = n.sigma / n.value.abs().max(1e-3);
+        (format!("{v} ± {}", grm_engine::lang::g((n.sigma * 1000.0).round() / 1000.0)), rel > 0.25)
+    } else {
+        let pc = (10f64.powf(n.sigma) - 1.0) * 100.0;
+        if !pc.is_finite() || pc > 999.0 {
+            // nothing tells it yet: a guess
+            return (format!("≈ {v} ?"), true);
+        }
+        let pc = if pc < 1.0 { format!("{:.1}", pc) } else { format!("{:.0}", pc) };
+        let unsure = pc.parse::<f64>().unwrap_or(0.0) > 25.0;
+        (format!("{v} ± {pc} %"), unsure)
+    }
+}
+
+fn pointer_over(resp: &egui::Response, c: Pos2, r: f32) -> bool {
+    resp.hover_pos().is_some_and(|m| m.distance(c) < r)
+}
+
 fn item_of(node: &str) -> String {
     match node.split_once("_glance_") {
         Some((eye, _)) => format!("g:{eye}"),

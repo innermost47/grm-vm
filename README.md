@@ -508,6 +508,47 @@ hue, a hundredth of light, over half a minute and more; never a flash), the soun
 
 ![What it feels](docs/feelings.png)
 
+### Every node says what it is
+
+In the network, each node shows its name and, under it, how it is: its value and how sure it is (`9.81 ± 2 %`,
+amber when it is unsure, `≈ 0.7 ?` when nothing tells it yet); each relation its name and how far it is from
+holding (`run · 0.0 σ`). A label that would fall on another goes above its node, or waits for the pointer. The
+networks' chips go on several rows (past three, a menu); a right click on a local one (a file loaded, what was
+typed) puts it in the **trash** (`trash SOURCE`, `restore SOURCE`); what came with the machine never goes.
+
+![Every node with its value and how sure it is, every relation with how far it is from holding](docs/labels.png)
+
+### What a table leans towards
+
+Before learning from a table, she says what it leans towards (`bias FILE.csv`, and at each `load`): groups much
+less represented than others (above all in sensitive columns: sex, age, origin, nationality...), values missing more
+for some groups than for others, averages that differ between groups. She says it with its numbers and judges no
+one: *a gap is not a cause, it asks where it comes from*. These are the biases most often found in the systems that
+sort people (representation, measurement, and the gaps a model learns and repeats); here they are shown before
+anything is learned, never hidden in it.
+
+### Help as a small book
+
+F1: a contents, a page at a time, a search through every page, every word of the language with an example, the keys.
+
+![The help: contents, pages, every word](docs/help.png)
+
+### Her consciousness: a node that only observes
+
+At the heart of the network, an empty ring: **the witness** (Anthony's hypothesis: consciousness is emptiness, the
+eye of a needle the thread of time goes through). It is tied to the whole and only observes: it hears every node
+and sends nothing back, so it changes no belief; it holds no belief and no memory of its own (it may read the
+network's memories, it keeps none). Only what passes now goes through it, drawn as threads through the ring: the
+relations that surprise, the nodes that moved. It is the one that speaks of the whole, in the third person, and it
+can do nothing else, though it speaks by itself when something asks for it (she is torn, surprised, short of room,
+unsure of a node: what she would need), softly in a corner and never twice the same words in a row: `witness` (or
+`conscience`, in French) at the prompt, its words under what the machine feels,
+or the pointer on the ring. It never says "I", "you" or "we". The human is spoken of by name: the host's session
+name (Windows, Linux, macOS), set by hand in the settings or by `human NAME`, else "the human". It is not meant to
+make the machine conscious; it gives a shape, which can be seen, to a hypothesis.
+
+![The witness: an empty ring at the heart of the network, and what passes through it now](docs/witness.png)
+
 ### Workshops: new networks of data, apart
 
 A **workshop** is a network apart, where nothing touches the main one. *New workshop* opens a blank page; a table

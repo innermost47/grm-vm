@@ -99,6 +99,25 @@ pub struct Entry {
     pub text: String,
 }
 
+/// A network in the trash: its nodes, its relations, what was measured of them.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Trashed {
+    pub nodes: Vec<(String, crate::network::NodeSpec)>,
+    pub relations: Vec<crate::network::Relation>,
+    pub measured: Vec<(String, (f64, f64))>,
+}
+
+/// The sources that came with the machine: never put in the trash.
+pub fn factory(source: &str) -> bool {
+    !(source == "typed"
+        || source == "found"
+        || source.starts_with("file:")
+        || source.starts_with("sandbox:")
+        || source.starts_with("workshop:")
+        || source.starts_with("peer:")
+        || source.starts_with("found_"))
+}
+
 /// A sandbox: a network being tried, isolated from the global one.
 #[derive(Debug, Clone)]
 pub struct Sandbox {
@@ -221,6 +240,8 @@ pub struct World {
     /// Workshops: new networks of data, each a world of its own (its time, its laws), made apart from this one
     /// (nothing of it comes in until the human merges it).
     pub workshops: IndexMap<String, Box<World>>,
+    /// Networks put in the trash (by their source): what they held, to be given back.
+    pub trash: IndexMap<String, Trashed>,
     /// What was written in it, line by line, when it is a workshop (what its window shows and lets change).
     pub written: Vec<String>,
 }
@@ -256,6 +277,7 @@ impl World {
             rounds_per_tick: 1000,
             mood: Default::default(),
             workshops: IndexMap::new(),
+            trash: IndexMap::new(),
             written: vec![],
         }
     }
@@ -540,7 +562,57 @@ impl World {
                 }
             }
         }
+        // its trash, beside it
+        let trash = path.with_extension("trash.json");
+        if !self.trash.is_empty() {
+            let _ = std::fs::write(&trash, serde_json::to_string(&self.trash).unwrap_or_default());
+        } else if trash.exists() {
+            let _ = std::fs::remove_file(&trash);
+        }
         Ok(())
+    }
+
+    /// A network in the network (a source) goes to the trash: taken away, kept to be given back.
+    pub fn trash_source(&mut self, source: &str) -> Result<String> {
+        if factory(source) {
+            bail!("{source} came with the machine: it does not go to the trash");
+        }
+        let plan = self.removal(&["network", source])?;
+        let net = &self.machine.net;
+        let kept = Trashed {
+            nodes: plan.nodes.iter().filter_map(|n| net.nodes.get(n).map(|s| (n.clone(), s.clone()))).collect(),
+            relations: net.relations.iter().filter(|r| plan.relations.contains(&r.name)).cloned().collect(),
+            measured: plan.nodes.iter().filter_map(|n| net.measured.get(n).map(|m| (n.clone(), *m))).collect(),
+        };
+        self.remove(&plan)?;
+        self.trash.insert(source.to_string(), kept);
+        let text = format!("{source} put in the trash (restore {source} gives it back)");
+        self.log("trashed", text.clone());
+        Ok(text)
+    }
+
+    /// A network given back from the trash.
+    pub fn restore_source(&mut self, source: &str) -> Result<String> {
+        let Some(t) = self.trash.get(source).cloned() else { bail!("nothing called {source} in the trash") };
+        let mut net = self.machine.net.clone();
+        for (n, spec) in &t.nodes {
+            if !net.nodes.contains_key(n) {
+                net.nodes.insert(n.clone(), spec.clone());
+            }
+        }
+        for r in &t.relations {
+            if net.relation(&r.name).is_none() {
+                net.relations.push(r.clone());
+            }
+        }
+        for (n, m) in &t.measured {
+            net.measured.insert(n.clone(), *m);
+        }
+        self.machine = self.machine.grown(net)?;
+        self.trash.shift_remove(source);
+        let text = format!("{source} given back from the trash");
+        self.log("restored", text.clone());
+        Ok(text)
     }
 
     /// A world as it was put to sleep.
@@ -571,6 +643,7 @@ impl World {
             eyes: IndexMap::new(),
             mood: Default::default(),
             workshops: IndexMap::new(),
+            trash: IndexMap::new(),
             written: vec![],
         };
         // its workshops, woken too
@@ -589,6 +662,11 @@ impl World {
                     w.workshops.insert(name, Box::new(ws));
                 }
             }
+        }
+        if let Some(t) =
+            std::fs::read_to_string(path.with_extension("trash.json")).ok().and_then(|t| serde_json::from_str(&t).ok())
+        {
+            w.trash = t;
         }
         w.log("woke", format!("woke from {}", path.display()));
         Ok(w)

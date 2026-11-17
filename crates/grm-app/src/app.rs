@@ -110,7 +110,9 @@ pub struct App {
     pub tab: Tab,
     pub settings: Settings,
     saved: Settings,
-    help_open: bool,
+    pub help_open: bool,
+    pub help_page: usize,
+    pub help_search: String,
     settings_open: bool,
     focus_prompt: bool,
     pub eyes: IndexMap<String, Eye>,
@@ -235,6 +237,8 @@ pub struct App {
     quiet_yes: Option<String>,
     /// When the machine was last put to sleep (its sign shows it was done, for a while).
     slept: Option<Instant>,
+    /// What her consciousness said last, and when (the window remembers it, not the witness: it keeps nothing).
+    spoken: Option<(String, Instant)>,
     /// The colours' breath: when it last moved, how loud the sound was lately, since when the window lives.
     breath_at: Instant,
     breath_sound: f32,
@@ -319,6 +323,8 @@ impl App {
         let silent = if output.is_none() { Some(grm_sound::silent(mixer.clone())) } else { None };
         let mut shell = Shell::new(memory.clone(), mixer.clone());
         shell.keep_desk = !(args.fresh || args.screenshot.is_some());
+        shell.human = Some(settings.human.clone()).filter(|h| !h.trim().is_empty());
+        shell.french = settings.lang == Lang::Fr;
         shell.window = true;
         let mut worker = Worker::start(engine.clone(), shell);
         let mut log: Vec<(LineKind, String)> =
@@ -389,6 +395,8 @@ impl App {
             saved: settings.clone(),
             settings,
             help_open: false,
+            help_page: 0,
+            help_search: String::new(),
             settings_open: false,
             focus_prompt: true,
             eyes: IndexMap::new(),
@@ -481,6 +489,7 @@ impl App {
             confirm: None,
             quiet_yes: None,
             slept: None,
+            spoken: None,
             breath_at: Instant::now(),
             breath_sound: 0.0,
             breathing: false,
@@ -840,8 +849,11 @@ impl App {
                 if self.apps_known {
                     for v in &apps {
                         if !self.apps.iter().any(|x| x.name == v.name) {
-                            // an app that just opened is shown (and can be closed again by taking it back)
-                            self.current = Some(v.name.clone());
+                            // an app that just opened is put on the space, and the space is shown (it can be closed
+                            // again by taking it back)
+                            self.space.put(crate::space::Kind::App(v.name.clone()));
+                            self.space_on = true;
+                            self.current = None;
                             if !self.journey.quiet.remove(&v.name) {
                                 let change =
                                     crate::journey::Change::Opened { name: v.name.clone(), path: v.path.clone() };
@@ -1399,19 +1411,7 @@ impl App {
         self.new_app_window(ctx);
         crate::menu::node_form(self, ctx);
         let lang = self.settings.lang;
-        let mut open = self.help_open;
-        egui::Window::new(t(lang, "help")).open(&mut open).default_width(640.0).vscroll(true).show(ctx, |ui| {
-            if crate::style::chosen(ui, true, t(lang, "tour_again")).clicked() {
-                self.touring = Some(0);
-            }
-            ui.heading(t(lang, "shortcuts"));
-            ui.label(RichText::new(t(lang, "keys_text")).monospace());
-            ui.label(format!("{} {} (Lucide, ISC)", crate::icons::names().count(), t(lang, "icons_note")));
-            ui.separator();
-            ui.label(t(lang, "engine_english"));
-            ui.label(RichText::new(grm_shell::HELP).monospace().small());
-        });
-        self.help_open = open;
+        crate::help::window(self, ctx);
         let mut open = self.settings_open;
         let mut reset = false;
         egui::Window::new(t(lang, "settings")).open(&mut open).default_width(420.0).show(ctx, |ui| {
@@ -1462,6 +1462,19 @@ impl App {
                 ui.end_row();
                 ui.label(t(lang, "breathe"));
                 ui.checkbox(&mut self.settings.breathe, t(lang, "breathe_d"));
+                ui.end_row();
+                ui.label(t(lang, "human"));
+                let host = grm_engine::witness::human(None, lang == Lang::Fr);
+                let field = ui.add(
+                    egui::TextEdit::singleline(&mut self.settings.human)
+                        .hint_text(crate::style::hint(&host))
+                        .desired_width(180.0),
+                );
+                if field.lost_focus() {
+                    let name = self.settings.human.trim().to_string();
+                    self.worker.send(format!("human {}", if name.is_empty() { host.clone() } else { name }));
+                }
+                field.on_hover_text(t(lang, "human_d"));
                 ui.end_row();
                 ui.label(t(lang, "text_size"));
                 ui.add(egui::Slider::new(&mut self.settings.text, 0.8..=2.0).step_by(0.1));
@@ -2307,7 +2320,28 @@ impl App {
     }
 
     /// What went wrong, in a corner: it blocks nothing, comes and goes slowly, can be closed.
+    /// Her consciousness speaks by itself when something in her asks for it (what she feels, what she lacks):
+    /// softly, in a corner, not more than once in a while, and never twice the same words in a row.
+    fn witness_speaks(&mut self) {
+        let fr = self.settings.lang == Lang::Fr;
+        let human = grm_engine::witness::human(Some(self.settings.human.as_str()), fr);
+        let Some(words) = grm_engine::witness::speak(&self.picture.glance, &human, fr) else { return };
+        let fresh = match &self.spoken {
+            Some((last, at)) => *last != words && at.elapsed().as_secs_f32() > 45.0,
+            None => true,
+        };
+        if fresh {
+            self.toasts.push((LineKind::Said, words.clone(), Instant::now()));
+            if self.toasts.len() > 3 {
+                self.toasts.remove(0);
+            }
+            self.log.push((LineKind::Said, format!("◌ {words}")));
+            self.spoken = Some((words, Instant::now()));
+        }
+    }
+
     fn toasts(&mut self, ctx: &egui::Context) {
+        self.witness_speaks();
         const STAY: f32 = 8.0;
         self.toasts.retain(|(_, _, at)| at.elapsed().as_secs_f32() < STAY);
         if self.toasts.is_empty() {
@@ -2329,18 +2363,27 @@ impl App {
                     let age = at.elapsed().as_secs_f32();
                     // in over half a second, out over the last two: nothing jumps
                     let a = (age / 0.5).min(1.0) * ((STAY - age) / 2.0).clamp(0.0, 1.0);
-                    let colour = if *kind == LineKind::Error { ink.amber } else { ink.amber.gamma_multiply(0.85) };
+                    let colour = match kind {
+                        LineKind::Error => ink.amber,
+                        LineKind::Warning => ink.amber.gamma_multiply(0.85),
+                        _ => ink.accent,
+                    };
                     let text = text.trim_start_matches("! ").trim_start_matches("? ");
                     let shown = if lang == Lang::Fr { crate::french::fr(text) } else { text.to_string() };
                     egui::Frame::new()
                         .fill(ink.raised)
                         .stroke(egui::Stroke::new(1.0_f32, colour.gamma_multiply(0.6)))
-                        .corner_radius(8.0)
+                        .corner_radius(3.0)
                         .inner_margin(egui::Margin::symmetric(12, 8))
                         .multiply_with_opacity(a)
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
-                                crate::icons::show(ui, "triangle-alert", 16.0, colour.gamma_multiply(a));
+                                let sign = if matches!(kind, LineKind::Error | LineKind::Warning) {
+                                    "triangle-alert"
+                                } else {
+                                    "circle-dashed"
+                                };
+                                crate::icons::show(ui, sign, 16.0, colour.gamma_multiply(a));
                                 ui.add(egui::Label::new(RichText::new(shown).color(ink.text.gamma_multiply(a))).wrap());
                                 if crate::icons::sign(ui, "x", t(lang, "close")).clicked() {
                                     closed = Some(k);

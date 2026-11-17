@@ -24,6 +24,7 @@ pub mod reflex;
 pub mod time;
 pub mod units;
 pub mod vision;
+pub mod witness;
 pub mod world;
 
 pub use error::{GrmError, Result};

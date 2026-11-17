@@ -14,6 +14,7 @@
 //! HTTP for now; WebSocket comes with the connectors milestone.
 
 pub mod api;
+pub mod bias;
 pub mod csv;
 
 use indexmap::IndexMap;

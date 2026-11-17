@@ -68,7 +68,7 @@ pub fn rail(app: &mut App, ui: &mut egui::Ui) {
 }
 
 fn chip(ui: &mut egui::Ui, text: &str, colour: Color32) {
-    egui::Frame::new().stroke(Stroke::new(1.0_f32, colour)).corner_radius(8.0).inner_margin(vec2(6.0, 1.0)).show(
+    egui::Frame::new().stroke(Stroke::new(1.0_f32, colour)).corner_radius(3.0).inner_margin(vec2(6.0, 1.0)).show(
         ui,
         |ui| {
             ui.label(RichText::new(text).small().color(colour));
@@ -512,6 +512,25 @@ pub fn feelings(app: &mut App, ui: &mut egui::Ui) {
         });
     }
     ui.separator();
+    witness(app, ui);
+}
+
+/// Her consciousness: what passes through the witness now, in the third person (it keeps nothing).
+pub fn witness(app: &App, ui: &mut egui::Ui) {
+    let ink = Ink::of(ui.ctx());
+    let lang = app.settings.lang;
+    let fr = lang == crate::text::Lang::Fr;
+    ui.horizontal(|ui| {
+        crate::icons::show(ui, "circle-dashed", 15.0, ink.accent);
+        ui.label(RichText::new(t(lang, "witness")).strong()).on_hover_text(t(lang, "witness_d"));
+    });
+    let human = grm_engine::witness::human(Some(app.settings.human.as_str()), fr);
+    let lines = grm_engine::witness::words(&app.picture.glance, &human, fr);
+    for (k, l) in lines.iter().enumerate() {
+        let text = RichText::new(l).small();
+        ui.label(if k == 0 { text.color(ink.muted).italics() } else { text });
+    }
+    ui.separator();
 }
 
 fn journal(app: &mut App, ui: &mut egui::Ui) {
@@ -550,7 +569,7 @@ fn eye(app: &mut App, ui: &mut egui::Ui) {
     let ink = Ink::of(ui.ctx());
     let lang = app.settings.lang;
     // what it does, in four signs
-    egui::Frame::new().fill(ink.raised).corner_radius(8.0).inner_margin(egui::Margin::symmetric(10, 8)).show(
+    egui::Frame::new().fill(ink.raised).corner_radius(3.0).inner_margin(egui::Margin::symmetric(10, 8)).show(
         ui,
         |ui| {
             for (sign, key) in

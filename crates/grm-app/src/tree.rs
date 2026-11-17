@@ -597,6 +597,12 @@ pub fn network_menu(app: &mut App, ui: &mut egui::Ui, source: &str, outputs: &[S
         app.say(format!("quarantine {source}"));
         ui.close();
     }
+    if !grm_engine::world::factory(source)
+        && crate::menu::item(ui, "trash-2", t(lang, "t_trash_net"), t(lang, "t_trash_net_d"))
+    {
+        app.say(format!("trash {source}"));
+        ui.close();
+    }
     if let Some(a) = source.strip_prefix("app:") {
         let a = a.to_string();
         if crate::menu::item(ui, "x", t(lang, "close_app"), t(lang, "m_close_app_d")) {

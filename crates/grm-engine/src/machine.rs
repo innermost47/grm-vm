@@ -779,6 +779,17 @@ impl Machine {
         (self.value_si(name), if signed { s * 10f64.powf(self.shift_of(name)) } else { s })
     }
 
+    /// How unsure it is of a node, as a share of its value (0.1: about ± 10 %).
+    pub fn doubt(&self, name: &str) -> f64 {
+        let signed = self.index.get(name).map(|&i| self.var_signed[i]).unwrap_or(false);
+        if signed {
+            let (m, sd) = self.reading(name);
+            sd / m.abs().max(1e-12)
+        } else {
+            10f64.powf(self.sigma(name)) - 1.0
+        }
+    }
+
     pub fn value(&self, name: &str) -> f64 {
         if let Some(v) = self.fixed.get(name) {
             return *v;

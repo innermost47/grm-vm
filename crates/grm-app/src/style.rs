@@ -271,13 +271,13 @@ fn visuals(p: &Palette, ink: &Ink) -> egui::Visuals {
     v.selection.stroke = Stroke::new(1.0_f32, ink.on_accent());
     // what can be clicked shows a hand (a text cursor only where text is written)
     v.interact_cursor = Some(egui::CursorIcon::PointingHand);
-    v.window_corner_radius = CornerRadius::same(10);
-    v.menu_corner_radius = CornerRadius::same(8);
+    v.window_corner_radius = CornerRadius::same(4);
+    v.menu_corner_radius = CornerRadius::same(3);
     v.window_stroke = Stroke::new(1.0_f32, ink.faint);
     v.window_shadow =
         egui::epaint::Shadow { offset: [0, 6], blur: 18, spread: 0, color: Color32::from_black_alpha(90) };
     v.popup_shadow = egui::epaint::Shadow { offset: [0, 4], blur: 12, spread: 0, color: Color32::from_black_alpha(80) };
-    let r = CornerRadius::same(6);
+    let r = CornerRadius::same(2);
     let w = &mut v.widgets;
     w.noninteractive.bg_fill = ink.panel;
     w.noninteractive.weak_bg_fill = ink.panel;
@@ -342,7 +342,7 @@ pub fn hint(text: impl Into<String>) -> egui::RichText {
 pub fn terminal(ui: &mut egui::Ui, lines: &[String]) {
     let ink = Ink::of(ui.ctx());
     let dark = Color32::from_rgb(0x16, 0x17, 0x1b);
-    egui::Frame::new().fill(dark).corner_radius(6.0).inner_margin(egui::Margin::symmetric(12, 10)).show(ui, |ui| {
+    egui::Frame::new().fill(dark).corner_radius(2.0).inner_margin(egui::Margin::symmetric(12, 10)).show(ui, |ui| {
         ui.set_min_width(ui.available_width());
         // the code's colours, on a dark ground whatever the palette
         let term = Ink { text: Color32::from_rgb(0xd8, 0xd8, 0xd0), muted: Color32::from_rgb(0x8a, 0x8c, 0x92), ..ink };

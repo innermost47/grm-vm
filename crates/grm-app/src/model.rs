@@ -73,6 +73,8 @@ pub struct Picture {
     pub written: Vec<String>,
     /// Its master equation, said (a workshop's picture).
     pub master: Option<(String, String)>,
+    /// What passes through the witness now (it keeps nothing: made again with each picture).
+    pub glance: grm_engine::witness::Glance,
 }
 
 impl Picture {
@@ -195,6 +197,7 @@ impl Picture {
                 .collect(),
             sources: w.sources().into_iter().collect(),
             mood: w.mood.clone(),
+            glance: grm_engine::witness::glance(w),
             written: w.written.clone(),
             master: None,
             workshops: w

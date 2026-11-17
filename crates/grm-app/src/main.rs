@@ -16,6 +16,7 @@ mod desk;
 mod files;
 mod french;
 mod graph;
+mod help;
 mod hover;
 mod icons;
 mod journey;

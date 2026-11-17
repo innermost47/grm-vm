@@ -843,7 +843,7 @@ fn card(
 ) {
     let ink = Ink::of(ui.ctx());
     let nodes: Vec<String> = picture.map(|p| p.nodes.iter().map(|n| n.name.clone()).collect()).unwrap_or_default();
-    let frame = egui::Frame::new().fill(ink.raised).corner_radius(8.0).inner_margin(egui::Margin::symmetric(12, 10));
+    let frame = egui::Frame::new().fill(ink.raised).corner_radius(3.0).inner_margin(egui::Margin::symmetric(12, 10));
     if let Some(a) = state.answer.clone() {
         frame.show(ui, |ui| {
             ui.horizontal(|ui| {

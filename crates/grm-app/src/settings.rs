@@ -38,6 +38,8 @@ pub struct Settings {
     pub follow_hour: bool,
     /// Living colours: a slow breath through them (and the sound lifts them a little).
     pub breathe: bool,
+    /// Who the machine speaks of (never to): empty, the host's user name (else "the human").
+    pub human: String,
 }
 
 impl Default for Settings {
@@ -58,6 +60,7 @@ impl Default for Settings {
             dock: crate::app::Dock::Right,
             breathe: true,
             follow_hour: false,
+            human: String::new(),
         }
     }
 }

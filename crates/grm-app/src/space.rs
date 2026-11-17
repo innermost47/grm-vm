@@ -432,8 +432,8 @@ fn frame(app: &mut App, ui: &mut egui::Ui, k: usize) -> Option<Act> {
     let mut act = None;
     let painter = ui.painter().clone();
     painter.rect_filled(rect.translate(vec2(0.0, 4.0)), 12.0, Color32::from_black_alpha(50));
-    painter.rect_filled(rect, 12.0, ink.panel);
-    painter.rect_stroke(rect, 12.0, Stroke::new(1.0_f32, ink.faint), egui::StrokeKind::Inside);
+    painter.rect_filled(rect, 4.0, ink.panel);
+    painter.rect_stroke(rect, 4.0, Stroke::new(1.0_f32, ink.faint), egui::StrokeKind::Inside);
     // the title: it moves the frame; a double click opens it whole
     let bar = Rect::from_min_size(rect.min, vec2(rect.width(), 32.0));
     let id = egui::Id::new(("space-item", kind.word()));
