@@ -28,8 +28,10 @@ pub struct Ear {
     made_by: [Option<i32>; 8],
     /// The last steps judged, for the window: (interval, what it heard, the reward).
     pub judged: VecDeque<(i32, f64, f64)>,
-    /// A knob she is trying: (node, its value before, the step she turned it on); kept if it sounded clearer.
-    trying: Option<(String, f64, i64)>,
+    /// A knob she is playing: its gesture (node, from, to, when it starts, how long), and what she heard while it
+    /// moved and after; kept if it sounded clearer, turned back if not.
+    gesture: Option<(String, f64, f64, f64, f64)>,
+    gesture_heard: Vec<f64>,
     /// What she did with the knobs lately, for the window: (node, kept or not).
     pub turned: VecDeque<(String, bool)>,
     /// The last note the human played (semitones from A1), and how many intervals she learned from them.
@@ -49,7 +51,8 @@ impl Default for Ear {
             notes: [24; 8],
             made_by: [None; 8],
             judged: VecDeque::new(),
-            trying: None,
+            gesture: None,
+            gesture_heard: vec![],
             turned: VecDeque::new(),
             human_note: None,
             from_human: 0,
@@ -138,33 +141,44 @@ impl Ear {
         self.human_note = Some(note);
     }
 
-    /// Between notes, now and then, she turns one of the instrument's knobs a little (`knobs`: node, lo, hi, now),
-    /// and listens: clearer than usual, she keeps it; not, she turns it back. Returns the values to write.
-    pub fn play_knobs(&mut self, knobs: &[(String, f64, f64, f64)], step: i64) -> Vec<(String, f64)> {
+    /// Her hands on the knobs (the cutoff, the resonance, the envelopes, the echo, the room...; not the loudness
+    /// nor the tempo): now and then she takes one and moves it, slowly or fast, a little or far (a sweep of the
+    /// filter, a room that opens), as a gesture over a few beats; she listens while it moves and a beat after; clearer
+    /// than usual, she leaves it there; not, she brings it back. `knobs`: (node, lo, hi, now). Called every frame,
+    /// with or without the sequencer; returns the values to write now.
+    pub fn play_knobs(&mut self, knobs: &[(String, f64, f64, f64)], now: f64, beat: f64) -> Vec<(String, f64)> {
         let mut out = vec![];
-        // a knob tried two steps ago is judged by what was heard since
-        if let Some((name, before, at)) = self.trying.clone() {
-            if step - at >= 2 {
-                let heard = self.judged.iter().take(2).map(|j| j.1).sum::<f64>() / 2.0;
+        if let Some((name, from, to, t0, dur)) = self.gesture.clone() {
+            let f = ((now - t0) / dur).clamp(0.0, 1.0);
+            // a smooth gesture (slow at both ends)
+            let e = f * f * (3.0 - 2.0 * f);
+            if f < 1.0 {
+                out.push((name.clone(), from + (to - from) * e));
+            }
+            self.gesture_heard.push(self.clarity);
+            if now >= t0 + dur + beat {
+                let heard = self.gesture_heard.iter().sum::<f64>() / self.gesture_heard.len().max(1) as f64;
                 let kept = heard >= self.usual;
-                if !kept {
-                    out.push((name.clone(), before));
-                }
+                out.push((name.clone(), if kept { to } else { from }));
                 self.turned.push_front((name, kept));
                 self.turned.truncate(8);
-                self.trying = None;
+                self.gesture = None;
+                self.gesture_heard.clear();
             }
             return out;
         }
-        if knobs.is_empty() || self.random() > 0.25 {
+        // she reaches for a knob, sometimes (about once every eight beats)
+        if knobs.is_empty() || self.random() > 1.0 / (8.0 * beat.max(0.05) * 25.0) {
             return out;
         }
         let k = (self.random() * knobs.len() as f64) as usize % knobs.len();
-        let (name, lo, hi, now) = knobs[k].clone();
+        let (name, lo, hi, v) = knobs[k].clone();
         let span = hi - lo;
-        let to = (now + (self.random() * 2.0 - 1.0) * 0.12 * span).clamp(lo.min(hi), hi.max(lo));
-        self.trying = Some((name.clone(), now, step));
-        out.push((name, to));
+        // a little or far: most gestures small, some wide (a sweep)
+        let reach = if self.random() < 0.25 { 0.6 } else { 0.15 };
+        let to = (v + (self.random() * 2.0 - 1.0) * reach * span).clamp(lo.min(hi), hi.max(lo));
+        let dur = beat * [0.5, 1.0, 2.0, 4.0][(self.random() * 4.0) as usize % 4];
+        self.gesture = Some((name, v, to, now, dur));
         out
     }
 
@@ -457,6 +471,28 @@ impl Ear {
 #[cfg(test)]
 mod band_tests {
     use super::*;
+
+    #[test]
+    fn her_hands_move_a_knob_smoothly_and_bring_it_back_when_it_clashed() {
+        let mut ear = Ear::default();
+        let knobs = vec![("cutoff".to_string(), 0.0, 1.0, 0.5)];
+        let (mut t, mut seen, mut back) = (0.0, vec![], false);
+        ear.usual = 0.8;
+        ear.clarity = 0.2; // whatever she does, it sounds worse than usual
+        for _ in 0..20000 {
+            for (n, v) in ear.play_knobs(&knobs, t, 0.25) {
+                assert_eq!(n, "cutoff");
+                seen.push(v);
+            }
+            if ear.turned.front().is_some_and(|(_, kept)| !kept) {
+                back = true;
+                break;
+            }
+            t += 0.01;
+        }
+        assert!(seen.len() > 3, "a gesture, not a jump: {seen:?}");
+        assert!(back && (seen.last().copied().unwrap_or(0.0) - 0.5).abs() < 1e-9, "brought back to where it was");
+    }
 
     #[test]
     fn she_chooses_the_way_that_sounded_clearer() {

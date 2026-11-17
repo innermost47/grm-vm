@@ -2501,46 +2501,45 @@ impl App {
                         None => continue,
                     },
                 };
-                self.worker.send(format!("observe {node} = {}", grm_engine::lang::g((v * 100.0).round() / 100.0)));
+                self.by_ear(&node, (v * 100.0).round() / 100.0);
             }
+        }
+        // her hands on the knobs, with or without the sequencer (not its loudness nor its tempo)
+        let owner = self.apps.iter().find(|a| a.widgets.iter().any(|w| w.nodes.iter().any(|n| n.ends_with("auto_on"))));
+        let knobs: Vec<(String, f64, f64, f64)> = owner
+            .map(|a| {
+                a.widgets
+                    .iter()
+                    .filter(|w| w.kind == grm_shell::apps::WidgetKind::Knob)
+                    .filter_map(|w| {
+                        let n = w.nodes.first()?;
+                        let name = a.prefix.get(n).cloned().unwrap_or(n.clone());
+                        if ["volume", "tempo", "lead_level"].iter().any(|x| name.ends_with(x)) {
+                            return None;
+                        }
+                        let v = self.picture.node(&name)?.value;
+                        Some((name, w.lo, w.hi, v))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        for (n, v) in self.ear.play_knobs(&knobs, now, beat) {
+            // a moving knob is said quietly, at most every frame
+            self.by_ear(&n, (v * 100000.0).round() / 100000.0);
         }
         let Some(step) = step.or_else(|| on("s_i")).filter(|_| seq_on) else { return };
         let step = step.round() as i64;
         let notes = self.ear.listen(tail, rate, step);
-        let new_step = !notes.is_empty();
         for (k, hz) in notes {
-            self.worker.send(format!(
-                "observe {prefix}s_n{} = {}",
-                k + 1,
-                grm_engine::lang::g((hz * 100.0).round() / 100.0)
-            ));
-        }
-        // and the knobs of the instrument (not its loudness nor its tempo): one now and then, kept if clearer
-        if new_step {
-            let owner =
-                self.apps.iter().find(|a| a.widgets.iter().any(|w| w.nodes.iter().any(|n| n.ends_with("auto_on"))));
-            let knobs: Vec<(String, f64, f64, f64)> = owner
-                .map(|a| {
-                    a.widgets
-                        .iter()
-                        .filter(|w| w.kind == grm_shell::apps::WidgetKind::Knob)
-                        .filter_map(|w| {
-                            let n = w.nodes.first()?;
-                            let name = a.prefix.get(n).cloned().unwrap_or(n.clone());
-                            if ["volume", "tempo"].iter().any(|x| name.ends_with(x)) {
-                                return None;
-                            }
-                            let v = self.picture.node(&name)?.value;
-                            Some((name, w.lo, w.hi, v))
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            for (n, v) in self.ear.play_knobs(&knobs, step) {
-                self.worker.send(format!("observe {n} = {}", grm_engine::lang::g(v)));
-            }
+            self.by_ear(&format!("{prefix}s_n{}", k + 1), (hz * 100.0).round() / 100.0);
         }
         ctx.request_repaint_after(std::time::Duration::from_millis(40));
+    }
+
+    /// What she writes by ear, straight into the world (not through the prompt: no line to keep, nothing to undo).
+    fn by_ear(&self, node: &str, v: f64) {
+        let line = format!("observe {node} = {} ± 0.000001", grm_engine::lang::g(v));
+        self.engine.send(move |w| w.say(&line, &grm_engine::Provenance::of("ear")).map(|_| String::new()));
     }
 
     fn toasts(&mut self, ctx: &egui::Context) {

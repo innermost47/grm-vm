@@ -553,8 +553,11 @@ With an instrument's *by ear* switch and its sequencer on, she writes the next n
 comes out of the speakers' feed: no scale is given. While each note plays she hears how clear the sound is (how
 periodic: two notes that agree make one clearer wave, two that clash do not; the echo and the room carry the note
 before into the next), and leans towards the intervals that sounded clear, away from those that clashed, a little at
-each step. Her taste for each interval is drawn in the Sound tab, as it changes. Now and then she also turns one of
-the instrument's knobs (not its loudness nor its tempo) and keeps it if it sounded clearer. What the human plays on
+each step. Her taste for each interval is drawn in the Sound tab, as it changes. Her hands are on the knobs too, with
+the sequencer or without (the cutoff, the resonance, the envelopes, the echo, the room; not the loudness nor the
+tempo): now and then she takes one and moves it as a gesture over a few beats, slowly or fast, a little or far (a
+sweep of the filter, a room that opens), listens while it moves and a beat after, and leaves it there if it sounded
+clearer, or brings it back. What the human plays on
 the keys meanwhile, she learns from (each interval played leans her towards it). Over it she plays a **melody**, a
 second voice, choosing each note by her taste in time and by what she learned sounds well *with the bass at the same
 moment*, holding it for a length she chooses, resting now and then; the sequencer off, she plays the bass herself;
