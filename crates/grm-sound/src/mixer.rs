@@ -21,6 +21,11 @@ pub const FADE: f64 = 0.03;
 /// Something that makes sound, one sample at a time (in -1 .. 1, or it is limited).
 pub trait Source: Send {
     fn next(&mut self) -> f64;
+    /// Its next sample, left and right (a source that has only one says it twice).
+    fn next_stereo(&mut self) -> (f64, f64) {
+        let s = self.next();
+        (s, s)
+    }
     /// The nodes it listens to (the machine above tunes them).
     fn params(&self) -> Vec<String> {
         vec![]
@@ -32,28 +37,60 @@ pub trait Source: Send {
         IndexMap::new()
     }
     fn set_state(&mut self, _state: &IndexMap<String, f64>) {}
+    /// Starts again from nothing (what it wrote itself), its parameters kept.
+    fn reset(&mut self) {}
+    /// How many times it ran away and started again by itself.
+    fn fused(&self) -> u64 {
+        0
+    }
     /// A node's value as it is now, at the speed of sound (what the machine above only sees slowly).
     fn value(&self, _node: &str) -> Option<f64> {
         None
     }
 }
 
+/// Beyond this, a sample is no sound any more but a network that ran away (a sound is about -1 .. 1).
+const RUNAWAY: f64 = 64.0;
+
 /// A node of a network played at the speed of sound: its reflex runs its sets, sample after sample.
 pub struct ReflexSource {
     pub reflex: Reflex,
     slot: usize,
+    /// Its right side, when it plays in stereo.
+    right: Option<usize>,
+    /// How many times it ran away (a value not a number, or far beyond a sound) and started again: a fuse, as an
+    /// amplifier has, so that a filter pushed past what it holds does not stay screaming.
+    fused: u64,
 }
 
 impl ReflexSource {
     pub fn new(reflex: Reflex, node: &str) -> Option<ReflexSource> {
         let slot = reflex.slot_of(node)?;
-        Some(ReflexSource { reflex, slot })
+        // a node NAME with a NAME_r beside it plays in stereo: NAME on the left, NAME_r on the right
+        let right = reflex.slot_of(&format!("{node}_r"));
+        Some(ReflexSource { reflex, slot, right, fused: 0 })
     }
 }
 
 impl Source for ReflexSource {
     fn next(&mut self) -> f64 {
         self.reflex.step_read(self.slot)
+    }
+    fn next_stereo(&mut self) -> (f64, f64) {
+        let l = self.reflex.step_read(self.slot);
+        let r = self.right.map(|r| self.reflex.values[r]).unwrap_or(l);
+        if !(l.is_finite() && r.is_finite() && l.abs() < RUNAWAY && r.abs() < RUNAWAY) {
+            self.reflex.reset();
+            self.fused += 1;
+            return (0.0, 0.0);
+        }
+        (l, r)
+    }
+    fn reset(&mut self) {
+        self.reflex.reset();
+    }
+    fn fused(&self) -> u64 {
+        self.fused
     }
     fn params(&self) -> Vec<String> {
         self.reflex.params()
@@ -72,7 +109,7 @@ impl Source for ReflexSource {
         let params = self.reflex.params();
         for (n, v) in state {
             if let Some(&i) = self.reflex.names.get(n) {
-                if !params.contains(n) && v.is_finite() {
+                if !params.contains(n) && v.is_finite() && v.abs() < RUNAWAY {
                     self.reflex.values[i] = *v;
                 }
             }
@@ -91,6 +128,7 @@ pub struct Channel {
     smooth_gain: f64,
     stopping: bool,
     dc: (f64, f64),
+    dc_r: (f64, f64),
     pub peak: f32,
     /// The last samples it gave (what a scope shows), and where the next one goes.
     scope: Vec<f32>,
@@ -122,6 +160,8 @@ pub struct Mixer {
     /// The loudest it gave lately (it falls slowly).
     pub peak: f32,
     scratch: Vec<f32>,
+    /// Parameters written straight to the sound lately, and when.
+    direct: std::collections::HashMap<String, std::time::Instant>,
 }
 
 impl Mixer {
@@ -137,6 +177,7 @@ impl Mixer {
             smooth_master: 0.7,
             peak: 0.0,
             scratch: vec![],
+            direct: Default::default(),
         }
     }
 
@@ -152,6 +193,7 @@ impl Mixer {
             smooth_gain: gain.clamp(0.0, 2.0),
             stopping: false,
             dc: (0.0, 0.0),
+            dc_r: (0.0, 0.0),
             peak: 0.0,
             scope: vec![0.0; SCOPE],
             scope_at: 0,
@@ -203,8 +245,24 @@ impl Mixer {
     pub fn panic(&mut self) {
         for c in self.channels.values_mut() {
             c.stopping = true;
+            // and what it held starts again from nothing (a filter that ran away does not come back screaming)
+            c.source.reset();
         }
         self.ambient_on = false;
+    }
+
+    /// Starts every channel's sound again from nothing, keeping them playing (when it ran away).
+    pub fn reset(&mut self) {
+        for c in self.channels.values_mut() {
+            c.source.reset();
+            c.dc = (0.0, 0.0);
+            c.dc_r = (0.0, 0.0);
+        }
+    }
+
+    /// How many times the channels ran away and started again by themselves, all together.
+    pub fn fused(&self) -> u64 {
+        self.channels.values().map(|c| c.source.fused()).sum()
     }
 
     pub fn views(&self) -> Vec<ChannelView> {
@@ -236,8 +294,24 @@ impl Mixer {
     }
 
     pub fn tune(&mut self, values: &IndexMap<String, f64>) {
+        // what was just written straight to the sound is newer than what the machine says of it
+        let now = std::time::Instant::now();
+        self.direct.retain(|_, at| now.duration_since(*at).as_secs_f64() < 1.0);
+        let values: IndexMap<String, f64> =
+            values.iter().filter(|(k, _)| !self.direct.contains_key(*k)).map(|(k, v)| (k.clone(), *v)).collect();
         for c in self.channels.values_mut() {
-            c.source.tune(values);
+            c.source.tune(&values);
+        }
+    }
+
+    /// A parameter written now, straight to the sound (a key, a note, a knob): heard at the next block, not when the
+    /// machine next says it (a short note would be over before). For a second, the machine's older word on it
+    /// is not taken.
+    pub fn set_now(&mut self, node: &str, v: f64) {
+        self.direct.insert(node.to_string(), std::time::Instant::now());
+        let one: IndexMap<String, f64> = [(node.to_string(), v)].into_iter().collect();
+        for c in self.channels.values_mut() {
+            c.source.tune(&one);
         }
     }
 
@@ -268,22 +342,28 @@ impl Mixer {
             let (left, right) = (angle.cos(), angle.sin());
             let mut peak = c.peak * fall;
             for o in out.chunks_exact_mut(2) {
-                let mut x = c.source.next();
+                let (mut x, mut xr) = c.source.next_stereo();
                 if !x.is_finite() {
                     x = 0.0;
                 }
-                // a constant offset is not heard: it is removed
+                if !xr.is_finite() {
+                    xr = 0.0;
+                }
+                // a constant offset is not heard: it is removed (on each side)
                 let y = x - c.dc.0 + 0.995 * c.dc.1;
                 c.dc = (x, y);
+                let yr = xr - c.dc_r.0 + 0.995 * c.dc_r.1;
+                c.dc_r = (xr, yr);
                 c.envelope += (target - c.envelope).clamp(-step, step);
                 c.smooth_gain += (c.gain - c.smooth_gain) * 0.001;
-                let v = y * c.envelope * c.smooth_gain;
-                let v = if v.is_finite() { v.clamp(-4.0, 4.0) } else { 0.0 };
-                peak = peak.max(v.abs() as f32);
-                c.scope[c.scope_at] = v as f32;
+                let g = c.envelope * c.smooth_gain;
+                let clean = |v: f64| if v.is_finite() { v.clamp(-4.0, 4.0) } else { 0.0 };
+                let (v, vr) = (clean(y * g), clean(yr * g));
+                peak = peak.max(v.abs().max(vr.abs()) as f32);
+                c.scope[c.scope_at] = ((v + vr) / 2.0) as f32;
                 c.scope_at = (c.scope_at + 1) % SCOPE;
                 o[0] += (v * left) as f32;
-                o[1] += (v * right) as f32;
+                o[1] += (vr * right) as f32;
             }
             c.peak = peak;
         }
@@ -322,6 +402,43 @@ mod tests {
         let mut block = vec![0.0f32; 2 * 480];
         m.render(&mut block);
         assert_eq!(m.value("out", "k"), Some(480.0));
+    }
+
+    #[test]
+    fn a_note_written_now_is_heard_now_and_the_machine_older_word_waits() {
+        let mut w = World::new();
+        w.say_all(&["input g = 0", "node out signed", "relate o: out = 0.5 * g"], &Provenance::default()).unwrap();
+        let mut r = Reflex::of(&w.machine, Clock::Audio { rate: 48000 }).unwrap();
+        r.follow(&w.machine, "out").unwrap();
+        let mut m = Mixer::new(48000);
+        m.play("out", Box::new(ReflexSource::new(r, "out").unwrap()), 1.0);
+        m.set_now("g", 1.0);
+        let mut block = vec![0.0f32; 2 * 64];
+        m.render(&mut block);
+        assert_eq!(m.value("out", "g"), Some(1.0));
+        // the machine, a little behind, still says 0: not taken for now
+        m.tune(&[("g".to_string(), 0.0)].into_iter().collect());
+        assert_eq!(m.value("out", "g"), Some(1.0));
+    }
+
+    #[test]
+    fn a_network_that_runs_away_starts_again_from_nothing() {
+        // a value that doubles at each sample: it runs away, the fuse starts it again from nothing, and so on
+        let mut w = World::new();
+        w.say_all(&["var k = 1", "set k = 2 * k + 1", "node out signed", "relate o: out = k"], &Provenance::default())
+            .unwrap();
+        let mut r = Reflex::of(&w.machine, Clock::Audio { rate: 48000 }).unwrap();
+        r.follow(&w.machine, "out").unwrap();
+        let mut m = Mixer::new(48000);
+        m.play("out", Box::new(ReflexSource::new(r, "out").unwrap()), 1.0);
+        let mut block = vec![0.0f32; 2 * 480];
+        m.render(&mut block);
+        assert!(m.fused() >= 1);
+        assert!(block.iter().all(|x| x.is_finite() && x.abs() <= 1.0));
+        assert!(m.value("out", "k").unwrap() < 64.0);
+        // and started again by hand
+        m.reset();
+        assert_eq!(m.value("out", "k"), Some(0.0));
     }
 
     #[test]

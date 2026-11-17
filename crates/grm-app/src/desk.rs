@@ -47,6 +47,9 @@ pub struct Window {
     pub prompt_open: bool,
     /// The window was full screen.
     pub fullscreen: bool,
+    /// The window was maximised (as large as the screen, with its title bar).
+    #[serde(default)]
+    pub maximized: bool,
     pub history: Vec<String>,
     /// (kind: s said, d dim, w warning, e error, a ask; text)
     pub log: Vec<(char, String)>,

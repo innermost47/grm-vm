@@ -131,9 +131,39 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
             }
         }
     }
-    let moving = app.graph.motion > 0.02 || app.graph.pos.len() != items.len() || app.view.dragging.is_some();
-    if moving {
-        app.graph.step(&items, &links);
+    // laid out as a flow: each point glides to its place (inputs left, what is heard right); what passes through
+    // each node now is read from the sound itself
+    let played: std::collections::HashSet<String> =
+        app.mixer.lock().map(|m| m.playing().into_iter().collect()).unwrap_or_default();
+    if app.flow.on {
+        let targets = crate::flow::layout(&pic, &played);
+        let mut moved = 0.0f32;
+        for (k, t) in &targets {
+            let p = app.graph.pos.entry(k.clone()).or_insert(*t);
+            let d = [t[0] - p[0], t[1] - p[1]];
+            p[0] += 0.12 * d[0];
+            p[1] += 0.12 * d[1];
+            moved = moved.max(d[0].abs() + d[1].abs());
+        }
+        app.graph.motion = if moved > 0.5 { 0.03 } else { 0.0 };
+        if moved > 0.5 {
+            ui.ctx().request_repaint();
+        }
+        let values: Vec<(String, f64)> = match (app.mixer.lock(), played.iter().next()) {
+            (Ok(m), Some(ch)) => {
+                pic.nodes.iter().filter_map(|n| m.value(ch, &n.name).map(|v| (n.name.clone(), v))).collect()
+            }
+            _ => vec![],
+        };
+        if !values.is_empty() {
+            app.flow.listen(&values);
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(33));
+        }
+    } else {
+        let moving = app.graph.motion > 0.02 || app.graph.pos.len() != items.len() || app.view.dragging.is_some();
+        if moving {
+            app.graph.step(&items, &links);
+        }
     }
     // the first time: everything in view
     // until the human moves the view, it follows the network gently (everything in view)
@@ -226,8 +256,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
             }
             let Some(np) = at(&key) else { continue };
             drawn.push(key);
+            // in a flow, what passes through it now: a link brighter and thicker with it
+            let live = if app.flow.on { app.flow.live.get(n).copied().unwrap_or(0.0) } else { 0.0 };
             if r.strength < 0.999 || !r.awake {
                 painter.extend(Shape::dashed_line(&[rp, np], Stroke::new(1.0_f32, colour), 4.0, 4.0));
+            } else if live > 0.02 {
+                painter.line_segment([rp, np], Stroke::new(1.0 + 2.5 * live, mix(colour, ink.accent, live)));
             } else {
                 painter.line_segment([rp, np], Stroke::new(1.0_f32, colour));
             }
@@ -320,7 +354,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
         if quarantined(&n.source) {
             colour = faded(colour, 0.35);
         }
-        let r = 7.0 * zoom.clamp(0.6, 1.6);
+        // in a flow, small points: the flow is what is seen
+        let r = if app.flow.on { 3.5 * zoom.clamp(0.6, 1.6) } else { 7.0 * zoom.clamp(0.6, 1.6) };
         let in_focus = app.focus.as_ref().is_none_or(|f| *f == n.source);
         if !in_focus {
             colour = faded(colour, 0.25);
@@ -336,8 +371,32 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
         if n.tracked {
             painter.circle_stroke(p, r + 3.0, Stroke::new(1.0_f32, ink.muted));
         }
-        // a node that plays is seen too: its wave around it, as it sounds, and what it touches lit by it
-        if let Some(wave) = scopes.get(&n.name) {
+        // in a flow, what is heard is an oscilloscope beside its node: its wave as it sounds (flat when silent)
+        if app.flow.on && (played.contains(&n.name) || n.output) {
+            let bx = Rect::from_min_size(p + vec2(r + 8.0, -26.0), vec2(130.0, 52.0));
+            painter.rect_filled(bx, 3.0, ink.surface);
+            painter.rect_stroke(bx, 3.0, Stroke::new(1.0_f32, colour), egui::StrokeKind::Inside);
+            painter.line_segment(
+                [pos2(bx.left() + 4.0, bx.center().y), pos2(bx.right() - 4.0, bx.center().y)],
+                Stroke::new(0.5_f32, ink.faint),
+            );
+            if let Some(wave) = scopes.get(&n.name) {
+                let m = wave.len().max(2);
+                let pts: Vec<Pos2> = wave
+                    .iter()
+                    .enumerate()
+                    .map(|(i, v)| {
+                        pos2(
+                            bx.left() + 4.0 + (bx.width() - 8.0) * i as f32 / (m - 1) as f32,
+                            bx.center().y - v.clamp(-1.0, 1.0) * (bx.height() / 2.0 - 4.0),
+                        )
+                    })
+                    .collect();
+                painter.add(Shape::line(pts, Stroke::new(1.3_f32, ink.accent)));
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(33));
+            }
+        } else if let Some(wave) = scopes.get(&n.name) {
+            // a node that plays is seen too: its wave around it, as it sounds, and what it touches lit by it
             let m = wave.len().max(2);
             let pts: Vec<Pos2> = wave
                 .iter()
@@ -415,8 +474,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
     // far away, each network becomes one node holding its master equation; coming closer, it unfolds again
     // (from the infinitely large to the small: a double click goes into one)
     let mut over_net: Option<String> = None;
-    let collapse =
-        if only.is_none() { ((COLLAPSE_FROM - zoom) / (COLLAPSE_FROM - COLLAPSE_FULL)).clamp(0.0, 1.0) } else { 0.0 };
+    let collapse = if only.is_none() && !app.flow.on {
+        ((COLLAPSE_FROM - zoom) / (COLLAPSE_FROM - COLLAPSE_FULL)).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
     let mut sources: Vec<String> = vec![];
     for n in &pic.nodes {
         if !sources.contains(&n.source) {
@@ -545,6 +607,28 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
     }
     // the legend, quiet, in a corner: the shapes drawn as in the view, then their words
     legend(&painter, rect, &ink, lang);
+    // a flow or the usual layout: inputs left, what is heard right, what passes lit while it plays
+    if !app.view.passive {
+        let at = Rect::from_min_size(pos2(rect.right() - 110.0, rect.top() + 8.0), vec2(100.0, 26.0));
+        let b = egui::Button::image_and_text(
+            crate::icons::image(
+                "workflow",
+                14.0,
+                if app.flow.on { ui.visuals().selection.stroke.color } else { ink.text },
+            ),
+            RichText::new(t(lang, "flow")).color(if app.flow.on {
+                ui.visuals().selection.stroke.color
+            } else {
+                ink.text
+            }),
+        )
+        .selected(app.flow.on);
+        if ui.put(at, b).on_hover_text(t(lang, "flow_d")).clicked() {
+            app.flow.on = !app.flow.on;
+            app.graph.motion = 0.05;
+            app.view.fitted = false;
+        }
+    }
     let _ = &hover_text;
     let menu_open = egui::Popup::is_any_open(ui.ctx());
     if app.view.dragging.is_none() && app.view.box_from.is_none() && app.view.relating.is_none() && !menu_open {

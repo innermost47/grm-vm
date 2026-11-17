@@ -1,15 +1,26 @@
 # A low-pass filter of four poles, one after another, with its resonance (what it gives back to its own input):
 # the filter of analogue synthesisers. {cut}: how much each pole follows at each sample (0 .. 1, small: darker);
 # {res}: the resonance (0 .. 3.5: it sings near the cut). {name}_y4 is what comes out.
+# Each pole follows the one before as it is now (not as it was a sample ago): written so, the four poles and their
+# feedback hold together up to a cut of about 0.8 even at full resonance; written with each pole a sample late, they
+# ran away from a cut of 0.1 (a delay in a loop that feeds back is a tone of its own, and it screams).
 network ladder(name, input, cut, res)
+  var {name}_s1 = 0
+  var {name}_s2 = 0
+  var {name}_s3 = 0
+  var {name}_s4 = 0
   node {name}_in signed
-  relate {name}_back: {name}_in = {input} - {res} * {name}_y4
-  var {name}_y1 = 0
-  var {name}_y2 = 0
-  var {name}_y3 = 0
-  var {name}_y4 = 0
-  set {name}_y1 = {name}_y1 + {cut} * {name}_in - {cut} * {name}_y1
-  set {name}_y2 = {name}_y2 + {cut} * {name}_y1 - {cut} * {name}_y2
-  set {name}_y3 = {name}_y3 + {cut} * {name}_y2 - {cut} * {name}_y3
-  set {name}_y4 = {name}_y4 + {cut} * {name}_y3 - {cut} * {name}_y4
+  relate {name}_back: {name}_in = {input} - {res} * {name}_s4
+  node {name}_y1 signed
+  relate {name}_p1: {name}_y1 = {name}_s1 + {cut} * {name}_in - {cut} * {name}_s1
+  node {name}_y2 signed
+  relate {name}_p2: {name}_y2 = {name}_s2 + {cut} * {name}_y1 - {cut} * {name}_s2
+  node {name}_y3 signed
+  relate {name}_p3: {name}_y3 = {name}_s3 + {cut} * {name}_y2 - {cut} * {name}_s3
+  node {name}_y4 signed
+  relate {name}_p4: {name}_y4 = {name}_s4 + {cut} * {name}_y3 - {cut} * {name}_s4
+  set {name}_s1 = {name}_y1
+  set {name}_s2 = {name}_y2
+  set {name}_s3 = {name}_y3
+  set {name}_s4 = {name}_y4
 end

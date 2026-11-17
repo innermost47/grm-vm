@@ -91,6 +91,8 @@ impl Reflex {
                     .map(|m| m.0)
                     .unwrap_or_else(|| machine.value_si(n))
             })
+            // a value that ran away (not a number, or beyond any sound) starts again from nothing
+            .map(|v| if v.is_finite() && v.abs() < 1e6 { v } else { 0.0 })
             .collect();
         let mut r = Reflex { clock, names, values, sets: vec![], follow: vec![], delays: vec![], samples: 0 };
         for st in &net.sets {
@@ -278,6 +280,21 @@ impl Reflex {
             d.at = (d.at + 1) % d.line.len();
         }
         self.samples += 1;
+    }
+
+    /// Everything it writes itself starts again from nothing (what its sets write, what its delays hold, what
+    /// follows from them): when it ran away, or when asked. Its parameters stay as they are.
+    pub fn reset(&mut self) {
+        for s in &self.sets {
+            self.values[s.target] = 0.0;
+        }
+        for d in &mut self.delays {
+            d.line.iter_mut().for_each(|x| *x = 0.0);
+            self.values[d.target] = 0.0;
+        }
+        for f in &self.follow {
+            self.values[f.target] = 0.0;
+        }
     }
 
     /// `n` samples of a node (a block of sound).

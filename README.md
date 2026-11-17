@@ -557,7 +557,7 @@ periodic: two notes that agree make one clearer wave, two that clash do not; the
 before into the next), and leans towards the intervals that sounded clear, away from those that clashed, a little at
 each step. Her taste for each interval is drawn in the Sound tab, as it changes. Her hands are on the knobs too, with
 the sequencer or without (the cutoff, the resonance, the envelopes, the echo, the room; not the loudness nor the
-tempo): now and then she takes one and moves it as a gesture over a few beats, slowly or fast, a little or far (a
+metronome's click): now and then she takes one and moves it as a gesture over a few beats, slowly or fast, a little or far (a
 sweep of the filter, a room that opens), listens while it moves and a beat after, and leaves it there if it sounded
 clearer, or brings it back. What the human plays on
 the keys meanwhile, she learns from (each interval played leans her towards it). Over it she plays a **melody**, a
@@ -568,8 +568,150 @@ are), and the tempo is one of her knobs: only the loudness stays the human's. Wh
 roll** (`widget r: roll`), the bass quieter, the melody in the accent, the last ten seconds sliding slowly to the left;
 and with the sequencer or without is hers to decide: no clock tells her when. She keeps what she heard in each way of
 playing (how clear, and for how long), weighs both at the end of each of her notes (the way she knows less counting a
-little more: it might be better), and changes when the other weighs more. (This first ear learns in the
-window; moving its learning into nodes of the network is the next step.)
+little more: it might be better), and changes when the other weighs more.
+
+**What she learned stays.** Her ear, her tastes, her lessons and her mood are kept beside the memory
+(`<memory>.music.json`, written every half minute, when she sleeps and when the window closes) and come back the next
+time: she does not start again from nothing.
+
+**A richer ear.** She hears how clear the sound is, how bright (its zero crossings) and how loud (its RMS). When the
+human turns a knob, she watches and listens: what it did to clarity, brightness and loudness, and where they like it
+(their lessons, without words); the same when her own hands turn one. She uses it when she plays: sometimes towards
+where the human likes a knob, sometimes the way she knows makes it clearer. On a long note her hands move a knob with
+it, slowly, the note's whole length: a **pad** that breathes (the sound and the note together).
+
+**Call and response.** While the human plays the keys she is silent and listens (their notes on the roll in amber);
+when they stop, she answers their phrase: its shape kept (its intervals and its rhythm), moved by the interval she
+likes best, its last note her own. The keys move by octaves (their buttons, or Z and X). The roll has a **playhead**:
+what she has already decided shows after it. The sequencer's *exact notes* switch makes a step moved by hand land on a
+semitone.
+
+**Her lessons.** Music taught as a whole, always improvised: the rule says which notes and lengths are allowed, never
+which to play. Sixteen lessons: the pentatonic, the major and the minor, the modes (dorian over a modal vamp,
+phrygian on a son clave, lydian in 5/4), chords (I-V-vi-IV, ii-V-I in swing, a blues, the andalusian cadence), the
+world's scales (hijaz in a 9/8 aksak, bhairav in 7/8, the Japanese *in*, pelog in 12/8, all tempered), the whole tone,
+the twelve tones each before any comes back (atonal), and last, nothing but her ears. Each rule is held by a
+**bridle** that loosens as what she hears stays at her own level in it (a goal within her reach, step by step; a note
+below it is not punished, the bridle simply stays): **guided** (every note on the chord), **accompanied** (the bass
+plays the chord's roots under her, she has the scale), **free** (the rule now and then; and she may tune an interval by
+its ratio with the bass rather than by the tempered semitone: frequencies, not only notes). In the **studio** she
+chooses: towards the lesson where she learns fastest, the ones she knows less counting a little more (Oudeyer and
+Kaplan's learning progress); a lesson long below her own level where she does not progress, she leaves *for later*,
+without shame. Her **mood** is drawn: pleasure (what she hears against what she usually hears, and the new),
+surprise (against what she expected in this lesson), curiosity (how fast she learns), boredom (the same again: its
+pleasure fades). Bored and learning nowhere, she rests; when what she lived weighs enough (a pressure that rises with
+what is new, as Borbély's sleep pressure does), she asks to sleep, and the world is written.
+
+**Every key, and changing key.** The tonic is hers. She goes through the twelve keys of each lesson by the
+circle of fifths: near keys while the bridle is tight (they share all their notes but one), any key when it is loose,
+towards the ones she has lived less. She hears the key the human plays in (Krumhansl and Kessler's profiles: how well
+each degree was heard to fit a key, by listeners) and, in a lesson, joins it. Three lessons change on their own every
+four bars: the **mode** on the same tonic (A major → A dorian), the **key** in the same mode (by a fifth, a fourth, a
+semitone, a third...), or **both at once**; guided, each time; free, when she wants it (bored, or for the new). Each
+change is judged by what she heard after, and she grows a taste for each move. Four **jazz** lessons go chord to
+chord, each chord with its own scale (a minor seventh dorian, a dominant mixolydian, a major seventh ionian, a
+half-diminished locrian, an altered dominant the altered scale): ii-V's down by whole tones, rhythm changes, a minor
+ii-V-i, and Coltrane's changes by major thirds. The Sound tab draws the circle of fifths, each key lit by how long she
+lived it, hers ringed, the human's ringed in amber; and the **comma**: twelve just fifths overshoot seven octaves by
+531441/524288 (23.46 cents), so each fifth she walks, tuned just, would carry her 1.955 cents from the tempered key.
+
+**When the sound runs away.** A network that feeds back can run away (the filter did: each of its four poles was a
+sample late, and a delay inside a loop that feeds back is a tone of its own, which screamed at full scale from a cut
+of 0.1 at full resonance). The filter now has each pole follow the one before as it is now, and holds up to a cut of
+about 0.8 at full resonance (the knobs stop below that). And there is a fuse, as an amplifier has: a sample that is
+not a number or far beyond a sound starts the network's own values again from nothing (said in a toast); *Start the
+sound again* at the top of the Sound tab does it by hand, and *Panic* does it too.
+
+**Every note value, two voices by the rules, lessons that follow one another.** She has every value: a sixteenth,
+an eighth of a triplet, an eighth, a dotted eighth, a quarter, a dotted quarter, a half, a dotted half, a whole (a
+taste for each). The first lessons hold her to their rhythm strictly (wholes and halves, then quarters, eighths,
+dotted notes, triplets, sixteenths, every value in a bar), and the bridle loosens. Two notes together follow the
+first rules counterpoint teaches, as tight as the bridle: on a strong beat a consonance with the bass (the unison or
+octave, a third, a fifth, a sixth); on a weak beat a dissonance only when reached by step (a passing note); never two
+fifths nor two octaves in a row with both voices going the same way; how many notes kept the rules and how many they
+moved is shown. Thirty lessons, from the simple to the free; at first they follow one another on their own, each when
+the one before is learned (its bridle loose by half); the more she has learned, the freer she is to choose them
+herself (*free to choose*, beside her mood). What she lived follows each lesson by its name, so lessons can be added
+or moved without her losing anything.
+
+**Four voices, three oscillators, FM.** The synthesiser is one voice (`networks/voice.grm`) called four times, all
+sharing the knobs: polyphonic. Each voice has three oscillators: two saws (or squares, by *shape*), the second tuned
+by its ratio to the first (an octave, a fifth, a little apart as two strings), and a sine heard on its own and moving
+the pitch of the other two as fast as it sounds (*fm*: frequency modulation, and new partials come). The first voice
+plays the keys or the sequencer (her bass when she plays), the second her melody, the third and fourth the chords of
+her lessons, held a bar each. Each key the human holds takes a voice (several at once: chords), a free one first,
+hers when none is (her chords before her melody, her melody before her bass); while a voice is the human's, what she
+would play on it waits, and it comes back to her when the key is let go. The computer's keys play by where they are,
+not by what they print: the same hand on QWERTY, AZERTY or QWERTZ (the octave under the row: Z X on QWERTY, W X on
+AZERTY). The notes sounding are lit, on the roll and on the keys, as long as they last. *Rec* beside *sound* records
+everything written while it runs (every note and every knob, by hand or by her) to play it again as it was, and the
+notes as a MIDI file.
+
+**Times in seconds, knobs that turn by ratios, a double click.** The envelopes' attack, decay and release are times
+(1 ms to 4 s: up is longer, as a musician expects), each becoming the rate it moves at by a relation (rate × time =
+1/48 000). A knob whose range spans a hundredfold or more turns by ratios (each turn of the hand counts as much at
+the short end as at the long); a knob, a fader or a step double-clicked goes back to where the app first puts it.
+The window comes back maximised or full screen, as it was left.
+
+**Two hands, an arpeggiator, lessons on the synthesiser.** Outside the lessons' chords she has a left hand: at each
+bar, now and then, a chord of her own over the bass (two tones she likes with it), by a taste for it judged as the
+rest is; with the sequencer on, the keys the human holds go to the free voices (the first is the sequencer's). The
+**arpeggiator** plays the keys held (or, when she plays, her chord) one after another (up, down, both, at random,
+over one to three octaves, so many a step of the sequencer). Six **lessons on the synthesiser itself** (the filter,
+the envelopes, the oscillators, the LFO, FM, the effects): guided, she turns each knob of the lesson its whole
+course, slowly, listens, and says what it does (*cutoff, turned up: brighter +0.42, clearer -0.05*); looser, she looks
+for a sound (a soft pad, a bright lead, a dark bass, a bell, a quiet murmur) by what she learned of each knob, and
+says when she found it. Her pace is her mood's: she learns faster when it pleases her and slower when she is bored;
+a lesson she enjoys and still finds new, she stays in a little longer; one she is bored of, she leaves sooner (it
+comes back later); and when she chooses, the lessons that pleased her count more.
+
+**Tempo in BPM, a metronome, her sense of time.** The tempo is in beats a minute (a step of the sequencer an eighth,
+the arpeggiator so many a step). A **metronome** (`networks/metronome.grm`) clicks each beat, the first of the bar
+louder; its phase says where the beat is. She hears where her notes begin against it (the nearest sixteenth, in
+milliseconds) and places the next nearer the grid as much as her **sense of time** holds; it grows while she plays
+with the click. A lesson with a metre turns the click on while it is guided, and off when it loosens: she keeps the
+time herself. A gate left open in the memory (a note that would sound for ever) is let go when the window opens, and
+by *Start the sound again* and *Panic*. The instrument's nodes are found by the names its file gives them, even when
+the window renamed them because another app holds a node of that name (`pitch` became `analog__pitch`: the keys, the
+arpeggiator and her notes were going to the other app's node).
+
+**Each their instrument, listening to each other.** *Her synth* (`apps/her_synth.grm`) is the same synthesiser
+as the human's, with its own knobs, and it is hers: only she plays it and turns its knobs (the human sees them move;
+its loudness and its *by ear* switch stay the human's, its other controls are locked), and she never touches the
+human's. She hears both together (her ear listens to everything that sounds), takes the human's phrases, key and
+intervals as before, and follows their tempo: one clock for both, the human's metronome. Hers sits a little to the
+right in the stereo, the human's a little to the left.
+
+**Drums.** Both synthesisers have a *noise* knob (noise made of nothing but the logistic map x → 3.9999 x (1 − x),
+chaotic, in `networks/noise.grm`) and a *to the pitch* knob (the filter's envelope raises the pitch as each note
+begins, falling with it): a sine with a fast falling pitch and a short decay is a kick, noise with a short decay a
+snare, noise through an open filter with a very short decay a hi-hat.
+
+**The network as a flow.** *Flow*, at the top right of a network view, lays it out from the inputs (knobs, keys,
+switches) on the left to what is heard on the right, each node between as far from the inputs as the relations that
+make it (a relation reads its right side and writes its left one), the nodes of one voice together, a tall column
+folded into several. While it plays, what passes through each node is read from the sound itself, and each link
+brightens and thickens with it, slowly; its points are small (the flow is what is seen), and what is heard has
+its oscilloscope beside it. A key, a note, a knob written by hand or by her goes straight to the sound
+too (not only when the machine next tells it: a short note or an arpeggio was over before it arrived). The piano
+roll draws the beat: a line each beat, stronger at each bar, fainter eighths.
+
+![The analogue synthesiser as a flow: inputs on the left, the voices between, what is heard on the right](docs/flow.png)
+
+**An LFO.** A slow wave (`networks/lfo.grm`: a triangle whose direction is already a square, bent by 1.5 t - 0.5 t³
+into almost a sine) moves the filter (multiplied, so it never closes it below nothing), the pitch (a vibrato) and the
+loudness (a tremolo), its speed from 0.05 to 12 Hz, its shape from smooth to square. Its knobs are hers to play too.
+
+**The mathematics of what she likes.** Each interval is a ratio of frequencies (an octave 2/1, a fifth 3/2, a fourth
+4/3, a major third 5/4...); the simpler the ratio (Tenney's height, log2 of p × q), the more the two waves agree. The
+Sound tab sets her taste beside each ratio, and how far her taste follows the simple ratios (a correlation): nobody
+told her.
+
+**Takes.** *Record* keeps every note (both voices and the human's); *Stop and write* writes a standard MIDI file
+(`<memory>.takes/take-001.mid`, the bass on channel 1, the melody on 2, the human on 3) and its notes, which *Play
+again* plays on the instrument.
+
+![Her lessons, her mood, the ratios beside her taste](docs/lessons.png)
 
 ### Knobs, faders, lights
 

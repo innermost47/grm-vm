@@ -8,7 +8,7 @@
 //! the app's file, said at once and written at once.
 //! X-ray (Ctrl+R): over each widget, the node it is bound to, its value ± sigma and where it comes from.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 
 use eframe::egui::{self, pos2, vec2, Color32, Pos2, Rect, RichText, Sense, Stroke};
 
@@ -58,11 +58,23 @@ pub struct State {
     ghost: Option<(i32, i32, i32, i32)>,
     pub chosen: Option<String>,
     held: HashMap<String, bool>,
-    keys_down: HashSet<i32>,
+    keys_down: std::collections::BTreeSet<i32>,
+    /// The keys held on a polyphonic instrument (MIDI numbers, the octave counted), and its prefix: the window
+    /// gives each a voice.
+    pub keys_held: std::collections::BTreeSet<i32>,
+    pub poly: Option<String>,
     pub add_kind: Option<WidgetKind>,
     pub add_nodes: [String; 2],
     pub add_name: String,
     pub edit_line: String,
+    /// The notes the human played on the keys (MIDI numbers), for her to hear; the knobs they turned (node, from,
+    /// to: parts of a whole turn), for her to learn from.
+    pub played: Vec<i32>,
+    pub turned: Vec<(String, f64, f64)>,
+    /// The keys' octave, moved up or down.
+    pub octave: i32,
+    /// The computer's piano keys held, by where they are (semitones from the keyboard's lowest note).
+    pub phys_down: std::collections::BTreeSet<i32>,
 }
 
 fn freq(midi: f64) -> f64 {
@@ -110,7 +122,47 @@ fn caption(ui: &egui::Ui, painter: &egui::Painter, bottom: Pos2, label: &str, ic
     painter.galley(pos2(left + icon_w, bottom.y - h), g, ink.text);
 }
 
+/// How far a knob is turned (0 .. 1) for a value: evenly, or by ratios when its range spans a hundredfold or more
+/// (a time from a millisecond to seconds: each turn of the hand counts as much at the short end as at the long).
+pub fn turn_of(lo: f64, hi: f64, v: f64) -> f64 {
+    let t = if lo > 0.0 && hi / lo >= 100.0 {
+        (v.max(lo).ln() - lo.ln()) / (hi.ln() - lo.ln())
+    } else {
+        (v - lo) / (hi - lo)
+    };
+    if t.is_finite() {
+        t.clamp(0.0, 1.0)
+    } else {
+        0.0
+    }
+}
+
+/// The value a knob turned so far (0 .. 1) gives.
+pub fn value_of(lo: f64, hi: f64, t: f64) -> f64 {
+    let t = t.clamp(0.0, 1.0);
+    if lo > 0.0 && hi / lo >= 100.0 {
+        (lo.ln() + t * (hi.ln() - lo.ln())).exp()
+    } else {
+        lo + t * (hi - lo)
+    }
+}
+
+/// A double click on a control: back to where the app first puts it.
+fn reset_on_double_click(app: &App, r: &egui::Response, node: &str) {
+    if r.double_clicked() {
+        if let Some(d) = app.default_of(node) {
+            observe(app, node, d);
+        }
+    }
+}
+
 fn observe(app: &App, node: &str, v: f64) {
+    // her own synthesiser: only she plays it (its loudness and its switch to play by ear excepted)
+    if app.locked(node) {
+        return;
+    }
+    app.taped(node, v);
+    app.sound_now(node, v);
     let line = format!("observe {node} = {v} ± 0.000001");
     app.engine.send(move |w| w.say(&line, &grm_engine::Provenance::of("surface")).map(|_| String::new()));
 }
@@ -311,6 +363,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                     if r.changed() {
                         observe(app, &n.name, v);
                     }
+                    reset_on_double_click(app, &r, &n.name);
                     // any slider can be given to a knob of a controller
                     let (lo, hi, node_name) = (w.lo, w.hi, n.name.clone());
                     r.context_menu(|ui| {
@@ -352,6 +405,24 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                     .selected(playing);
                 if ui.put(rect, b).clicked() {
                     app.say(if playing { format!("stop {}", w.nodes[0]) } else { format!("play {}", w.nodes[0]) });
+                }
+            }
+            WidgetKind::Rec => {
+                // recording what is played and turned: its light, and how long it has been going
+                let recording = app.band.recording.is_some();
+                let colour = if recording { ui.visuals().selection.stroke.color } else { lk.text };
+                let sign = crate::icons::image(if recording { "square" } else { "circle-dot" }, 15.0 * lk.size, colour);
+                let words = match app.recording_for() {
+                    Some(s) => format!("{label} {:02}:{:02}", (s / 60.0) as u32, (s % 60.0) as u32),
+                    None => label.clone(),
+                };
+                let b = egui::Button::image_and_text(sign, RichText::new(words).size(15.0 * lk.size).color(colour))
+                    .selected(recording);
+                if ui.put(rect, b).on_hover_text(crate::text::t(app.settings.lang, "rec_d")).clicked() {
+                    app.record();
+                }
+                if recording {
+                    ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
                 }
             }
             WidgetKind::Meter => {
@@ -505,12 +576,22 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                     // a round knob, as on a desk: its scale of ticks, its cap, its words under it; dragged up and
                     // down (the value shows while it moves, and on the pointer)
                     let r = ui.interact(rect, id, Sense::click_and_drag());
-                    let span = (w.hi - w.lo).abs().max(1e-12);
                     let mut v = n.value;
-                    if r.dragged() {
+                    if r.dragged() && !app.locked(&n.name) {
                         let dy = -r.drag_delta().y as f64;
-                        v = (v + dy / 150.0 * span).clamp(w.lo.min(w.hi), w.hi.max(w.lo));
+                        let from = v;
+                        v = value_of(w.lo, w.hi, turn_of(w.lo, w.hi, v) + dy / 150.0);
                         observe(app, &n.name, v);
+                        // she watches the human turn it
+                        let part = |x: f64| (x - w.lo) / (w.hi - w.lo);
+                        app.surface.turned.push((n.name.clone(), part(from), part(v)));
+                    }
+                    // a double click: back to where the app first puts it
+                    if r.double_clicked() {
+                        if let Some(d) = app.default_of(&n.name) {
+                            observe(app, &n.name, d);
+                            v = d;
+                        }
                     }
                     // a knob says less only when it is really small
                     let small = rect.width() < 44.0 || rect.height() < 60.0;
@@ -520,7 +601,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                     let rad = d / 2.0;
                     let a0 = std::f32::consts::PI * 0.75;
                     let sweep = std::f32::consts::PI * 1.5;
-                    let share = (((v - w.lo) / (w.hi - w.lo)).clamp(0.0, 1.0)) as f32;
+                    let share = turn_of(w.lo, w.hi, v) as f32;
                     let at = |a: f32, r: f32| c + vec2(a.cos(), a.sin()) * r;
                     // the scale: eleven ticks, the ones passed in the accent
                     for k in 0..=10 {
@@ -672,8 +753,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                             .clamping(egui::SliderClamping::Always)
                             .show_value(false),
                     );
+                    reset_on_double_click(app, &r, &n.name);
                     if r.changed() {
-                        observe(app, &n.name, v);
+                        // exact notes: the step lands on a semitone, when the instrument says so
+                        let exact = app.picture.node(&app.named("seq_exact")).is_some_and(|e| e.value > 0.5);
+                        if exact && v > 0.0 {
+                            v = 55.0 * 2f64.powf((12.0 * (v / 55.0).log2()).round() / 12.0);
+                        }
+                        observe(app, &n.name, (v * 100.0).round() / 100.0);
                     }
                     // a mark a semitone beside the rail, the octaves (the A's) longer, bold, and named
                     if w.lo > 0.0 && w.hi > w.lo {
@@ -727,6 +814,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                 let inner = rect.shrink2(vec2(28.0, 6.0)).translate(vec2(10.0, 0.0));
                 let now = app.ear_now();
                 let span = 10.0;
+                // the playhead: now, four fifths along; what she has already chosen shows after it
+                let head = inner.left() + inner.width() * 0.8;
+                let x_of = |t: f64| head + ((t - now) / span) as f32 * inner.width();
                 let y_of = |n: i32| inner.bottom() - (n as f32 / 48.0).clamp(0.0, 1.0) * inner.height();
                 for a in 0..=4 {
                     let y = y_of(a * 12);
@@ -740,10 +830,34 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                         ink.muted,
                     );
                 }
+                // the rhythmic grid, from the beat itself: a line each beat, stronger at each bar, fainter eighths
+                if let Some((read_at, phase, beat, bar)) = app.beat_clock {
+                    let beat = beat.max(0.05);
+                    let last = read_at - phase * beat;
+                    let first_k = ((now - span * 0.8 - last) / beat).floor() as i64;
+                    let last_k = ((now + span * 0.2 - last) / beat).ceil() as i64;
+                    for k in first_k..=last_k {
+                        for half in [0.0, 0.5] {
+                            let t = last + (k as f64 + half) * beat;
+                            let x = x_of(t);
+                            if x < inner.left() || x > inner.right() {
+                                continue;
+                            }
+                            let in_bar = (bar.round() as i64 + k).rem_euclid(4);
+                            let stroke = if half > 0.0 {
+                                Stroke::new(0.5_f32, ink.faint.gamma_multiply(0.5))
+                            } else if in_bar == 0 {
+                                Stroke::new(1.2_f32, ink.muted.gamma_multiply(0.8))
+                            } else {
+                                Stroke::new(0.7_f32, ink.faint)
+                            };
+                            painter.line_segment([pos2(x, inner.top()), pos2(x, inner.bottom())], stroke);
+                        }
+                    }
+                }
                 let h = (inner.height() / 48.0).max(2.0);
                 for (at, len, note, voice) in app.band.roll.iter() {
-                    let x0 = inner.right() - ((now - at) / span) as f32 * inner.width();
-                    let x1 = inner.right() - ((now - at - len) / span) as f32 * inner.width();
+                    let (x0, x1) = (x_of(*at), x_of(at + len));
                     if x1 < inner.left() || x0 > inner.right() {
                         continue;
                     }
@@ -751,9 +865,26 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                         pos2(x0.max(inner.left()), y_of(*note) - h),
                         pos2(x1.min(inner.right()), y_of(*note) + h * 0.2),
                     );
-                    let colour = if *voice == 1 { ink.accent } else { ink.text.gamma_multiply(0.45) };
-                    painter.rect_filled(r, 1.5, colour);
+                    let colour = match voice {
+                        1 => ink.accent,
+                        2 => ink.amber,
+                        3 => ink.accent.gamma_multiply(0.45),
+                        _ => ink.text.gamma_multiply(0.45),
+                    };
+                    // a note sounding now: fuller, framed, a little taller, as long as it lasts (no flashing)
+                    let sounding = *at <= now && now < at + len;
+                    if sounding {
+                        let r = r.expand2(vec2(0.0, 1.5));
+                        painter.rect_filled(r, 2.0, colour.gamma_multiply(1.4));
+                        painter.rect_stroke(r, 2.0, Stroke::new(1.0_f32, ink.text), egui::StrokeKind::Outside);
+                    } else {
+                        painter.rect_filled(r, 1.5, colour);
+                    }
                 }
+                painter.line_segment(
+                    [pos2(head, inner.top() - 2.0), pos2(head, inner.bottom() + 2.0)],
+                    Stroke::new(1.0_f32, ink.accent.gamma_multiply(0.7)),
+                );
                 painter.text(
                     rect.right_top() + vec2(-6.0, 4.0),
                     egui::Align2::RIGHT_TOP,
@@ -806,6 +937,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                     if r.changed() {
                         observe(app, &n.name, v);
                     }
+                    reset_on_double_click(app, &r, &n.name);
                     if lab_h > 0.0 {
                         painter.text(
                             pos2(rect.center().x, rect.bottom()),
@@ -927,6 +1059,62 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
 }
 
 fn keys(app: &mut App, ui: &mut egui::Ui, painter: &egui::Painter, rect: Rect, id: egui::Id, w: &Widget, ink: &Ink) {
+    // the octave, moved up or down (its buttons on the left; Z and X on the computer's keys)
+    let side = Rect::from_min_size(rect.min, vec2(24.0, rect.height()));
+    let rect = Rect::from_min_max(pos2(rect.left() + 28.0, rect.top()), rect.max);
+    let third = side.height() / 3.0;
+    let up = Rect::from_min_size(side.min, vec2(side.width(), third));
+    let down = Rect::from_min_size(pos2(side.left(), side.bottom() - third), vec2(side.width(), third));
+    for (b, icon, step) in [(up, "chevron-up", 1), (down, "chevron-down", -1)] {
+        let r =
+            ui.interact(b, id.with(icon), Sense::click()).on_hover_text(crate::text::t(app.settings.lang, "octave"));
+        painter.rect_filled(b.shrink(1.0), 3.0, if r.hovered() { ink.faint } else { ink.surface });
+        crate::icons::image(icon, 12.0, ink.text).paint_at(ui, Rect::from_center_size(b.center(), vec2(12.0, 12.0)));
+        if r.clicked() {
+            app.surface.octave = (app.surface.octave + step).clamp(-3, 3);
+        }
+    }
+    let typing = ui.ctx().memory(|m| m.focused().is_some()) || ui.input(|i| i.modifiers.any());
+    // the computer's keys by where they are, not by what they print: the same hand on QWERTY, AZERTY, QWERTZ...
+    // (the row of A on QWERTY, of Q on AZERTY; the octave under it, Z and X on QWERTY, W and X on AZERTY)
+    let focused = ui.input(|i| i.focused);
+    if typing || app.editing || !focused {
+        app.surface.phys_down.clear();
+    } else {
+        let mut octave = app.surface.octave;
+        let mut down = std::mem::take(&mut app.surface.phys_down);
+        ui.input(|i| {
+            for e in &i.events {
+                if let egui::Event::Key { key, physical_key, pressed, repeat, .. } = e {
+                    let k = physical_key.unwrap_or(*key);
+                    if let Some((_, semi)) = PIANO.iter().find(|(pk, _)| *pk == k) {
+                        if *pressed {
+                            down.insert(*semi);
+                        } else {
+                            down.remove(semi);
+                        }
+                    }
+                    if *pressed && !repeat {
+                        match k {
+                            egui::Key::Z => octave = (octave - 1).max(-3),
+                            egui::Key::X => octave = (octave + 1).min(3),
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        });
+        app.surface.phys_down = down;
+        app.surface.octave = octave;
+    }
+    painter.text(
+        side.center(),
+        egui::Align2::CENTER_CENTER,
+        format!("{:+}", app.surface.octave),
+        egui::FontId::monospace(10.0),
+        ink.text,
+    );
+    let shift = 12 * app.surface.octave;
     let (lo, hi) = (w.lo.round() as i32, w.hi.round() as i32);
     let white: Vec<i32> = (lo..=hi).filter(|m| ![1, 3, 6, 8, 10].contains(&m.rem_euclid(12))).collect();
     let kw = rect.width() / white.len().max(1) as f32;
@@ -954,25 +1142,40 @@ fn keys(app: &mut App, ui: &mut egui::Ui, painter: &egui::Painter, rect: Rect, i
     }
     // which note the pointer holds (black keys are on top), and the computer keyboard's
     let pointer = if r.is_pointer_button_down_on() { r.interact_pointer_pos() } else { None };
-    let mut held: Option<i32> =
-        pointer.and_then(|p| boxes.iter().rev().find(|(_, b, _)| b.contains(p)).map(|(m, _, _)| *m));
+    // every key held: the pointer's, and the computer's (several at once: chords)
+    let mut held: std::collections::BTreeSet<i32> = pointer
+        .and_then(|p| boxes.iter().rev().find(|(_, b, _)| b.contains(p)).map(|(m, _, _)| *m))
+        .into_iter()
+        .collect();
     // the computer's keys play only alone (Ctrl+E is not an E), and not while something is typed
-    let typing = ui.ctx().memory(|m| m.focused().is_some()) || ui.input(|i| i.modifiers.any());
-    if !typing && !app.editing {
-        ui.input(|i| {
-            for (key, k) in PIANO {
-                let m = lo + k;
-                if i.key_down(key) && m <= hi {
-                    held = Some(m);
-                }
-            }
-        });
+    for k in &app.surface.phys_down {
+        if lo + k <= hi {
+            held.insert(lo + k);
+        }
+    }
+    // her keyboard plays only by her
+    if app.locked(&w.nodes[0]) {
+        held.clear();
+    }
+    // the notes sounding now (hers, the sequence's, the human's), lit softly on their keys
+    let now = app.ear_now();
+    let sounding: std::collections::BTreeSet<i32> = app
+        .band
+        .roll
+        .iter()
+        .filter(|(at, len, _, _)| *at <= now && now < at + len)
+        .map(|(_, _, n, _)| n + 33 - shift)
+        .collect();
+    if !sounding.is_empty() {
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(40));
     }
     for (m, b, black) in &boxes {
-        let on = held == Some(*m);
+        let on = held.contains(m);
         // a keyboard looks like one, whatever the theme
         let fill = if on {
             ink.accent
+        } else if sounding.contains(m) {
+            ink.accent.gamma_multiply(0.55)
         } else if *black {
             Color32::from_rgb(0x26, 0x27, 0x2B)
         } else {
@@ -981,25 +1184,33 @@ fn keys(app: &mut App, ui: &mut egui::Ui, painter: &egui::Painter, rect: Rect, i
         painter.rect_filled(*b, 2.0, fill);
         painter.rect_stroke(*b, 2.0, Stroke::new(1.0_f32, ink.muted), egui::StrokeKind::Inside);
     }
-    let key = format!("keys/{}", w.name);
-    let was = app.surface.keys_down.iter().next().copied();
-    let now_held = held;
-    if now_held != was {
-        app.surface.keys_down.clear();
-        if let Some(m) = now_held {
-            app.surface.keys_down.insert(m);
-            observe(app, &w.nodes[0], freq(m as f64));
-            observe(app, &w.nodes[1], 1.0);
-        } else {
-            observe(app, &w.nodes[1], 0.0);
+    // a polyphonic instrument (a `poly` node beside its pitch): each key held takes a voice (the window shares them
+    // out); otherwise the last key held plays, alone
+    let poly = app.is_poly(&w.nodes[0]);
+    if held != app.surface.keys_down {
+        for m in held.difference(&app.surface.keys_down) {
+            app.surface.played.push(m + shift);
         }
+        // the keys held, for the arpeggiator (and, on a polyphonic instrument, each its voice)
+        app.surface.keys_held = held.iter().map(|m| m + shift).collect();
+        if poly {
+            app.surface.poly = Some(w.nodes[0].clone());
+        } else {
+            match held.iter().next_back() {
+                Some(m) => {
+                    observe(app, &w.nodes[0], freq((m + shift) as f64));
+                    observe(app, &w.nodes[1], 1.0);
+                }
+                None => observe(app, &w.nodes[1], 0.0),
+            }
+        }
+        app.surface.keys_down = held.clone();
         ui.ctx().request_repaint();
     }
-    let _ = key;
     r.widget_info(|| {
         egui::WidgetInfo::labeled(egui::WidgetType::Other, true, format!("keys: {} and {}", w.nodes[0], w.nodes[1]))
     });
-    if held.is_some() {
+    if !held.is_empty() {
         ui.ctx().request_repaint();
     }
 }

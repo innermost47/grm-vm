@@ -68,6 +68,8 @@ pub enum WidgetKind {
     /// A step of a sequencer: a fader for its pitch, its note's name above, lit when the sequencer is on it
     /// (nodes: the pitch, the step the sequencer is on; its words: its number, from 1).
     Step,
+    /// Records what is played and turned (notes, knobs, by hand or by her), to play it again and to keep as MIDI.
+    Rec,
 }
 
 impl WidgetKind {
@@ -92,6 +94,7 @@ impl WidgetKind {
             "section" => WidgetKind::Section,
             "step" => WidgetKind::Step,
             "roll" => WidgetKind::Roll,
+            "rec" | "record" => WidgetKind::Rec,
             _ => return None,
         })
     }
@@ -117,13 +120,14 @@ impl WidgetKind {
             WidgetKind::Section => "section",
             WidgetKind::Step => "step",
             WidgetKind::Roll => "roll",
+            WidgetKind::Rec => "rec",
         }
     }
 
     /// How many nodes it is bound to.
     pub fn nodes(self) -> usize {
         match self {
-            WidgetKind::Text | WidgetKind::Section | WidgetKind::Roll => 0,
+            WidgetKind::Text | WidgetKind::Section | WidgetKind::Roll | WidgetKind::Rec => 0,
             WidgetKind::Pad | WidgetKind::Keys | WidgetKind::Step => 2,
             _ => 1,
         }
@@ -133,7 +137,7 @@ impl WidgetKind {
     pub fn size(self) -> (i32, i32) {
         match self {
             WidgetKind::Slider => (4, 1),
-            WidgetKind::Toggle | WidgetKind::Button | WidgetKind::Play => (2, 1),
+            WidgetKind::Toggle | WidgetKind::Button | WidgetKind::Play | WidgetKind::Rec => (2, 1),
             WidgetKind::Meter => (3, 1),
             WidgetKind::Value => (3, 1),
             WidgetKind::Plot => (6, 3),
@@ -152,7 +156,7 @@ impl WidgetKind {
         }
     }
 
-    pub const ALL: [WidgetKind; 19] = [
+    pub const ALL: [WidgetKind; 20] = [
         WidgetKind::Slider,
         WidgetKind::Toggle,
         WidgetKind::Button,
@@ -172,6 +176,7 @@ impl WidgetKind {
         WidgetKind::Section,
         WidgetKind::Step,
         WidgetKind::Roll,
+        WidgetKind::Rec,
     ];
 }
 

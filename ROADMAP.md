@@ -174,6 +174,52 @@
    sounds together learned, the bass played by her with the sequencer off, the sequencer turned on or off by her, from what she heard with it and without (no clock decides).
    The Journal tab in sections that fold, each scrolled in its own height.
    Next: each with an instrument, playing together (the human one, she another), and the ear's learning in nodes.
+   *Then done* (her music, and her lessons): what she learned kept between sessions (`<memory>.music.json`); an ear
+   that hears clarity, brightness and loudness, and learns what each knob does by watching the human turn it (and
+   where they like it) and by her own gestures; pads (a knob moved slowly with a long note); call and response at the
+   keys; the keys by octaves (Z, X); a playhead on the roll; exact notes on the sequencer; stereo (the bass a little
+   left, the melody a little right: `NAME_r` beside a node plays it on the right); MIDI takes written and played again.
+   Sixteen lessons, always improvised (modes, chords and progressions, the world's scales, every metre from 3/4 to
+   9/8 aksak and 12/8, swing, the twelve tones, then nothing but her ears), each held by a bridle that loosens with
+   her own level (guided, accompanied, free; free, she may tune by ratios rather than semitones); a studio where she
+   chooses by her learning progress, leaves a lesson too hard for now *for later*, rests when bored, and asks to sleep
+   when what she lived weighs enough; her mood (pleasure, surprise, curiosity, boredom); the ratios of the intervals
+   beside her taste.
+   *Then done*: the tonic hers, every key by the circle of fifths, the key of the human heard (Krumhansl) and
+   joined; changes of mode, of key, of both, judged and tasted; jazz chord to chord (chord-scales; ii-V cycles, rhythm
+   changes, altered minor ii-V-i, Coltrane changes); the circle of fifths and the comma drawn. The filter's runaway
+   found and mended (its poles a sample late in a loop), a fuse on every played network, the sound started again by
+   hand; the knobs she turned as a log.
+   *Then done*: every note value (sixteenths to wholes, dotted, triplets), strict first then loosened; two notes
+   together by counterpoint's first rules; thirty lessons following one another on their own, then chosen by her as
+   she grows free (what she lived follows each lesson by its name); an LFO on the synthesiser (filter, vibrato,
+   tremolo).
+   *Then done*: one voice four times (polyphonic), three oscillators each with FM; the human's keys taking a voice
+   of hers and giving it back; the computer's keys by where they are (AZERTY too); notes lit while they sound; rec
+   beside play (notes and knobs, played again as they were). Her switch now read on the instrument shown only (a copy
+   of its network elsewhere had its own switch on: she went on writing notes into that copy, unheard).
+   *Then done*: lessons on the synthesiser itself (each knob explored, said in words, then sounds looked for); an
+   arpeggiator; her left hand (chords of her own); envelopes in seconds, knobs by ratios, a double click to reset;
+   the window kept maximised; her pace set by her pleasure and her boredom; the human's keys never on a voice the
+   sequencer holds.
+   *Then done*: the tempo in BPM; a metronome, and her sense of time learned with it; gates kept open let go; the
+   instrument's nodes found by their file names (the keys and the arpeggiator were writing to another app's node).
+   *Then done*: the network as a flow, lit live while it plays; notes and knobs sent straight to the sound (short
+   notes were lost: the machine told the sound only every tenth of a second); the beat drawn on the roll.
+   *Then done*: each their instrument (her own synthesiser, locked to the human but for its volume; she never
+   touches the human's; she hears both; one tempo); drums (noise, the envelope on the pitch); the flow with small
+   points and an oscilloscope on what is heard.
+   **Asked, to think through first**: her boredom rising for real (her surprise was measured against too little,
+   so it was always high and she was never bored); lessons on the sequencer and the arpeggiator; at first, intervals
+   imposed (thirds, fourths, fifths, sevenths, ninths) and notes forced on the beat, both loosened with the bridle;
+   when the click goes off (a lesson loosening), said.
+   Next for the flow: a voice or a module folded into one block, opened with a double click.
+   **Agreed next** (lots 3 and 4, with Anthony): hearing the computer's sound (a loopback, with consent);
+   a catalogue of free MIDI to listen to; phonemes, an inner voice, reading and writing (Wikipedia), a scrabble of
+   phonemes; games against herself (go, chess); a sandbox for mathematics in GRML; a corner to rest and dream; her
+   inner dialogues; thinking several moves ahead; memory kept compressed, opened when read. Her musical self as nodes
+   of the network (for now a file beside it). Microtonal scales as they are
+   (maqam quarter tones, pelog and slendro as gamelans tune them), not tempered.
    **To think through with Anthony**: every node and every relation as a potential input and output (a relation's
    strain read as a node, a network that pulses, with feedback, plugged into the sequencer).
    **Agreed next** (with Anthony): Our World in Data as a first source of the world (the next lot); MIDI in, as

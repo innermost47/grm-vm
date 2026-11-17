@@ -833,6 +833,300 @@ fn eye(app: &mut App, ui: &mut egui::Ui) {
 }
 
 /// What she learned by ear, improvising: how clear she hears herself, and her taste for each interval.
+/// A bar from 0 to 1 (or -1 to 1), its name before it.
+fn gauge(ui: &mut egui::Ui, name: &str, v: f64, signed: bool, ink: &Ink) {
+    ui.horizontal(|ui| {
+        ui.allocate_ui_with_layout(vec2(88.0, 14.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+            ui.set_min_width(88.0);
+            ui.label(RichText::new(name).small());
+        });
+        let (rect, _) =
+            ui.allocate_exact_size(vec2((ui.available_width() - 48.0).clamp(30.0, 180.0), 8.0), Sense::hover());
+        let p = ui.painter_at(rect);
+        p.rect_filled(rect, 2.0, ink.surface);
+        p.rect_stroke(rect, 2.0, Stroke::new(0.5_f32, ink.faint), egui::StrokeKind::Inside);
+        let v = v as f32;
+        let bar = if signed {
+            let mid = rect.center().x;
+            egui::Rect::from_two_pos(
+                pos2(mid, rect.top()),
+                pos2(mid + v.clamp(-1.0, 1.0) * rect.width() / 2.0, rect.bottom()),
+            )
+        } else {
+            egui::Rect::from_min_size(rect.min, vec2(v.clamp(0.0, 1.0) * rect.width(), rect.height()))
+        };
+        p.rect_filled(bar, 2.0, if v >= 0.0 { ink.accent } else { ink.amber.gamma_multiply(0.8) });
+        ui.label(RichText::new(format!("{v:+.2}")).monospace().size(9.5).color(ink.muted));
+    });
+}
+
+/// Her lessons: on or off, who chooses, each lesson with its bridle and what she lived in it, her mood.
+fn lessons(app: &mut App, ui: &mut egui::Ui) {
+    let lang = app.settings.lang;
+    let ink = Ink::of(ui.ctx());
+    ui.horizontal(|ui| {
+        crate::icons::show(ui, "graduation-cap", 15.0, ink.accent);
+        ui.label(RichText::new(t(lang, "lessons_title")).strong()).on_hover_text(t(lang, "lessons_d"));
+    });
+    ui.horizontal_wrapped(|ui| {
+        ui.checkbox(&mut app.teacher.on, t(lang, "lessons_on"));
+        ui.checkbox(&mut app.teacher.she_chooses, t(lang, "she_chooses")).on_hover_text(t(lang, "she_chooses_d"));
+    });
+    let now = app.ear_now();
+    let current = app.teacher.current();
+    ui.horizontal_wrapped(|ui| {
+        crate::icons::show(ui, "music", 13.0, ink.accent);
+        let phase = match app.teacher.phase() {
+            "guided" => t(lang, "phase_guided"),
+            "accompanied" => t(lang, "phase_accompanied"),
+            _ => t(lang, "phase_free"),
+        };
+        ui.label(RichText::new(format!("{} · {phase}", current.name)).small().strong());
+        if app.teacher.resting(now) {
+            crate::icons::show(ui, "bed", 12.0, ink.muted);
+            ui.label(RichText::new(t(lang, "resting")).small().color(ink.muted));
+        }
+    });
+    // a lesson on the synthesiser: the sound she looks for
+    if let Some(name) = app.teacher.target_name() {
+        ui.horizontal(|ui| {
+            crate::icons::show(ui, "target", 12.0, ink.accent);
+            ui.label(RichText::new(format!("{}: {name}", t(lang, "looking_for"))).small());
+        });
+    }
+    // her mood beside the circle of fifths
+    let m = app.teacher.mood;
+    let pressure = app.teacher.pressure;
+    let freedom = app.teacher.freedom;
+    keys(app, ui, &ink, |ui| {
+        ui.add_space(8.0);
+        gauge(ui, t(lang, "mood_pleasure"), m.pleasure, true, &ink);
+        gauge(ui, t(lang, "mood_surprise"), (m.surprise * 5.0).min(1.0), false, &ink);
+        gauge(ui, t(lang, "mood_curiosity"), m.curiosity, false, &ink);
+        gauge(ui, t(lang, "mood_boredom"), m.boredom, false, &ink);
+        gauge(ui, t(lang, "sleep_pressure"), pressure, false, &ink);
+        gauge(ui, t(lang, "freedom"), freedom, false, &ink);
+    });
+    // two notes together: held to the rules, and moved by them
+    let (held, moved) = app.teacher.harmony;
+    if held > 0 {
+        ui.horizontal(|ui| {
+            crate::icons::show(ui, "music", 12.0, ink.muted);
+            ui.label(
+                RichText::new(format!("{}: {held} · {} {moved}", t(lang, "harmony_held"), t(lang, "harmony_moved")))
+                    .small(),
+            )
+            .on_hover_text(t(lang, "harmony_d"));
+        });
+    }
+    for said in app.teacher.said.iter().take(2) {
+        ui.horizontal(|ui| {
+            crate::icons::show(ui, "shuffle", 11.0, ink.muted);
+            ui.label(RichText::new(said).small().color(ink.muted));
+        });
+    }
+    // each lesson: chosen by a click (when the human chooses), its bridle, how long she lived it
+    let mut chosen = None;
+    egui::CollapsingHeader::new(
+        RichText::new(format!("{} ({})", t(lang, "lessons_title"), crate::music::lessons().len())).small(),
+    )
+    .id_salt("lessons-list")
+    .show(ui, |ui| {
+        for (k, l) in crate::music::lessons().iter().enumerate() {
+            ui.horizontal(|ui| {
+                let here = k == app.teacher.lesson;
+                if ui.selectable_label(here, RichText::new(&l.name).small()).clicked() {
+                    chosen = Some(k);
+                }
+                let b = app.teacher.bridle[k];
+                let (rect, _) = ui.allocate_exact_size(vec2(60.0, 6.0), Sense::hover());
+                let p = ui.painter_at(rect);
+                p.rect_filled(rect, 2.0, ink.surface);
+                p.rect_filled(
+                    egui::Rect::from_min_size(rect.min, vec2(rect.width() * b as f32, rect.height())),
+                    2.0,
+                    ink.muted,
+                );
+                let lived = app.teacher.lived[k];
+                let mut note =
+                    format!("{} {:.0}% · {} {:.0} s", t(lang, "bridle"), b * 100.0, t(lang, "lived"), lived.1);
+                let keys = app.teacher.keys_lived.get(k).map(|v| v.iter().filter(|s| **s > 0.0).count()).unwrap_or(0);
+                note.push_str(&format!(" · {} {keys}/12", t(lang, "keys_word")));
+                if app.teacher.later.contains(&k) {
+                    note.push_str(&format!(" · {}", t(lang, "later")));
+                }
+                ui.label(RichText::new(note).monospace().size(9.0).color(ink.muted));
+            });
+        }
+    });
+    if let Some(k) = chosen {
+        app.teacher.choose(k);
+    }
+    ui.separator();
+}
+
+/// Her key now, the chord, the key heard in the human, and the circle of fifths: each key lit by how long she
+/// lived it in this lesson; how far her changes of key have walked, and the comma it would make tuned just.
+fn keys(app: &App, ui: &mut egui::Ui, ink: &Ink, beside: impl FnOnce(&mut egui::Ui)) {
+    let lang = app.settings.lang;
+    let tch = &app.teacher;
+    ui.horizontal_wrapped(|ui| {
+        crate::icons::show(ui, "key-round", 13.0, ink.accent);
+        ui.label(RichText::new(format!("{}: {}", t(lang, "key_now"), tch.key_name())).small().strong());
+        if let Some(c) = tch.chord_name() {
+            ui.label(RichText::new(format!("· {} {c}", t(lang, "chord_now"))).small());
+        }
+        if let Some((k, major, fit)) = tch.human_key {
+            ui.label(
+                RichText::new(format!(
+                    "· {}: {} {} ({fit:.2})",
+                    t(lang, "human_key"),
+                    crate::music::PITCHES[k as usize],
+                    if major { t(lang, "major") } else { t(lang, "minor") }
+                ))
+                .small()
+                .color(ink.muted),
+            );
+        }
+    });
+    ui.horizontal_top(|ui| {
+        let size = 132.0;
+        let (rect, _) = ui.allocate_exact_size(vec2(size, size), Sense::hover());
+        let p = ui.painter_at(rect);
+        let c = rect.center();
+        let rad = size / 2.0 - 14.0;
+        let lived = tch.keys_lived.get(tch.lesson).cloned().unwrap_or_else(|| vec![0.0; 12]);
+        let most = lived.iter().copied().fold(1.0, f64::max);
+        p.circle_stroke(c, rad, Stroke::new(0.5_f32, ink.faint));
+        for pc in 0..12 {
+            let a = crate::music::fifths(pc) as f32 / 12.0 * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2;
+            let at = c + vec2(a.cos(), a.sin()) * rad;
+            let f = (lived[pc as usize] / most) as f32;
+            p.circle_filled(at, 9.0, ink.surface);
+            p.circle_filled(at, 9.0, ink.accent.gamma_multiply(0.15 + 0.6 * f));
+            if pc == tch.tonic {
+                p.circle_stroke(at, 10.5, Stroke::new(1.5_f32, ink.accent));
+            }
+            if tch.human_key.is_some_and(|h| h.0 == pc) {
+                p.circle_stroke(at, 12.5, Stroke::new(1.0_f32, ink.amber));
+            }
+            p.text(
+                at,
+                egui::Align2::CENTER_CENTER,
+                crate::music::PITCHES[pc as usize],
+                egui::FontId::monospace(8.5),
+                ink.text,
+            );
+        }
+        ui.vertical(beside);
+    });
+    let cents = tch.walk as f64 * crate::music::fifth_cents();
+    ui.label(
+        RichText::new(format!(
+            "{} {:+} · {} {cents:+.1} cents · {} {:.2} cents (531441/524288)",
+            t(lang, "walk"),
+            tch.walk,
+            t(lang, "just_drift"),
+            t(lang, "comma"),
+            crate::music::comma()
+        ))
+        .monospace()
+        .size(9.5)
+        .color(ink.muted),
+    )
+    .on_hover_text(t(lang, "comma_d"));
+}
+
+/// The ratios of the intervals, their simplicity, and her taste beside them.
+fn harmony(app: &App, ui: &mut egui::Ui) {
+    let lang = app.settings.lang;
+    let ink = Ink::of(ui.ctx());
+    ui.horizontal(|ui| {
+        crate::icons::show(ui, "sigma", 15.0, ink.accent);
+        ui.label(RichText::new(t(lang, "ratios_title")).strong()).on_hover_text(t(lang, "ratios_d"));
+    });
+    let span = crate::improvise::SPAN;
+    let follows = crate::music::follows_simplicity(&app.ear.taste, span);
+    ui.label(RichText::new(format!("{}: r = {follows:+.2}", t(lang, "ratios_follow"))).small());
+    egui::Grid::new("ratios").striped(false).spacing(vec2(10.0, 1.0)).show(ui, |ui| {
+        const NAMES: [&str; 13] = ["1", "b2", "2", "b3", "3", "4", "b5", "5", "b6", "6", "b7", "7", "8"];
+        for i in 0..=12 {
+            let (p, q) = if i == 12 { (2, 1) } else { crate::music::ratio(i) };
+            let h = if i == 12 { 1.0 } else { crate::music::height(i) };
+            let up = app.ear.taste[(i + span) as usize];
+            let down = app.ear.taste[(-i + span) as usize];
+            ui.label(RichText::new(NAMES[i as usize]).monospace().size(10.0));
+            ui.label(RichText::new(format!("{p}/{q}")).monospace().size(10.0).color(ink.accent));
+            ui.label(RichText::new(format!("{h:.1}")).monospace().size(10.0).color(ink.muted));
+            ui.label(RichText::new(format!("{:+.2}", (up + down) / 2.0)).monospace().size(10.0));
+            ui.end_row();
+        }
+    });
+    ui.separator();
+}
+
+/// What the human taught her on the knobs.
+fn taught(app: &App, ui: &mut egui::Ui) {
+    let lang = app.settings.lang;
+    let ink = Ink::of(ui.ctx());
+    if app.ear.knows.is_empty() {
+        return;
+    }
+    ui.horizontal(|ui| {
+        crate::icons::show(ui, "users", 15.0, ink.accent);
+        ui.label(RichText::new(format!("{} ({})", t(lang, "taught_title"), app.ear.taught)).strong())
+            .on_hover_text(t(lang, "taught_d"));
+    });
+    for (name, k) in &app.ear.knows {
+        let short = name.rsplit('.').next().unwrap_or(name);
+        let liked = app.ear.prefer.get(name).map(|p| format!(" · ♥ {:.0}%", p * 100.0)).unwrap_or_default();
+        ui.label(
+            RichText::new(format!("{short}: clarity {:+.2} · bright {:+.2} · loud {:+.2}{liked}", k[0], k[1], k[2]))
+                .monospace()
+                .size(9.5),
+        );
+    }
+    ui.separator();
+}
+
+/// Recording what is played (both voices and the human's), and playing it again.
+fn takes(app: &mut App, ui: &mut egui::Ui) {
+    let lang = app.settings.lang;
+    let ink = Ink::of(ui.ctx());
+    ui.horizontal(|ui| {
+        crate::icons::show(ui, "disc", 15.0, ink.accent);
+        ui.label(RichText::new(t(lang, "takes_title")).strong());
+    });
+    let recording = app.band.recording.is_some();
+    let (icon, word) = if recording { ("square", t(lang, "stop_record")) } else { ("circle-dot", t(lang, "record")) };
+    if crate::icons::button(ui, icon, word).clicked() {
+        app.record();
+    }
+    let takes = app.takes();
+    if takes.is_empty() {
+        ui.label(RichText::new(t(lang, "no_takes")).small().color(ink.muted));
+    }
+    let mut play = None;
+    for p in takes.iter().take(8) {
+        ui.horizontal(|ui| {
+            if crate::icons::button(ui, "play", t(lang, "play_take")).clicked() {
+                play = Some(p.clone());
+            }
+            ui.label(
+                RichText::new(
+                    p.with_extension("mid").file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default(),
+                )
+                .small()
+                .monospace(),
+            );
+        });
+    }
+    if let Some(p) = play {
+        app.play_take(&p);
+    }
+    ui.separator();
+}
+
 fn improvising(app: &App, ui: &mut egui::Ui) {
     let lang = app.settings.lang;
     let ink = Ink::of(ui.ctx());
@@ -879,18 +1173,30 @@ fn improvising(app: &App, ui: &mut egui::Ui) {
     }
     ui.label(RichText::new(t(lang, "impro_how")).small().color(ink.muted));
     // the knobs she turned, and whether she kept them; what she learned from the human
+    // the knobs she turned (and the human), newest first: a log, one a line, scrolled in its own height
     if !ear.turned.is_empty() {
-        ui.horizontal_wrapped(|ui| {
+        ui.horizontal(|ui| {
             crate::icons::show(ui, "sliders-horizontal", 13.0, ink.muted);
-            for (n, kept) in ear.turned.iter().take(6) {
-                crate::icons::show(
-                    ui,
-                    if *kept { "check" } else { "undo-2" },
-                    11.0,
-                    if *kept { ink.accent } else { ink.muted },
-                );
-                ui.label(RichText::new(n).small().monospace());
-            }
+            ui.label(RichText::new(t(lang, "turned_title")).small().strong());
+        });
+        egui::Frame::new().fill(ink.surface).inner_margin(egui::Margin::same(4)).corner_radius(3).show(ui, |ui| {
+            egui::ScrollArea::vertical().id_salt("turned-log").max_height(96.0).auto_shrink([false, true]).show(
+                ui,
+                |ui| {
+                    for (n, kept) in ear.turned.iter() {
+                        ui.horizontal(|ui| {
+                            crate::icons::show(
+                                ui,
+                                if *kept { "check" } else { "undo-2" },
+                                11.0,
+                                if *kept { ink.accent } else { ink.muted },
+                            );
+                            let word = if *kept { t(lang, "turned_kept") } else { t(lang, "turned_back") };
+                            ui.label(RichText::new(format!("{n:<14} {word}")).small().monospace());
+                        });
+                    }
+                },
+            );
         });
     }
     // what she learned of the two voices sounding together: an interval with the bass, folded in an octave
@@ -918,7 +1224,7 @@ fn improvising(app: &App, ui: &mut egui::Ui) {
     ui.horizontal_wrapped(|ui| {
         crate::icons::show(ui, "timer", 13.0, ink.muted);
         for (k, l) in app.band.lengths.iter().enumerate() {
-            let name = ["1/8", "1/4", "1/2", "1", "2"][k];
+            let name = crate::improvise::Band::LENGTH_NAMES.get(k).copied().unwrap_or("?");
             let c = if *l > 0.05 {
                 ink.accent
             } else if *l < -0.05 {
@@ -929,6 +1235,21 @@ fn improvising(app: &App, ui: &mut egui::Ui) {
             ui.label(RichText::new(format!("{name} {l:+.2}")).monospace().size(10.0).color(c));
         }
         ui.label(RichText::new(format!("· {} {:+.2}", t(lang, "impro_rest"), app.band.rest)).monospace().size(10.0));
+    });
+    // her sense of time: how far from the beat her notes began lately, and how much she places them on it
+    ui.horizontal(|ui| {
+        crate::icons::show(ui, "metronome", 13.0, ink.muted);
+        ui.label(
+            RichText::new(format!(
+                "{} ±{:.0} ms · {} {:.0}%",
+                t(lang, "on_the_beat"),
+                app.band.off_ms,
+                t(lang, "sense_of_time"),
+                app.band.timing * 100.0
+            ))
+            .small(),
+        )
+        .on_hover_text(t(lang, "timing_d"));
     });
     // what she heard with the sequencer and without: what she decides from
     ui.horizontal(|ui| {
@@ -963,7 +1284,21 @@ fn improvising(app: &App, ui: &mut egui::Ui) {
 }
 
 fn sound(app: &mut App, ui: &mut egui::Ui) {
+    // first, within reach: the sound started again from nothing, when it ran away
+    ui.horizontal(|ui| {
+        if crate::icons::button(ui, "rotate-ccw", t(app.settings.lang, "reset_sound"))
+            .on_hover_text(t(app.settings.lang, "reset_sound_d"))
+            .clicked()
+        {
+            app.reset_sound();
+        }
+    });
+    ui.separator();
     improvising(app, ui);
+    lessons(app, ui);
+    harmony(app, ui);
+    taught(app, ui);
+    takes(app, ui);
     let ink = Ink::of(ui.ctx());
     let lang = app.settings.lang;
     match &app.device {
