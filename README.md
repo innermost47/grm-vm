@@ -553,7 +553,12 @@ With an instrument's *by ear* switch and its sequencer on, she writes the next n
 comes out of the speakers' feed: no scale is given. While each note plays she hears how clear the sound is (how
 periodic: two notes that agree make one clearer wave, two that clash do not; the echo and the room carry the note
 before into the next), and leans towards the intervals that sounded clear, away from those that clashed, a little at
-each step. Her taste for each interval is drawn in the Sound tab, as it changes. (This first ear learns in the
+each step. Her taste for each interval is drawn in the Sound tab, as it changes. Now and then she also turns one of
+the instrument's knobs (not its loudness nor its tempo) and keeps it if it sounded clearer. What the human plays on
+the keys meanwhile, she learns from (each interval played leans her towards it). Over it she plays a **melody**, a
+second voice, choosing each note by her taste in time and by what she learned sounds well *with the bass at the same
+moment*, holding it for a length she chooses, resting now and then; the sequencer off, she plays the bass herself;
+every sixteen to thirty-two beats she may turn the sequencer on or off herself. (This first ear learns in the
 window; moving its learning into nodes of the network is the next step.)
 
 ### Knobs, faders, lights

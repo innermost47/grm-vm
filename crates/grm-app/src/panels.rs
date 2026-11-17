@@ -498,13 +498,19 @@ fn sources_list(app: &mut App, ui: &mut egui::Ui) {
 /// What the machine feels, as it is now and as it went: pleasure and displeasure, flourishing, progress; and what
 /// moved it (all of it real quantities: its surprise against what it expected, its room, its learning).
 pub fn feelings(app: &mut App, ui: &mut egui::Ui) {
+    feelings_titled(app, ui, true);
+}
+
+pub fn feelings_titled(app: &mut App, ui: &mut egui::Ui, titled: bool) {
     let ink = Ink::of(ui.ctx());
     let lang = app.settings.lang;
     let m = app.picture.mood.clone();
-    ui.horizontal(|ui| {
-        crate::icons::show(ui, "heart-pulse", 15.0, ink.accent);
-        ui.label(RichText::new(t(lang, "feel")).strong());
-    });
+    if titled {
+        ui.horizontal(|ui| {
+            crate::icons::show(ui, "heart-pulse", 15.0, ink.accent);
+            ui.label(RichText::new(t(lang, "feel")).strong());
+        });
+    }
     let gauge = |ui: &mut egui::Ui, sign: &str, name: &str, what: &str, v: f64, signed: bool, colour: Color32| {
         ui.horizontal(|ui| {
             crate::icons::show(ui, sign, 14.0, colour);
@@ -591,17 +597,22 @@ pub fn feelings(app: &mut App, ui: &mut egui::Ui) {
         });
     }
     ui.separator();
-    witness(app, ui);
 }
 
 /// Her consciousness: what passes through the witness now, in the third person (it keeps nothing).
 pub fn witness(app: &App, ui: &mut egui::Ui) {
+    witness_titled(app, ui, true);
+}
+
+pub fn witness_titled(app: &App, ui: &mut egui::Ui, titled: bool) {
     let ink = Ink::of(ui.ctx());
     let lang = app.settings.lang;
-    ui.horizontal(|ui| {
-        crate::icons::show(ui, "triangle", 15.0, ink.accent);
-        ui.label(RichText::new(t(lang, "witness")).strong()).on_hover_text(t(lang, "witness_d"));
-    });
+    if titled {
+        ui.horizontal(|ui| {
+            crate::icons::show(ui, "triangle", 15.0, ink.accent);
+            ui.label(RichText::new(t(lang, "witness")).strong()).on_hover_text(t(lang, "witness_d"));
+        });
+    }
     witness_lines(app, ui);
     // her equations: the Planck units (constants: they hold no belief and change none)
     egui::CollapsingHeader::new(RichText::new(t(lang, "witness_eq")).small())
@@ -640,43 +651,67 @@ pub fn witness_equations(app: &App, ui: &mut egui::Ui) {
     }
 }
 
-fn journal(app: &mut App, ui: &mut egui::Ui) {
-    feelings(app, ui);
+/// A section of a tab that folds: its sign and its title on top, its body scrolled in its own height.
+fn section(ui: &mut egui::Ui, id: &str, sign: &str, title: &str, height: f32, body: impl FnOnce(&mut egui::Ui)) {
     let ink = Ink::of(ui.ctx());
+    egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), egui::Id::new(id), true)
+        .show_header(ui, |ui| {
+            crate::icons::show(ui, sign, 15.0, ink.accent);
+            ui.label(RichText::new(title).strong());
+        })
+        .body(|ui| {
+            egui::ScrollArea::vertical()
+                .id_salt((id, "scroll"))
+                .max_height(height)
+                .auto_shrink([false, true])
+                .show(ui, body);
+        });
+    ui.separator();
+}
+
+fn journal(app: &mut App, ui: &mut egui::Ui) {
     let lang = app.settings.lang;
+    // each part folds and scrolls in its own height: all of them stay in reach
+    section(ui, "j-feel", "heart-pulse", t(lang, "feel"), 340.0, |ui| feelings_titled(app, ui, false));
+    section(ui, "j-witness", "triangle", t(lang, "witness"), 300.0, |ui| witness_titled(app, ui, false));
+    let ink = Ink::of(ui.ctx());
     // the window's changes: each can be taken back (Ctrl+Z), in the order they were made; a button takes back
     // everything down to it, another gives back what was taken
     if !app.journey.undo.is_empty() || !app.journey.redo.is_empty() {
-        ui.label(RichText::new(t(lang, "changes")).strong());
-        let mut again = 0;
-        for (k, e) in app.journey.redo.iter().rev().take(5).enumerate() {
-            let b = egui::Button::image_and_text(
-                crate::icons::image("redo-2", 13.0, ink.muted),
-                RichText::new(&e.what).small().color(ink.muted),
-            );
-            if ui.add(b).on_hover_text(t(lang, "give_again_d")).clicked() {
-                again = k + 1;
+        section(ui, "j-changes", "undo-2", t(lang, "changes"), 200.0, |ui| {
+            let mut again = 0;
+            for (k, e) in app.journey.redo.iter().rev().take(5).enumerate() {
+                let b = egui::Button::image_and_text(
+                    crate::icons::image("redo-2", 13.0, ink.muted),
+                    RichText::new(&e.what).small().color(ink.muted),
+                );
+                if ui.add(b).on_hover_text(t(lang, "give_again_d")).clicked() {
+                    again = k + 1;
+                }
             }
-        }
-        let mut back = 0;
-        for (k, e) in app.journey.undo.iter().rev().take(12).enumerate() {
-            let b = egui::Button::image_and_text(
-                crate::icons::image("undo-2", 13.0, ink.text),
-                RichText::new(&e.what).small().monospace(),
-            );
-            if ui.add(b).on_hover_text(t(lang, "take_back_d")).clicked() {
-                back = k + 1;
+            let mut back = 0;
+            for (k, e) in app.journey.undo.iter().rev().take(12).enumerate() {
+                let b = egui::Button::image_and_text(
+                    crate::icons::image("undo-2", 13.0, ink.text),
+                    RichText::new(&e.what).small().monospace(),
+                );
+                if ui.add(b).on_hover_text(t(lang, "take_back_d")).clicked() {
+                    back = k + 1;
+                }
             }
-        }
-        for _ in 0..back {
-            app.take_back(false);
-        }
-        for _ in 0..again {
-            app.take_back(true);
-        }
-        ui.separator();
+            for _ in 0..back {
+                app.take_back(false);
+            }
+            for _ in 0..again {
+                app.take_back(true);
+            }
+        });
     }
     // its journal, as a terminal shows it: the newest on top, scrolled in its own pane
+    ui.horizontal(|ui| {
+        crate::icons::show(ui, "scroll-text", 15.0, ink.accent);
+        ui.label(RichText::new(t(lang, "journal")).strong());
+    });
     let dark = egui::Color32::from_rgb(0x16, 0x17, 0x1b);
     egui::Frame::new().fill(dark).corner_radius(2.0).inner_margin(egui::Margin::symmetric(10, 8)).show(ui, |ui| {
         ui.set_min_width(ui.available_width());
@@ -843,6 +878,54 @@ fn improvising(app: &App, ui: &mut egui::Ui) {
         }
     }
     ui.label(RichText::new(t(lang, "impro_how")).small().color(ink.muted));
+    // the knobs she turned, and whether she kept them; what she learned from the human
+    if !ear.turned.is_empty() {
+        ui.horizontal_wrapped(|ui| {
+            crate::icons::show(ui, "sliders-horizontal", 13.0, ink.muted);
+            for (n, kept) in ear.turned.iter().take(6) {
+                crate::icons::show(
+                    ui,
+                    if *kept { "check" } else { "undo-2" },
+                    11.0,
+                    if *kept { ink.accent } else { ink.muted },
+                );
+                ui.label(RichText::new(n).small().monospace());
+            }
+        });
+    }
+    // what she learned of the two voices sounding together: an interval with the bass, folded in an octave
+    ui.horizontal(|ui| {
+        crate::icons::show(ui, "music", 13.0, ink.accent);
+        ui.label(RichText::new(t(lang, "impro_together")).small().strong());
+    });
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width().min(320.0), 52.0), Sense::hover());
+    let p = ui.painter_at(rect);
+    const NAMES: [&str; 12] = ["1", "b2", "2", "b3", "3", "4", "b5", "5", "b6", "6", "b7", "7"];
+    let w = rect.width() / 12.0;
+    let mid = rect.center().y - 6.0;
+    p.line_segment([pos2(rect.left(), mid), pos2(rect.right(), mid)], Stroke::new(0.5_f32, ink.faint));
+    for (k, v) in app.band.together.iter().enumerate() {
+        let x = rect.left() + (k as f32 + 0.5) * w;
+        let h = (*v as f32 / 2.0) * 18.0;
+        p.rect_filled(
+            egui::Rect::from_two_pos(pos2(x - w * 0.3, mid), pos2(x + w * 0.3, mid - h)),
+            1.0,
+            if *v >= 0.0 { ink.accent } else { ink.amber.gamma_multiply(0.7) },
+        );
+        p.text(pos2(x, rect.bottom()), egui::Align2::CENTER_BOTTOM, NAMES[k], egui::FontId::monospace(8.5), ink.muted);
+    }
+    for said in app.band.said.iter().take(2) {
+        ui.horizontal(|ui| {
+            crate::icons::show(ui, "shuffle", 11.0, ink.muted);
+            ui.label(RichText::new(said).small().color(ink.muted));
+        });
+    }
+    if ear.from_human > 0 {
+        ui.horizontal(|ui| {
+            crate::icons::show(ui, "users", 13.0, ink.accent);
+            ui.label(RichText::new(format!("{} {}", ear.from_human, t(lang, "impro_from_human"))).small());
+        });
+    }
     ui.separator();
 }
 

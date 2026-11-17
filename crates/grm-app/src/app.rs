@@ -123,6 +123,9 @@ pub struct App {
     pub net_search: String,
     /// The ear it improvises by (what it learned of the intervals, by what it heard).
     pub ear: crate::improvise::Ear,
+    /// The melody she plays over it, and the bass when the sequencer is off.
+    pub band: crate::improvise::Band,
+    started: Instant,
     /// A node in hand: the range of its slider (chosen once) and the value being moved.
     pub hand_range: std::collections::HashMap<String, (f64, f64)>,
     pub hand_value: std::collections::HashMap<String, f64>,
@@ -263,7 +266,6 @@ pub struct App {
     breath_at: Instant,
     breath_sound: f32,
     breathing: bool,
-    started: Instant,
     /// The window that makes a new app: open, and whether its field still has to take the keys.
     new_app_open: bool,
     new_app_focus: bool,
@@ -424,6 +426,8 @@ impl App {
             ws_selected: None,
             net_search: String::new(),
             ear: Default::default(),
+            band: Default::default(),
+            started: Instant::now(),
             hand_range: Default::default(),
             hand_value: Default::default(),
             midi: crate::midi::Midi::start(),
@@ -527,7 +531,6 @@ impl App {
             breath_at: Instant::now(),
             breath_sound: 0.0,
             breathing: false,
-            started: Instant::now(),
             new_app_open: false,
             new_app_focus: false,
             picking: None,
@@ -2434,27 +2437,108 @@ impl App {
             return;
         };
         let prefix = auto.name.trim_end_matches("auto_on").to_string();
+        // listening goes on even when nothing else moves in the window
+        ctx.request_repaint_after(std::time::Duration::from_millis(40));
         let on = |s: &str| self.picture.node(&format!("{prefix}{s}")).map(|n| n.value);
-        if on("seq_on").unwrap_or(0.0) < 0.5 {
-            return;
+        // what the human plays on the keys meanwhile, she learns from: each interval played leans her towards it
+        let pitch = self
+            .picture
+            .nodes
+            .iter()
+            .find(|n| n.name.ends_with("pitch") && !n.name.contains("s_pitch") && n.source.starts_with("app:"))
+            .map(|n| n.value);
+        let held = self.picture.nodes.iter().find(|n| n.name.ends_with("hold")).map(|n| n.value > 0.5).unwrap_or(false);
+        if let (Some(p), true) = (pitch, held) {
+            self.ear.hear_human(p);
         }
-        let Some(step) = on("s_i") else { return };
-        let (samples, rate) = match self.mixer.lock() {
+        let seq_on = on("seq_on").unwrap_or(0.0) > 0.5;
+        // the step the sequencer is on and the note it plays, as the sound has them (the machine above sees them
+        // only slowly)
+        let (samples, rate, step, bass_hz) = match self.mixer.lock() {
             Ok(m) => {
                 let playing = m.playing();
                 let name = playing.iter().find(|p| p.ends_with("out")).or(playing.first()).cloned();
-                (name.and_then(|n| m.scope(&n)), m.rate as f64)
+                let read = |node: &str| {
+                    name.as_ref().and_then(|n| m.value(n, &format!("{prefix}{node}")).or_else(|| m.value(n, node)))
+                };
+                let (step, bass) = (read("s_i"), read("s_pitch"));
+                (name.as_ref().and_then(|n| m.scope(n)), m.rate as f64, step, bass)
             }
-            Err(_) => (None, 48000.0),
+            Err(_) => (None, 48000.0, None, None),
         };
         let Some(s) = samples else { return };
         let tail = &s[s.len().saturating_sub(1024)..];
-        for (k, hz) in self.ear.listen(tail, rate, step.round() as i64) {
+        // the band: a melody over it, and the bass too when the sequencer is off; the sequencer on or off by her
+        let beat = 2.0 / on("tempo").unwrap_or(6.0).max(0.5);
+        let now = self.started.elapsed().as_secs_f64();
+        if !seq_on {
+            self.ear.clarity = crate::improvise::clarity(tail, rate);
+        }
+        let clarity = self.ear.clarity;
+        let parts = self.band.tick(&mut self.ear, now, beat, clarity, bass_hz, seq_on);
+        if !parts.is_empty() {
+            let keys = self
+                .apps
+                .iter()
+                .find(|a| a.widgets.iter().any(|w| w.nodes.iter().any(|n| n.ends_with("auto_on"))))
+                .and_then(|a| {
+                    a.widgets.iter().find(|w| w.kind == grm_shell::apps::WidgetKind::Keys).map(|w| {
+                        let map = |n: &String| a.prefix.get(n).cloned().unwrap_or(n.clone());
+                        (map(&w.nodes[0]), map(&w.nodes[1]))
+                    })
+                });
+            for (part, v) in parts {
+                let node = match part {
+                    crate::improvise::Part::LeadPitch => format!("{prefix}lead_pitch"),
+                    crate::improvise::Part::LeadGate => format!("{prefix}lead_gate"),
+                    crate::improvise::Part::SeqOn => format!("{prefix}seq_on"),
+                    crate::improvise::Part::BassPitch => match &keys {
+                        Some(k) => k.0.clone(),
+                        None => continue,
+                    },
+                    crate::improvise::Part::BassGate => match &keys {
+                        Some(k) => k.1.clone(),
+                        None => continue,
+                    },
+                };
+                self.worker.send(format!("observe {node} = {}", grm_engine::lang::g((v * 100.0).round() / 100.0)));
+            }
+        }
+        let Some(step) = step.or_else(|| on("s_i")).filter(|_| seq_on) else { return };
+        let step = step.round() as i64;
+        let notes = self.ear.listen(tail, rate, step);
+        let new_step = !notes.is_empty();
+        for (k, hz) in notes {
             self.worker.send(format!(
                 "observe {prefix}s_n{} = {}",
                 k + 1,
                 grm_engine::lang::g((hz * 100.0).round() / 100.0)
             ));
+        }
+        // and the knobs of the instrument (not its loudness nor its tempo): one now and then, kept if clearer
+        if new_step {
+            let owner =
+                self.apps.iter().find(|a| a.widgets.iter().any(|w| w.nodes.iter().any(|n| n.ends_with("auto_on"))));
+            let knobs: Vec<(String, f64, f64, f64)> = owner
+                .map(|a| {
+                    a.widgets
+                        .iter()
+                        .filter(|w| w.kind == grm_shell::apps::WidgetKind::Knob)
+                        .filter_map(|w| {
+                            let n = w.nodes.first()?;
+                            let name = a.prefix.get(n).cloned().unwrap_or(n.clone());
+                            if ["volume", "tempo"].iter().any(|x| name.ends_with(x)) {
+                                return None;
+                            }
+                            let v = self.picture.node(&name)?.value;
+                            Some((name, w.lo, w.hi, v))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            for (n, v) in self.ear.play_knobs(&knobs, step) {
+                self.worker.send(format!("observe {n} = {}", grm_engine::lang::g(v)));
+            }
         }
         ctx.request_repaint_after(std::time::Duration::from_millis(40));
     }

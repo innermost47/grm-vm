@@ -55,10 +55,19 @@ node vcf_cut signed
 relate opening: vcf_cut = cutoff + env_amount * fenv_e
 use networks/ladder.grm
 call ladder(name=vcf, input=vco_mix, cut=vcf_cut, res=resonance)
-# The amplifier.
+# A second voice, the melody: its own saw, filter and envelope, its pitch and gate (played by her by ear, or by hand).
+input lead_pitch = 440 positive
+input lead_gate = 0
+node lstep signed
+relate lead_rate: lstep = 0.0000416666667 * lead_pitch
+call saw(name=lvco, step=lstep)
+call adsr(name=lenv, gate=lead_gate, attack=a_attack, decay=a_decay, sustain=a_sustain, release=a_release)
+call ladder(name=lvcf, input=lvco_p, cut=vcf_cut, res=resonance)
+input lead_level = 0.5 positive
+# The amplifier: the two voices together.
 input volume = 0.4 positive
 node vca signed
-relate amp: vca = volume * aenv_e * vcf_y4
+relate amp: vca = volume * aenv_e * vcf_y4 + lead_level * volume * lenv_e * lvcf_y4
 # The echo (a third of a second) and the room.
 input echo_back = 0.35
 use networks/echo.grm
@@ -102,7 +111,8 @@ widget fx: switch fx_on at 0 7 size 2 1 "on" icon power
 widget ec: knob echo_back 0 .. 0.9 at 2 7 size 1 2 "echo" icon repeat
 widget ro: knob room 0 .. 0.97 at 3 7 size 2 2 "room" icon box
 widget we: knob wet 0 .. 1 at 5 7 size 1 2 "reverb" icon waves
-widget wave: scope out -1 .. 1 at 6 7 size 6 2 "heard"
+widget wave: scope out -1 .. 1 at 6 7 size 4 2 "heard"
+widget ll: knob lead_level 0 .. 1 at 10 7 size 2 2 "melody" icon music
 widget sq: switch seq_on at 0 10 size 2 1 "on" icon power
 widget au: switch auto_on at 0 11 size 2 1 "by ear" icon ear
 widget tp: knob tempo 1 .. 16 at 0 12 size 2 3 "tempo" icon timer

@@ -93,7 +93,13 @@ fn note_name(hz: f64) -> String {
 
 /// A widget's words under it, in capitals, its sign before them when it has one.
 fn caption(ui: &egui::Ui, painter: &egui::Painter, bottom: Pos2, label: &str, icon: Option<&str>, ink: &Ink) {
-    let g = painter.layout_no_wrap(label.to_uppercase(), egui::FontId::proportional(10.5), ink.text);
+    // it fits its place: smaller words, then no sign, rather than cut
+    let room = painter.clip_rect().width();
+    let mut g = painter.layout_no_wrap(label.to_uppercase(), egui::FontId::proportional(10.5), ink.text);
+    if g.size().x + 15.0 > room {
+        g = painter.layout_no_wrap(label.to_uppercase(), egui::FontId::proportional(8.5), ink.text);
+    }
+    let icon = icon.filter(|_| g.size().x + 15.0 <= room);
     let (w, h) = (g.size().x, g.size().y);
     let icon_w = if icon.is_some() { 15.0 } else { 0.0 };
     let left = bottom.x - (w + icon_w) / 2.0;
@@ -175,6 +181,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
     let outer_ink = ink;
     for w in &view.widgets {
         let rect = cell(w.at.0, w.at.1, w.size.0.min(COLUMNS), w.size.1);
+        // inside its cell, a little room on every side: nothing sits on a frame's border
+        let rect = if w.kind == WidgetKind::Section { rect } else { rect.shrink2(vec2(6.0, 3.0)) };
         // the widget drawn in its look
         let lk = widget_looks.get(&w.name).copied().unwrap_or(app_look);
         let mut ink = outer_ink;
@@ -337,9 +345,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
             }
             WidgetKind::Play => {
                 let playing = app.mixer.lock().map(|m| m.playing().contains(&w.nodes[0])).unwrap_or(false);
-                let sign = crate::icons::image(if playing { "square" } else { "play" }, 15.0 * lk.size, lk.text);
-                let b =
-                    egui::Button::image_and_text(sign, RichText::new(&label).size(15.0 * lk.size)).selected(playing);
+                // playing, it stands on the accent: its words and sign in the colour that reads on it
+                let on_colour = if playing { ui.visuals().selection.stroke.color } else { lk.text };
+                let sign = crate::icons::image(if playing { "square" } else { "play" }, 15.0 * lk.size, on_colour);
+                let b = egui::Button::image_and_text(sign, RichText::new(&label).size(15.0 * lk.size).color(on_colour))
+                    .selected(playing);
                 if ui.put(rect, b).clicked() {
                     app.say(if playing { format!("stop {}", w.nodes[0]) } else { format!("play {}", w.nodes[0]) });
                 }
@@ -503,7 +513,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                         observe(app, &n.name, v);
                     }
                     // a knob says less only when it is really small
-                    let small = rect.width() < 70.0 || rect.height() < 70.0;
+                    let small = rect.width() < 44.0 || rect.height() < 60.0;
                     let lab_h = if small { 0.0 } else { 16.0 };
                     let d = (rect.width().min(rect.height() - lab_h - 8.0) - 14.0).clamp(16.0, 58.0);
                     let c = pos2(rect.center().x, rect.top() + 6.0 + d / 2.0);
@@ -527,7 +537,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                     painter.circle_filled(c, cap * 0.55, ink.text.gamma_multiply(0.9));
                     let a = a0 + sweep * share;
                     painter.line_segment([at(a, cap * 0.25), at(a, cap * 0.95)], Stroke::new(2.2_f32, ink.surface));
-                    if !small {
+                    if !small && rect.width() >= 80.0 {
                         let g = |x: f64| grm_engine::lang::g((x * 1000.0).round() / 1000.0);
                         painter.text(
                             at(a0, rad + 2.0),
@@ -543,12 +553,15 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                             egui::FontId::monospace(8.5),
                             ink.muted,
                         );
+                    }
+                    if !small {
                         caption(ui, &painter, pos2(c.x, rect.bottom()), &label, w.icon.as_deref(), &ink);
                     }
                     if r.dragged() || r.hovered() {
+                        // the value, between its bounds under the knob (above it, it would be cut)
                         painter.text(
-                            c + vec2(0.0, -rad - 1.0),
-                            egui::Align2::CENTER_BOTTOM,
+                            c + vec2(0.0, rad + 2.0),
+                            egui::Align2::CENTER_TOP,
                             grm_engine::lang::g((v * 1000.0).round() / 1000.0),
                             egui::FontId::monospace(10.0),
                             ink.accent,
@@ -592,7 +605,15 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                     painter.circle_filled(led, 4.0, if on { ink.accent } else { ink.faint.gamma_multiply(0.6) });
                     if !small || rect.width() > 110.0 {
                         let tx = led.x + 9.0;
-                        if let Some(i) = w.icon.as_deref() {
+                        let fits = painter
+                            .layout_no_wrap(label.to_uppercase(), egui::FontId::proportional(11.0), ink.text)
+                            .size()
+                            .x
+                            + 17.0
+                            + tx
+                            <= rect.right();
+                        let icon_kept = if fits { w.icon.as_deref() } else { None };
+                        if let Some(i) = icon_kept {
                             crate::icons::image(i, 13.0, ink.muted)
                                 .paint_at(ui, Rect::from_min_size(pos2(tx, rect.center().y - 6.5), vec2(13.0, 13.0)));
                             painter.text(
@@ -653,6 +674,36 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                     );
                     if r.changed() {
                         observe(app, &n.name, v);
+                    }
+                    // a mark a semitone beside the rail, the octaves (the A's) longer, bold, and named
+                    if w.lo > 0.0 && w.hi > w.lo {
+                        let rail = r.rect;
+                        let m = rail.width() / 2.5;
+                        let (y0, y1) = (rail.bottom() - m, rail.top() + m);
+                        let (l0, l1) = (w.lo.ln(), w.hi.ln());
+                        let x = rail.center().x + 7.0;
+                        let first = (12.0 * (w.lo / 55.0).log2()).ceil() as i64;
+                        let last = (12.0 * (w.hi / 55.0).log2()).floor() as i64;
+                        for semi in first..=last {
+                            let hz = 55.0 * 2f64.powf(semi as f64 / 12.0);
+                            let f = ((hz.ln() - l0) / (l1 - l0)) as f32;
+                            let y = y0 + (y1 - y0) * f;
+                            if semi.rem_euclid(12) == 0 {
+                                painter.line_segment(
+                                    [pos2(x, y), pos2(x + 9.0, y)],
+                                    Stroke::new(2.0_f32, ink.text.gamma_multiply(0.8)),
+                                );
+                                painter.text(
+                                    pos2(x + 11.0, y),
+                                    egui::Align2::LEFT_CENTER,
+                                    format!("A{}", 1 + semi / 12),
+                                    egui::FontId::monospace(8.5),
+                                    ink.muted,
+                                );
+                            } else {
+                                painter.line_segment([pos2(x, y), pos2(x + 4.0, y)], Stroke::new(0.8_f32, ink.faint));
+                            }
+                        }
                     }
                     painter.text(
                         pos2(rect.center().x, rect.bottom()),
@@ -794,7 +845,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                         painter.text(
                             inner.center(),
                             egui::Align2::CENTER_CENTER,
-                            if small { "·" } else { t(lang, "not_playing") },
+                            if rect.width() < 360.0 { "·" } else { t(lang, "not_playing") },
                             egui::FontId::proportional(12.0),
                             ink.muted,
                         );

@@ -28,6 +28,13 @@ pub struct Ear {
     made_by: [Option<i32>; 8],
     /// The last steps judged, for the window: (interval, what it heard, the reward).
     pub judged: VecDeque<(i32, f64, f64)>,
+    /// A knob she is trying: (node, its value before, the step she turned it on); kept if it sounded clearer.
+    trying: Option<(String, f64, i64)>,
+    /// What she did with the knobs lately, for the window: (node, kept or not).
+    pub turned: VecDeque<(String, bool)>,
+    /// The last note the human played (semitones from A1), and how many intervals she learned from them.
+    human_note: Option<i32>,
+    pub from_human: usize,
     seed: u64,
 }
 
@@ -42,6 +49,10 @@ impl Default for Ear {
             notes: [24; 8],
             made_by: [None; 8],
             judged: VecDeque::new(),
+            trying: None,
+            turned: VecDeque::new(),
+            human_note: None,
+            from_human: 0,
             seed: 0x9e37_79b9_7f4a_7c15,
         }
     }
@@ -109,6 +120,54 @@ impl Ear {
         0
     }
 
+    /// A note the human plays (Hz): the interval from their last note leans her towards it (she learns by
+    /// playing with them, as one learns from another musician).
+    pub fn hear_human(&mut self, hz: f64) {
+        if hz.is_nan() || hz <= 20.0 {
+            return;
+        }
+        let note = (12.0 * (hz / 55.0).log2()).round() as i32;
+        if self.human_note == Some(note) {
+            return;
+        }
+        if let Some(before) = self.human_note {
+            let i = (note - before).clamp(-SPAN, SPAN);
+            self.taste[(i + SPAN) as usize] = (self.taste[(i + SPAN) as usize] + 0.25).min(2.0);
+            self.from_human += 1;
+        }
+        self.human_note = Some(note);
+    }
+
+    /// Between notes, now and then, she turns one of the instrument's knobs a little (`knobs`: node, lo, hi, now),
+    /// and listens: clearer than usual, she keeps it; not, she turns it back. Returns the values to write.
+    pub fn play_knobs(&mut self, knobs: &[(String, f64, f64, f64)], step: i64) -> Vec<(String, f64)> {
+        let mut out = vec![];
+        // a knob tried two steps ago is judged by what was heard since
+        if let Some((name, before, at)) = self.trying.clone() {
+            if step - at >= 2 {
+                let heard = self.judged.iter().take(2).map(|j| j.1).sum::<f64>() / 2.0;
+                let kept = heard >= self.usual;
+                if !kept {
+                    out.push((name.clone(), before));
+                }
+                self.turned.push_front((name, kept));
+                self.turned.truncate(8);
+                self.trying = None;
+            }
+            return out;
+        }
+        if knobs.is_empty() || self.random() > 0.25 {
+            return out;
+        }
+        let k = (self.random() * knobs.len() as f64) as usize % knobs.len();
+        let (name, lo, hi, now) = knobs[k].clone();
+        let span = hi - lo;
+        let to = (now + (self.random() * 2.0 - 1.0) * 0.12 * span).clamp(lo.min(hi), hi.max(lo));
+        self.trying = Some((name.clone(), now, step));
+        out.push((name, to));
+        out
+    }
+
     /// One frame: what it hears now, the step the sequencer is on. Returns the notes to write: (step 0..7, Hz).
     pub fn listen(&mut self, samples: &[f32], rate: f64, step: i64) -> Vec<(usize, f64)> {
         self.clarity = clarity(samples, rate);
@@ -149,6 +208,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn she_learns_from_what_the_human_plays() {
+        let mut ear = Ear::default();
+        // A, E, A, E...: fifths up and fourths down
+        for k in 0..10 {
+            ear.hear_human(if k % 2 == 0 { 220.0 } else { 329.63 });
+        }
+        assert_eq!(ear.from_human, 9);
+        assert!(ear.taste[(7 + SPAN) as usize] >= 1.0 && ear.taste[(-7 + SPAN) as usize] >= 1.0);
+        assert_eq!(ear.taste[(1 + SPAN) as usize], 0.0);
+    }
+
+    #[test]
     fn a_clear_wave_is_clearer_than_a_clash() {
         let rate = 48000.0;
         let wave = |f: &[f64]| -> Vec<f32> {
@@ -187,5 +258,208 @@ mod tests {
         let fifth = ear.taste[(7 + SPAN) as usize].max(ear.taste[(-7 + SPAN) as usize]);
         let second = ear.taste[(1 + SPAN) as usize];
         assert!(fifth > second, "fifth {fifth}, second {second}");
+    }
+}
+
+/// What the band writes: the melody's pitch and gate, the bass's (when the sequencer is off), the sequencer on/off.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Part {
+    LeadPitch,
+    LeadGate,
+    BassPitch,
+    BassGate,
+    SeqOn,
+}
+
+/// Playing freely: a melody over the bass (or the sequence), and, the sequencer off, the bass too; now and then
+/// she turns the sequencer on or off herself. Each note is chosen by her taste (the intervals in time, as the ear
+/// learns them, and the intervals with the bass at the same moment, learned here), held for a length she chooses,
+/// and judged by how clear what comes out was while it sounded.
+#[derive(Debug, Clone)]
+pub struct Band {
+    /// Her taste for each interval with the bass at the same moment (0 .. 11 semitones, an octave folded).
+    pub together: Vec<f64>,
+    lead: i32,
+    lead_until: f64,
+    lead_on: bool,
+    lead_heard: Vec<f64>,
+    lead_with: Option<(i32, i32)>,
+    bass: i32,
+    bass_until: f64,
+    /// When she last decided about the sequencer.
+    turn_at: f64,
+    /// What she did lately, in words for the window.
+    pub said: VecDeque<String>,
+    seed: u64,
+}
+
+impl Default for Band {
+    fn default() -> Self {
+        Band {
+            together: vec![0.0; 12],
+            lead: 36,
+            lead_until: 0.0,
+            lead_on: false,
+            lead_heard: vec![],
+            lead_with: None,
+            bass: 24,
+            bass_until: 0.0,
+            turn_at: 0.0,
+            said: VecDeque::new(),
+            seed: 0x2545_f491_4f6c_dd1d,
+        }
+    }
+}
+
+fn hz(note: i32) -> f64 {
+    55.0 * 2f64.powf(note as f64 / 12.0)
+}
+
+fn note_of(hz: f64) -> i32 {
+    (12.0 * (hz / 55.0).log2()).round() as i32
+}
+
+impl Band {
+    fn random(&mut self) -> f64 {
+        self.seed ^= self.seed << 13;
+        self.seed ^= self.seed >> 7;
+        self.seed ^= self.seed << 17;
+        (self.seed >> 11) as f64 / (1u64 << 53) as f64
+    }
+
+    /// A length, in beats: an eighth, a quarter, a half, a whole.
+    fn length(&mut self) -> f64 {
+        [0.5, 1.0, 1.0, 2.0, 4.0][(self.random() * 5.0) as usize % 5]
+    }
+
+    /// The next melody note: by its taste in time (from her ear) and with the bass (learned here).
+    fn choose_lead(&mut self, ear: &Ear, bass: i32) -> i32 {
+        let mut best = (f64::MIN, self.lead);
+        for i in -7..=7 {
+            let to = self.lead + i;
+            if !(24..=56).contains(&to) {
+                continue;
+            }
+            let time = ear.taste[(i + SPAN) as usize];
+            let with = self.together[(to - bass).rem_euclid(12) as usize];
+            let again = if i == 0 { -0.6 } else { 0.0 };
+            // a little chance in each choice: she keeps trying
+            let score = time + with + again + self.random() * 1.2;
+            if score > best.0 {
+                best = (score, to);
+            }
+        }
+        best.1
+    }
+
+    /// One frame. `now`: seconds; `beat`: seconds a beat; `clarity`: heard now; `bass_hz`: the bass sounding now
+    /// (the sequence's), None when she plays it herself. Returns what to write.
+    pub fn tick(
+        &mut self,
+        ear: &mut Ear,
+        now: f64,
+        beat: f64,
+        clarity: f64,
+        bass_hz: Option<f64>,
+        seq_on: bool,
+    ) -> Vec<(Part, f64)> {
+        let mut out = vec![];
+        if self.lead_on {
+            self.lead_heard.push(clarity);
+        }
+        // the bass: the sequence's, or her own (the sequencer off), a long note at a time
+        let bass = match bass_hz {
+            Some(h) if seq_on && h > 20.0 => note_of(h),
+            _ => {
+                if now >= self.bass_until {
+                    let i = ear.choose_from(self.bass, 0, 36);
+                    self.bass = (self.bass + i).clamp(0, 36);
+                    self.bass_until = now + beat * 2.0 * self.length().max(1.0);
+                    out.push((Part::BassPitch, hz(self.bass)));
+                    out.push((Part::BassGate, 1.0));
+                }
+                self.bass
+            }
+        };
+        // the melody: when a note ends, it is judged, and the next chosen (or a rest)
+        if now >= self.lead_until {
+            if let Some((with, step)) = self.lead_with.take() {
+                if !self.lead_heard.is_empty() {
+                    let heard = self.lead_heard.iter().sum::<f64>() / self.lead_heard.len() as f64;
+                    let reward = heard - ear.usual;
+                    let k = with.rem_euclid(12) as usize;
+                    self.together[k] = (self.together[k] + 0.5 * reward).clamp(-2.0, 2.0);
+                    ear.taste[(step.clamp(-SPAN, SPAN) + SPAN) as usize] =
+                        (ear.taste[(step.clamp(-SPAN, SPAN) + SPAN) as usize] + 0.3 * reward).clamp(-2.0, 2.0);
+                }
+            }
+            self.lead_heard.clear();
+            if self.random() < 0.18 {
+                // a rest: silence is part of it
+                self.lead_on = false;
+                out.push((Part::LeadGate, 0.0));
+            } else {
+                let to = self.choose_lead(ear, bass);
+                self.lead_with = Some((to - bass, to - self.lead));
+                self.lead = to;
+                self.lead_on = true;
+                out.push((Part::LeadPitch, hz(to)));
+                out.push((Part::LeadGate, 1.0));
+            }
+            self.lead_until = now + beat * self.length();
+        }
+        // now and then, she turns the sequencer on or off herself (every 16 to 32 beats)
+        if now - self.turn_at > beat * (16.0 + 16.0 * self.random()) {
+            self.turn_at = now;
+            if self.random() < 0.5 {
+                out.push((Part::SeqOn, if seq_on { 0.0 } else { 1.0 }));
+                self.said.push_front(if seq_on {
+                    "sequencer off: she plays the bass".into()
+                } else {
+                    "sequencer on".into()
+                });
+                self.said.truncate(6);
+            }
+        }
+        out
+    }
+}
+
+impl Ear {
+    /// An interval from a note, by taste, kept within lo .. hi.
+    pub fn choose_from(&mut self, from: i32, lo: i32, hi: i32) -> i32 {
+        let i = self.choose(from);
+        if (lo..=hi).contains(&(from + i)) {
+            i
+        } else {
+            -i
+        }
+    }
+}
+
+#[cfg(test)]
+mod band_tests {
+    use super::*;
+
+    #[test]
+    fn she_plays_a_melody_and_learns_what_sounds_together() {
+        let mut ear = Ear::default();
+        let mut band = Band::default();
+        let mut wrote = 0;
+        // clear when the melody is a fifth (7) over the bass, cloudy otherwise
+        let mut t = 0.0;
+        let mut clear = 0.5;
+        for _ in 0..20000 {
+            let out = band.tick(&mut ear, t, 0.25, clear, None, false);
+            wrote += out.len();
+            if let Some((with, _)) = band.lead_with {
+                clear = if with.rem_euclid(12) == 7 { 0.95 } else { 0.3 };
+            }
+            t += 0.01;
+        }
+        assert!(wrote > 50);
+        let fifth = band.together[7];
+        let worst = band.together.iter().copied().fold(f64::MAX, f64::min);
+        assert!(fifth > worst + 0.3, "{:?}", band.together);
     }
 }

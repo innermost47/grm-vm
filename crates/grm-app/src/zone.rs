@@ -118,7 +118,10 @@ pub fn body(app: &mut App, ui: &mut egui::Ui, kind: &Kind, view: &mut crate::vie
             crate::files::show(app, ui, k);
         }
         Kind::Feelings => {
-            egui::ScrollArea::vertical().id_salt(("zone-feel", small)).show(ui, |ui| crate::panels::feelings(app, ui));
+            egui::ScrollArea::vertical().id_salt(("zone-feel", small)).show(ui, |ui| {
+                crate::panels::feelings(app, ui);
+                crate::panels::witness(app, ui);
+            });
         }
         Kind::Plots => crate::plot::show(app, ui, None),
         Kind::Clock => crate::space::clock(ui, &Ink::of(ui.ctx()), lang),

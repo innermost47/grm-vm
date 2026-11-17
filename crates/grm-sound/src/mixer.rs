@@ -32,6 +32,10 @@ pub trait Source: Send {
         IndexMap::new()
     }
     fn set_state(&mut self, _state: &IndexMap<String, f64>) {}
+    /// A node's value as it is now, at the speed of sound (what the machine above only sees slowly).
+    fn value(&self, _node: &str) -> Option<f64> {
+        None
+    }
 }
 
 /// A node of a network played at the speed of sound: its reflex runs its sets, sample after sample.
@@ -59,6 +63,9 @@ impl Source for ReflexSource {
     }
     fn state(&self) -> IndexMap<String, f64> {
         self.reflex.names.iter().map(|(n, &i)| (n.clone(), self.reflex.values[i])).collect()
+    }
+    fn value(&self, node: &str) -> Option<f64> {
+        self.reflex.value(node)
     }
     fn set_state(&mut self, state: &IndexMap<String, f64>) {
         // what it writes itself goes on from where it was (its parameters come from the machine)
@@ -169,6 +176,11 @@ impl Mixer {
     pub fn scope(&self, name: &str) -> Option<Vec<f32>> {
         let c = self.channels.get(name)?;
         Some(c.scope[c.scope_at..].iter().chain(c.scope[..c.scope_at].iter()).copied().collect())
+    }
+
+    /// A node's value in a channel that plays, as its reflex has it now (a sequencer's step, say).
+    pub fn value(&self, channel: &str, node: &str) -> Option<f64> {
+        self.channels.get(channel).and_then(|c| c.source.value(node))
     }
 
     /// The names of the channels that play.
@@ -295,6 +307,22 @@ mod tests {
     use grm_engine::reflex::{Clock, Reflex};
     use grm_engine::world::World;
     use grm_engine::Provenance;
+
+    #[test]
+    fn a_step_is_read_as_the_sound_has_it() {
+        // a counter written at each sample: the machine above sees it only slowly, the mixer at once
+        let mut w = World::new();
+        w.say_all(&["var k = 0", "set k = k + 1", "node out signed", "relate o: out = 0 * k"], &Provenance::default())
+            .unwrap();
+        w.machine.run(100);
+        let mut r = Reflex::of(&w.machine, Clock::Audio { rate: 48000 }).unwrap();
+        r.follow(&w.machine, "out").unwrap();
+        let mut m = Mixer::new(48000);
+        m.play("out", Box::new(ReflexSource::new(r, "out").unwrap()), 1.0);
+        let mut block = vec![0.0f32; 2 * 480];
+        m.render(&mut block);
+        assert_eq!(m.value("out", "k"), Some(480.0));
+    }
 
     #[test]
     fn a_network_played_loud_stays_within_the_limit_and_panic_empties() {
