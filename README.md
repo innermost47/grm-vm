@@ -531,6 +531,8 @@ gains and relations: effects the human writes.
 
 ![The analogue synthesiser: oscillators, filter, envelope, echo, reverb, sequencer, all networks](docs/analog.png)
 
+![What she plays by ear, on a piano roll, and the steps of the sequencer with their notes](docs/analog-roll.png)
+
 ### A node in hand, a simulation, insights
 
 A node clicked can be moved by hand (a slider and a field: in the inspector, or under a workshop's network): the
@@ -561,6 +563,9 @@ clearer, or brings it back. What the human plays on
 the keys meanwhile, she learns from (each interval played leans her towards it). Over it she plays a **melody**, a
 second voice, choosing each note by her taste in time and by what she learned sounds well *with the bass at the same
 moment*, holding it for a length she chooses, resting now and then; the sequencer off, she plays the bass herself;
+the length of each note and her silences are hers too (a taste for each length and for silence, judged as the notes
+are), and the tempo is one of her knobs: only the loudness stays the human's. What she plays is drawn on a **piano
+roll** (`widget r: roll`), the bass quieter, the melody in the accent, the last ten seconds sliding slowly to the left;
 and with the sequencer or without is hers to decide: no clock tells her when. She keeps what she heard in each way of
 playing (how clear, and for how long), weighs both at the end of each of her notes (the way she knows less counting a
 little more: it might be better), and changes when the other weighs more. (This first ear learns in the

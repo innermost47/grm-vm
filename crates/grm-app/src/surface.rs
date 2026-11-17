@@ -719,6 +719,52 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                     ));
                 }
             }
+            WidgetKind::Roll => {
+                // the last ten seconds of what she played: time to the right, pitch up (A1 .. A5, the A's marked),
+                // the bass quieter, the melody in the accent; it slides slowly to the left
+                painter.rect_filled(rect, 3.0, ink.surface);
+                painter.rect_stroke(rect, 3.0, Stroke::new(1.0_f32, ink.faint), egui::StrokeKind::Inside);
+                let inner = rect.shrink2(vec2(28.0, 6.0)).translate(vec2(10.0, 0.0));
+                let now = app.ear_now();
+                let span = 10.0;
+                let y_of = |n: i32| inner.bottom() - (n as f32 / 48.0).clamp(0.0, 1.0) * inner.height();
+                for a in 0..=4 {
+                    let y = y_of(a * 12);
+                    painter
+                        .line_segment([pos2(inner.left(), y), pos2(inner.right(), y)], Stroke::new(0.5_f32, ink.faint));
+                    painter.text(
+                        pos2(rect.left() + 4.0, y),
+                        egui::Align2::LEFT_CENTER,
+                        format!("A{}", a + 1),
+                        egui::FontId::monospace(8.5),
+                        ink.muted,
+                    );
+                }
+                let h = (inner.height() / 48.0).max(2.0);
+                for (at, len, note, voice) in app.band.roll.iter() {
+                    let x0 = inner.right() - ((now - at) / span) as f32 * inner.width();
+                    let x1 = inner.right() - ((now - at - len) / span) as f32 * inner.width();
+                    if x1 < inner.left() || x0 > inner.right() {
+                        continue;
+                    }
+                    let r = Rect::from_min_max(
+                        pos2(x0.max(inner.left()), y_of(*note) - h),
+                        pos2(x1.min(inner.right()), y_of(*note) + h * 0.2),
+                    );
+                    let colour = if *voice == 1 { ink.accent } else { ink.text.gamma_multiply(0.45) };
+                    painter.rect_filled(r, 1.5, colour);
+                }
+                painter.text(
+                    rect.right_top() + vec2(-6.0, 4.0),
+                    egui::Align2::RIGHT_TOP,
+                    &label,
+                    egui::FontId::proportional(10.0),
+                    ink.muted,
+                );
+                if !app.band.roll.is_empty() {
+                    ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
+                }
+            }
             WidgetKind::Section => {
                 // a band with its title, and a frame around the widgets under it
                 let band = Rect::from_min_size(rect.min, vec2(rect.width(), 22.0f32.min(rect.height())));

@@ -298,6 +298,14 @@ pub struct Band {
     lead_on: bool,
     lead_heard: Vec<f64>,
     lead_with: Option<(i32, i32)>,
+    /// Her taste for each length (an eighth, a quarter, a half, a whole, two wholes) and for silence; the length
+    /// and whether the last one was a rest (judged as the notes are).
+    pub lengths: [f64; 5],
+    pub rest: f64,
+    last_len: Option<(usize, bool)>,
+    /// What she played lately, for the piano roll: (when it began, how long, the note from A1, 0 the bass 1 the
+    /// melody).
+    pub roll: VecDeque<(f64, f64, i32, u8)>,
     bass: i32,
     bass_until: f64,
     /// What she heard in each way of playing, with or without the sequencer: (how clear on average, how long she
@@ -318,6 +326,10 @@ impl Default for Band {
             lead_on: false,
             lead_heard: vec![],
             lead_with: None,
+            lengths: [0.0; 5],
+            rest: 0.0,
+            last_len: None,
+            roll: VecDeque::new(),
             bass: 24,
             bass_until: 0.0,
             ways: [(0.5, 0.0); 2],
@@ -332,7 +344,7 @@ fn hz(note: i32) -> f64 {
     55.0 * 2f64.powf(note as f64 / 12.0)
 }
 
-fn note_of(hz: f64) -> i32 {
+pub fn note_of(hz: f64) -> i32 {
     (12.0 * (hz / 55.0).log2()).round() as i32
 }
 
@@ -344,9 +356,27 @@ impl Band {
         (self.seed >> 11) as f64 / (1u64 << 53) as f64
     }
 
-    /// A length, in beats: an eighth, a quarter, a half, a whole.
-    fn length(&mut self) -> f64 {
-        [0.5, 1.0, 1.0, 2.0, 4.0][(self.random() * 5.0) as usize % 5]
+    /// The lengths she can give a note, in beats.
+    pub const LENGTHS: [f64; 5] = [0.5, 1.0, 2.0, 4.0, 8.0];
+
+    /// A length, by her taste (with a little chance: she keeps trying the others).
+    fn length(&mut self) -> (usize, f64) {
+        let mut best = (f64::MIN, 1);
+        for k in 0..5 {
+            let score = self.lengths[k] + self.random() * 1.0;
+            if score > best.0 {
+                best = (score, k);
+            }
+        }
+        (best.1, Self::LENGTHS[best.1])
+    }
+
+    /// A note heard, for the piano roll (the window keeps the last twenty seconds).
+    pub fn played(&mut self, at: f64, len: f64, note: i32, voice: u8) {
+        self.roll.push_back((at, len, note, voice));
+        while self.roll.front().is_some_and(|n| n.0 + n.1 < at - 20.0) {
+            self.roll.pop_front();
+        }
     }
 
     /// The next melody note: by its taste in time (from her ear) and with the bass (learned here).
@@ -381,9 +411,8 @@ impl Band {
         seq_on: bool,
     ) -> Vec<(Part, f64)> {
         let mut out = vec![];
-        if self.lead_on {
-            self.lead_heard.push(clarity);
-        }
+        // what she hears while her note sounds, or while she is silent
+        self.lead_heard.push(clarity);
         // what she hears, counted for the way she plays now
         let dt = (now - self.last_now).clamp(0.0, 0.5);
         self.last_now = now;
@@ -397,7 +426,10 @@ impl Band {
                 if now >= self.bass_until {
                     let i = ear.choose_from(self.bass, 0, 36);
                     self.bass = (self.bass + i).clamp(0, 36);
-                    self.bass_until = now + beat * 2.0 * self.length().max(1.0);
+                    let len = beat * 2.0 * self.length().1.max(1.0);
+                    self.bass_until = now + len;
+                    let b = self.bass;
+                    self.played(now, len, b, 0);
                     out.push((Part::BassPitch, hz(self.bass)));
                     out.push((Part::BassGate, 1.0));
                 }
@@ -407,9 +439,21 @@ impl Band {
         // the melody: when a note ends, it is judged, and the next chosen (or a rest)
         let ended = now >= self.lead_until;
         if ended {
+            let heard = if self.lead_heard.is_empty() {
+                ear.usual
+            } else {
+                self.lead_heard.iter().sum::<f64>() / self.lead_heard.len() as f64
+            };
+            // the length she chose, and whether it was a silence, judged too
+            if let Some((k, was_rest)) = self.last_len.take() {
+                let reward = heard - ear.usual;
+                self.lengths[k] = (self.lengths[k] + 0.4 * reward).clamp(-2.0, 2.0);
+                if was_rest {
+                    self.rest = (self.rest + 0.4 * reward).clamp(-2.0, 2.0);
+                }
+            }
             if let Some((with, step)) = self.lead_with.take() {
                 if !self.lead_heard.is_empty() {
-                    let heard = self.lead_heard.iter().sum::<f64>() / self.lead_heard.len() as f64;
                     let reward = heard - ear.usual;
                     let k = with.rem_euclid(12) as usize;
                     self.together[k] = (self.together[k] + 0.5 * reward).clamp(-2.0, 2.0);
@@ -418,7 +462,12 @@ impl Band {
                 }
             }
             self.lead_heard.clear();
-            if self.random() < 0.18 {
+            let (k, len) = self.length();
+            // a silence, by her taste for silence (never all the time, never never)
+            let p_rest = (0.15 * (self.rest * 1.5).exp()).clamp(0.03, 0.6);
+            let resting = self.random() < p_rest;
+            self.last_len = Some((k, resting));
+            if resting {
                 // a rest: silence is part of it
                 self.lead_on = false;
                 out.push((Part::LeadGate, 0.0));
@@ -429,8 +478,9 @@ impl Band {
                 self.lead_on = true;
                 out.push((Part::LeadPitch, hz(to)));
                 out.push((Part::LeadGate, 1.0));
+                self.played(now, beat * len, to, 1);
             }
-            self.lead_until = now + beat * self.length();
+            self.lead_until = now + beat * len;
         }
         // with or without the sequencer: hers to decide. At the end of each of her notes she weighs both ways by
         // what she heard in each, the one she knows less counting a little more (it might be better: she tries it);
@@ -538,5 +588,8 @@ mod band_tests {
         let fifth = band.together[7];
         let worst = band.together.iter().copied().fold(f64::MAX, f64::min);
         assert!(fifth > worst + 0.3, "{:?}", band.together);
+        // the lengths she gave her notes were judged too, and what she played is on the roll
+        assert!(band.lengths.iter().any(|l| *l != 0.0), "{:?}", band.lengths);
+        assert!(!band.roll.is_empty());
     }
 }

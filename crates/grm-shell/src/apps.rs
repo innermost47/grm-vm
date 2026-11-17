@@ -63,6 +63,8 @@ pub enum WidgetKind {
     Switch,
     /// A band with a title, framing the widgets under it (a section of a panel).
     Section,
+    /// What the machine plays by ear, as a piano roll (the last seconds, the bass and the melody).
+    Roll,
     /// A step of a sequencer: a fader for its pitch, its note's name above, lit when the sequencer is on it
     /// (nodes: the pitch, the step the sequencer is on; its words: its number, from 1).
     Step,
@@ -89,6 +91,7 @@ impl WidgetKind {
             "switch" => WidgetKind::Switch,
             "section" => WidgetKind::Section,
             "step" => WidgetKind::Step,
+            "roll" => WidgetKind::Roll,
             _ => return None,
         })
     }
@@ -113,13 +116,14 @@ impl WidgetKind {
             WidgetKind::Switch => "switch",
             WidgetKind::Section => "section",
             WidgetKind::Step => "step",
+            WidgetKind::Roll => "roll",
         }
     }
 
     /// How many nodes it is bound to.
     pub fn nodes(self) -> usize {
         match self {
-            WidgetKind::Text | WidgetKind::Section => 0,
+            WidgetKind::Text | WidgetKind::Section | WidgetKind::Roll => 0,
             WidgetKind::Pad | WidgetKind::Keys | WidgetKind::Step => 2,
             _ => 1,
         }
@@ -144,10 +148,11 @@ impl WidgetKind {
             WidgetKind::Switch => (2, 1),
             WidgetKind::Section => (6, 3),
             WidgetKind::Step => (1, 4),
+            WidgetKind::Roll => (12, 3),
         }
     }
 
-    pub const ALL: [WidgetKind; 18] = [
+    pub const ALL: [WidgetKind; 19] = [
         WidgetKind::Slider,
         WidgetKind::Toggle,
         WidgetKind::Button,
@@ -166,6 +171,7 @@ impl WidgetKind {
         WidgetKind::Switch,
         WidgetKind::Section,
         WidgetKind::Step,
+        WidgetKind::Roll,
     ];
 }
 

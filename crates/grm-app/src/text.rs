@@ -119,6 +119,7 @@ const WORDS: &[(&str, &str, &str)] = &[
     ("impro_together", "with the bass, at the same moment (1 = the same note, 5 = a fifth...)", "avec la basse, au même moment (1 = la même note, 5 = une quinte...)"),
     ("impro_with_seq", "with the sequencer", "avec le séquenceur"),
     ("impro_without_seq", "without", "sans"),
+    ("impro_rest", "silence", "silence"),
     ("slept", "Asleep · memory written", "Endormi · mémoire écrite"),
     ("settings", "Settings", "Réglages"),
     ("help", "Help", "Aide"),

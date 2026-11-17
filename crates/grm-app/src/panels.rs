@@ -914,6 +914,22 @@ fn improvising(app: &App, ui: &mut egui::Ui) {
         );
         p.text(pos2(x, rect.bottom()), egui::Align2::CENTER_BOTTOM, NAMES[k], egui::FontId::monospace(8.5), ink.muted);
     }
+    // the lengths she likes to give her notes, and silence
+    ui.horizontal_wrapped(|ui| {
+        crate::icons::show(ui, "timer", 13.0, ink.muted);
+        for (k, l) in app.band.lengths.iter().enumerate() {
+            let name = ["1/8", "1/4", "1/2", "1", "2"][k];
+            let c = if *l > 0.05 {
+                ink.accent
+            } else if *l < -0.05 {
+                ink.amber
+            } else {
+                ink.muted
+            };
+            ui.label(RichText::new(format!("{name} {l:+.2}")).monospace().size(10.0).color(c));
+        }
+        ui.label(RichText::new(format!("· {} {:+.2}", t(lang, "impro_rest"), app.band.rest)).monospace().size(10.0));
+    });
     // what she heard with the sequencer and without: what she decides from
     ui.horizontal(|ui| {
         crate::icons::show(ui, "scale", 13.0, ink.muted);

@@ -2514,7 +2514,8 @@ impl App {
                     .filter_map(|w| {
                         let n = w.nodes.first()?;
                         let name = a.prefix.get(n).cloned().unwrap_or(n.clone());
-                        if ["volume", "tempo", "lead_level"].iter().any(|x| name.ends_with(x)) {
+                        // the loudness stays the human's (their ears); everything else is hers to play with
+                        if ["volume", "lead_level"].iter().any(|x| name.ends_with(x)) {
                             return None;
                         }
                         let v = self.picture.node(&name)?.value;
@@ -2530,10 +2531,21 @@ impl App {
         let Some(step) = step.or_else(|| on("s_i")).filter(|_| seq_on) else { return };
         let step = step.round() as i64;
         let notes = self.ear.listen(tail, rate, step);
+        // the sequence's note, on the piano roll, at each step
+        if !notes.is_empty() {
+            if let Some(h) = bass_hz.filter(|h| *h > 20.0) {
+                self.band.played(now, beat / 2.0, crate::improvise::note_of(h), 0);
+            }
+        }
         for (k, hz) in notes {
             self.by_ear(&format!("{prefix}s_n{}", k + 1), (hz * 100.0).round() / 100.0);
         }
         ctx.request_repaint_after(std::time::Duration::from_millis(40));
+    }
+
+    /// Seconds since the window opened (the clock she plays by).
+    pub fn ear_now(&self) -> f64 {
+        self.started.elapsed().as_secs_f64()
     }
 
     /// What she writes by ear, straight into the world (not through the prompt: no line to keep, nothing to undo).
