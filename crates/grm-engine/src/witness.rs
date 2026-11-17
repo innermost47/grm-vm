@@ -107,61 +107,121 @@ fn num(v: f64, french: bool) -> String {
 
 /// What it says, in the third person: never "I", "you" or "we". `human`: who it speaks of (never to).
 pub fn words(g: &Glance, human: &str, french: bool) -> Vec<String> {
+    lines(g, human, french).into_iter().map(|(_, l)| l).collect()
+}
+
+/// What it says, each line with its sign (a Lucide icon's name): to be read at a glance.
+pub fn lines(g: &Glance, human: &str, french: bool) -> Vec<(&'static str, String)> {
     let f = |v: f64| num((v * 100.0).round() / 100.0, french);
     let pc = |v: f64| format!("{} %", num((v * 100.0).round(), french));
-    let mut out = vec![];
-    if french {
-        out.push(format!("Ce qui passe en elle, au moment {} (pour {human}) :", g.tick));
-        out.push(format!("Elle tient ensemble à {} (harmonie).", f(g.harmony)));
-        out.push(format!("Son épanouissement est à {}, sa progression à {}.", f(g.flourishing), f(g.progress)));
-        if g.surprised.is_empty() {
-            out.push("Rien ne la surprend en ce moment.".into());
-        }
-        for (n, r) in &g.surprised {
-            out.push(format!("Elle est surprise par {n} ({} σ).", num((r * 10.0).round() / 10.0, true)));
-        }
-        for (n, a, b) in &g.moved {
-            out.push(format!("{n} a bougé : {} → {}.", num(*a, true), num(*b, true)));
-        }
-        for (n, d) in &g.unsure {
-            out.push(format!("Elle est peu sûre de {n} (± {}).", pc(*d)));
-        }
-        if g.quarantine > 0 {
-            out.push(format!("{} relation(s) en quarantaine.", g.quarantine));
-        }
-        if g.workshops > 0 {
-            out.push(format!("{} atelier(s) à part, qui ne la touchent pas.", g.workshops));
-        }
-        if let Some((_, t)) = &g.last {
-            out.push(format!("La dernière chose écrite dans son journal : {t}"));
-        }
-    } else {
-        out.push(format!("What passes through her, at moment {} (for {human}):", g.tick));
-        out.push(format!("She holds together at {} (harmony).", f(g.harmony)));
-        out.push(format!("Her flourishing is at {}, her progress at {}.", f(g.flourishing), f(g.progress)));
-        if g.surprised.is_empty() {
-            out.push("Nothing surprises her now.".into());
-        }
-        for (n, r) in &g.surprised {
-            out.push(format!("She is surprised by {n} ({} σ).", num((r * 10.0).round() / 10.0, false)));
-        }
-        for (n, a, b) in &g.moved {
-            out.push(format!("{n} moved: {} → {}.", num(*a, false), num(*b, false)));
-        }
-        for (n, d) in &g.unsure {
-            out.push(format!("She is unsure of {n} (± {}).", pc(*d)));
-        }
-        if g.quarantine > 0 {
-            out.push(format!("{} relation(s) in quarantine.", g.quarantine));
-        }
-        if g.workshops > 0 {
-            out.push(format!("{} workshop(s) apart, that do not touch her.", g.workshops));
-        }
-        if let Some((_, t)) = &g.last {
-            out.push(format!("The last thing written in her journal: {t}"));
-        }
+    let s1 = |r: f64| num((r * 10.0).round() / 10.0, french);
+    let mut out: Vec<(&'static str, String)> = vec![];
+    let (fr, en) = (french, !french);
+    let say = |a: String, b: String| if fr { a } else { b };
+    let _ = en;
+    out.push((
+        "clock",
+        say(
+            format!("Ce qui passe en elle, au moment {} (pour {human}) :", g.tick),
+            format!("What passes through her, at moment {} (for {human}):", g.tick),
+        ),
+    ));
+    out.push((
+        "scale",
+        say(
+            format!("Elle tient ensemble à {} (harmonie).", f(g.harmony)),
+            format!("She holds together at {} (harmony).", f(g.harmony)),
+        ),
+    ));
+    out.push((
+        "sprout",
+        say(
+            format!("Son épanouissement est à {}.", f(g.flourishing)),
+            format!("Her flourishing is at {}.", f(g.flourishing)),
+        ),
+    ));
+    out.push((
+        "trending-up",
+        say(format!("Sa progression est à {}.", f(g.progress)), format!("Her progress is at {}.", f(g.progress))),
+    ));
+    if g.surprised.is_empty() {
+        out.push(("leaf", say("Rien ne la surprend en ce moment.".into(), "Nothing surprises her now.".into())));
+    }
+    for (n, r) in &g.surprised {
+        out.push((
+            "sparkle",
+            say(
+                format!("Elle est surprise par {n} ({} σ).", s1(*r)),
+                format!("She is surprised by {n} ({} σ).", s1(*r)),
+            ),
+        ));
+    }
+    for (n, a, b) in &g.moved {
+        out.push((
+            "move",
+            say(
+                format!("{n} a bougé : {} → {}.", num(*a, true), num(*b, true)),
+                format!("{n} moved: {} → {}.", num(*a, false), num(*b, false)),
+            ),
+        ));
+    }
+    for (n, d) in &g.unsure {
+        out.push((
+            "circle-help",
+            say(format!("Elle est peu sûre de {n} (± {}).", pc(*d)), format!("She is unsure of {n} (± {}).", pc(*d))),
+        ));
+    }
+    if g.quarantine > 0 {
+        out.push((
+            "shield-alert",
+            say(
+                format!("{} relation(s) en quarantaine.", g.quarantine),
+                format!("{} relation(s) in quarantine.", g.quarantine),
+            ),
+        ));
+    }
+    if g.workshops > 0 {
+        out.push((
+            "hammer",
+            say(
+                format!("{} atelier(s) à part, qui ne la touchent pas.", g.workshops),
+                format!("{} workshop(s) apart, that do not touch her.", g.workshops),
+            ),
+        ));
+    }
+    if let Some((_, t)) = &g.last {
+        out.push((
+            "scroll-text",
+            say(
+                format!("La dernière chose écrite dans son journal : {t}"),
+                format!("The last thing written in her journal: {t}"),
+            ),
+        ));
     }
     out
+}
+
+/// The constants her equations stand on (CODATA 2018): the reduced Planck constant, gravitation, the speed of
+/// light, Boltzmann's constant (SI).
+pub const HBAR: f64 = 1.054_571_817e-34;
+pub const G: f64 = 6.674_30e-11;
+pub const C: f64 = 299_792_458.0;
+pub const K_B: f64 = 1.380_649e-23;
+
+/// Her equations: the Planck units, the finest grain of length, time, mass and heat physics can speak of (what the
+/// eye of the needle would be, if time went through one). (symbol, its equation, its value, its unit, what it is in
+/// English, in French). Constants: they hold no belief and change none.
+pub fn planck() -> Vec<(&'static str, &'static str, f64, &'static str, &'static str, &'static str)> {
+    let l = (HBAR * G / C.powi(3)).sqrt();
+    let t = l / C;
+    let m = (HBAR * C / G).sqrt();
+    let temp = m * C * C / K_B;
+    vec![
+        ("l_P", "l_P = sqrt(hbar * G / c^3)", l, "m", "the Planck length", "la longueur de Planck"),
+        ("t_P", "t_P = l_P / c", t, "s", "the Planck time", "le temps de Planck"),
+        ("m_P", "m_P = sqrt(hbar * c / G)", m, "kg", "the Planck mass", "la masse de Planck"),
+        ("T_P", "T_P = m_P * c^2 / k_B", temp, "K", "the Planck temperature", "la température de Planck"),
+    ]
 }
 
 /// What her consciousness would say by itself, when something asks for it (her state, what she lacks), in the
@@ -251,6 +311,11 @@ mod tests {
             }
         }
         assert_eq!(human(Some("Anthony"), true), "Anthony");
+        // her equations give the Planck units as physics knows them
+        let p = planck();
+        for (k, want) in [1.616_255e-35, 5.391_247e-44, 2.176_434e-8, 1.416_784e32].iter().enumerate() {
+            assert!((p[k].2 / want - 1.0).abs() < 1e-5, "{}: {} vs {want}", p[k].0, p[k].2);
+        }
         let torn = Glance { tick: 3, harmony: 0.4, ..Default::default() };
         let said = speak(&torn, "Anthony", true).unwrap();
         assert!(said.starts_with("Elle") && said.contains("Anthony"), "{said}");

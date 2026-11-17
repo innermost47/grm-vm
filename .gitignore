@@ -19,6 +19,7 @@
 !/apps/networks/echo.grm
 !/apps/networks/reverb.grm
 !/apps/networks/sequencer.grm
+!/apps/networks/adsr.grm
 /apps/.trash/
 /*.grm
 /*.csv

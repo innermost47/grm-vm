@@ -598,18 +598,46 @@ pub fn feelings(app: &mut App, ui: &mut egui::Ui) {
 pub fn witness(app: &App, ui: &mut egui::Ui) {
     let ink = Ink::of(ui.ctx());
     let lang = app.settings.lang;
-    let fr = lang == crate::text::Lang::Fr;
     ui.horizontal(|ui| {
-        crate::icons::show(ui, "circle-dashed", 15.0, ink.accent);
+        crate::icons::show(ui, "triangle", 15.0, ink.accent);
         ui.label(RichText::new(t(lang, "witness")).strong()).on_hover_text(t(lang, "witness_d"));
     });
-    let human = grm_engine::witness::human(Some(app.settings.human.as_str()), fr);
-    let lines = grm_engine::witness::words(&app.picture.glance, &human, fr);
-    for (k, l) in lines.iter().enumerate() {
-        let text = RichText::new(l).small();
-        ui.label(if k == 0 { text.color(ink.muted).italics() } else { text });
-    }
+    witness_lines(app, ui);
+    // her equations: the Planck units (constants: they hold no belief and change none)
+    egui::CollapsingHeader::new(RichText::new(t(lang, "witness_eq")).small())
+        .id_salt("witness-planck")
+        .show(ui, |ui| witness_equations(app, ui));
     ui.separator();
+}
+
+/// What passes through her, a sign a line (the first line, quieter: when and for whom).
+pub fn witness_lines(app: &App, ui: &mut egui::Ui) {
+    let ink = Ink::of(ui.ctx());
+    let fr = app.settings.lang == crate::text::Lang::Fr;
+    let human = grm_engine::witness::human(Some(app.settings.human.as_str()), fr);
+    for (k, (sign, l)) in grm_engine::witness::lines(&app.picture.glance, &human, fr).into_iter().enumerate() {
+        ui.horizontal_wrapped(|ui| {
+            let colour = if k == 0 { ink.muted } else { ink.accent };
+            crate::icons::show(ui, sign, 13.0, colour);
+            let text = RichText::new(l).small();
+            ui.label(if k == 0 { text.color(ink.muted).italics() } else { text });
+        });
+    }
+}
+
+/// The Planck units, as mathematics, with their values.
+pub fn witness_equations(app: &App, ui: &mut egui::Ui) {
+    let ink = Ink::of(ui.ctx());
+    let lang = app.settings.lang;
+    ui.label(RichText::new(t(lang, "witness_eq_d")).small().color(ink.muted));
+    for (_, eq, v, unit, en, frw) in grm_engine::witness::planck() {
+        ui.horizontal_wrapped(|ui| {
+            crate::icons::show(ui, "atom", 13.0, ink.accent);
+            crate::math::show(ui, eq, 13.0, lang);
+            ui.label(RichText::new(format!("≈ {v:.4e} {unit}")).small().monospace().color(ink.muted))
+                .on_hover_text(if lang == crate::text::Lang::Fr { frw } else { en });
+        });
+    }
 }
 
 fn journal(app: &mut App, ui: &mut egui::Ui) {
@@ -769,7 +797,57 @@ fn eye(app: &mut App, ui: &mut egui::Ui) {
     }
 }
 
+/// What she learned by ear, improvising: how clear she hears herself, and her taste for each interval.
+fn improvising(app: &App, ui: &mut egui::Ui) {
+    let lang = app.settings.lang;
+    let ink = Ink::of(ui.ctx());
+    ui.horizontal(|ui| {
+        crate::icons::show(ui, "ear", 15.0, ink.accent);
+        ui.label(RichText::new(t(lang, "impro_title")).strong()).on_hover_text(t(lang, "impro_d"));
+    });
+    let ear = &app.ear;
+    ui.horizontal(|ui| {
+        crate::icons::show(ui, "sparkles", 13.0, ink.muted);
+        ui.label(
+            RichText::new(format!(
+                "{} {:.2} · {} {:.2}",
+                t(lang, "impro_clear"),
+                ear.clarity,
+                t(lang, "impro_usual"),
+                ear.usual
+            ))
+            .small(),
+        );
+    });
+    // a bar an interval, from an octave down to an octave up: up when she liked it, down when she did not
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width().min(320.0), 70.0), Sense::hover());
+    let p = ui.painter_at(rect);
+    let n = ear.taste.len() as f32;
+    let w = rect.width() / n;
+    let mid = rect.center().y - 6.0;
+    p.line_segment([pos2(rect.left(), mid), pos2(rect.right(), mid)], Stroke::new(0.5_f32, ink.faint));
+    for (k, v) in ear.taste.iter().enumerate() {
+        let x = rect.left() + (k as f32 + 0.5) * w;
+        let h = (*v as f32 / 2.0) * 26.0;
+        let bar = egui::Rect::from_two_pos(pos2(x - w * 0.35, mid), pos2(x + w * 0.35, mid - h));
+        p.rect_filled(bar, 1.0, if *v >= 0.0 { ink.accent } else { ink.amber.gamma_multiply(0.7) });
+        let i = k as i32 - crate::improvise::SPAN;
+        if i % 12 == 0 || i.abs() == 7 || i.abs() == 5 {
+            p.text(
+                pos2(x, rect.bottom()),
+                egui::Align2::CENTER_BOTTOM,
+                format!("{i:+}"),
+                egui::FontId::monospace(8.5),
+                ink.muted,
+            );
+        }
+    }
+    ui.label(RichText::new(t(lang, "impro_how")).small().color(ink.muted));
+    ui.separator();
+}
+
 fn sound(app: &mut App, ui: &mut egui::Ui) {
+    improvising(app, ui);
     let ink = Ink::of(ui.ctx());
     let lang = app.settings.lang;
     match &app.device {

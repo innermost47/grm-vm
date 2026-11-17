@@ -19,6 +19,7 @@ mod graph;
 mod help;
 mod hover;
 mod icons;
+mod improvise;
 mod insights;
 mod journey;
 mod layout;

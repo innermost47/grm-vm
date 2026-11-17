@@ -90,6 +90,13 @@ fn network_sign(app: &App, source: &str) -> String {
             .filter(|i| crate::icons::exists(i))
             .unwrap_or("app-window".into());
     }
+    // a sandbox let in: rising little by little, then in the main network (its sign says it)
+    if let Some(sb) = source.strip_prefix("sandbox:") {
+        if !app.picture.sandboxes.iter().any(|x| x.name == sb) {
+            let rising = app.picture.integrating.iter().any(|i| i.starts_with(source));
+            return if rising { "trending-up" } else { "circle-check" }.to_string();
+        }
+    }
     match source.split(':').next().unwrap_or("") {
         "typed" => "keyboard",
         "file" => "sheet",
@@ -211,7 +218,15 @@ fn network(app: &mut App, ui: &mut egui::Ui, pic: &Picture, source: &str, filter
         &network_sign(app, source),
         ink.source(k),
         RichText::new(source).color(ink.source(k)),
-        Some(format!("{} · {}", nodes.len(), rels.len())),
+        Some({
+            let sign = network_sign(app, source);
+            let state = match sign.as_str() {
+                "circle-check" => format!(" · {}", t(lang, "sb_in_main")),
+                "trending-up" => format!(" · {}", t(lang, "sb_rising")),
+                _ => String::new(),
+            };
+            format!("{} · {}{state}", nodes.len(), rels.len())
+        }),
         |ui| {
             if !sounding.is_empty() {
                 if crate::icons::sign(ui, "square", t(lang, "t_stop_net")).clicked() {
@@ -600,7 +615,7 @@ pub fn network_menu(app: &mut App, ui: &mut egui::Ui, source: &str, outputs: &[S
     if !grm_engine::world::factory(source)
         && crate::menu::item(ui, "trash-2", t(lang, "t_trash_net"), t(lang, "t_trash_net_d"))
     {
-        app.say(format!("trash {source}"));
+        app.ask_trash(source, false);
         ui.close();
     }
     if let Some(a) = source.strip_prefix("app:") {
@@ -610,7 +625,7 @@ pub fn network_menu(app: &mut App, ui: &mut egui::Ui, source: &str, outputs: &[S
             ui.close();
         }
         if crate::menu::item(ui, "trash-2", t(lang, "m_trash_app"), t(lang, "m_trash_app_d")) {
-            app.say(format!("app trash {a}"));
+            app.ask_trash(&a, true);
             ui.close();
         }
     }

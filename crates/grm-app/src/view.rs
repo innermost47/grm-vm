@@ -185,22 +185,32 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
                 painter.line_segment([p, beyond], Stroke::new(1.0_f32, thread));
             }
         }
-        // the eye of a needle: an empty ring, darker inside (nothing is kept in it)
-        let r = 9.0 * zoom.clamp(0.7, 1.4);
-        painter.circle_filled(c, r, ink.surface);
-        painter.circle_stroke(c, r, Stroke::new(1.4_f32, ink.accent.gamma_multiply(0.8)));
-        painter.circle_stroke(c, r + 4.0, Stroke::new(0.6_f32, ink.accent.gamma_multiply(0.25)));
+        // her sign: a triangle, empty and darker inside (nothing is kept in it), the eye of a needle
+        let r = 11.0 * zoom.clamp(0.7, 1.4);
+        let tri = |r: f32| -> Vec<Pos2> {
+            (0..3)
+                .map(|k| {
+                    let a = -std::f32::consts::FRAC_PI_2 + k as f32 * std::f32::consts::TAU / 3.0;
+                    c + vec2(a.cos(), a.sin()) * r
+                })
+                .collect()
+        };
+        painter.add(Shape::convex_polygon(tri(r), ink.surface, Stroke::new(1.4_f32, ink.accent.gamma_multiply(0.8))));
+        painter.add(Shape::closed_line(tri(r + 5.0), Stroke::new(0.6_f32, ink.accent.gamma_multiply(0.25))));
         if pointer_over(&resp, c, r + 4.0) {
-            let lang = app.settings.lang;
-            let fr = lang == crate::text::Lang::Fr;
-            let human = grm_engine::witness::human(Some(app.settings.human.as_str()), fr);
-            let mut words = vec![
-                crate::text::t(lang, "witness").to_string(),
-                crate::text::t(lang, "witness_d").to_string(),
-                String::new(),
-            ];
-            words.extend(grm_engine::witness::words(g, &human, fr));
-            resp.clone().on_hover_text(words.join("\n"));
+            resp.clone().on_hover_ui(|ui| {
+                let lang = app.settings.lang;
+                let ink = crate::app::Ink::of(ui.ctx());
+                ui.horizontal(|ui| {
+                    crate::icons::show(ui, "triangle", 15.0, ink.accent);
+                    ui.label(egui::RichText::new(crate::text::t(lang, "witness")).strong());
+                });
+                ui.label(egui::RichText::new(crate::text::t(lang, "witness_d")).small().color(ink.muted));
+                ui.separator();
+                crate::panels::witness_lines(app, ui);
+                ui.separator();
+                crate::panels::witness_equations(app, ui);
+            });
         }
     }
     // links
@@ -519,28 +529,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
     } else if resp.double_clicked() {
         if let Some(net) = over_net.clone() {
             // a network gathered into one node: the view comes close to it, until it unfolds (its nodes fill it)
-            let pts: Vec<[f32; 2]> = pic
-                .nodes
-                .iter()
-                .filter(|n| n.source == net)
-                .filter_map(|n| app.graph.pos.get(&item_of(&n.name)).copied())
-                .collect();
-            if !pts.is_empty() {
-                let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
-                for p in &pts {
-                    x0 = x0.min(p[0]);
-                    y0 = y0.min(p[1]);
-                    x1 = x1.max(p[0]);
-                    y1 = y1.max(p[1]);
-                }
-                let zoom = (rect.width() / (x1 - x0 + 120.0))
-                    .min(rect.height() / (y1 - y0 + 120.0))
-                    .clamp(COLLAPSE_FROM + 0.1, 2.0);
-                app.view.zoom = zoom;
-                app.view.offset = vec2(-(x0 + x1) / 2.0 * zoom, -(y0 + y1) / 2.0 * zoom);
-                app.view.fitted = true;
-                app.focus = Some(net);
-            }
+            zoom_to_net(app, rect, &pic, &net);
         } else if let Some(n) = hovered.as_ref().and_then(|n| pic.node(n)).filter(|_| only.is_none()) {
             let s = n.source.clone();
             app.dive(&s);
@@ -611,72 +600,77 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
                 });
             y = inner.response.rect.bottom() + 4.0;
         }
-        // the networks in the network: a chip each, to bring one to the front
-        let mut sources: Vec<String> = pic.nodes.iter().map(|n| n.source.clone()).collect();
-        sources.dedup();
-        let mut seen = std::collections::HashSet::new();
-        sources.retain(|s| seen.insert(s.clone()));
-        let mut x = rect.left() + 10.0;
-        y += 4.0;
-        let all: Vec<String> = std::iter::once(String::new()).chain(sources).collect();
-        let mut rows = 1;
-        let mut rest: Vec<String> = vec![];
-        for (k, s) in all.iter().cloned().enumerate() {
-            // the chips go on several rows; past three, the others are in a menu
-            let width = painter.layout_no_wrap(s.clone(), egui::FontId::proportional(12.0), ink.muted).size().x + 20.0;
-            if x + width > rect.right() - 10.0 {
-                if rows == 3 {
-                    rest = all[k..].to_vec();
-                    break;
+        // the networks in the network: a list on the left, searched, scrolled (as many as there are)
+        if !app.view.passive {
+            let mut counts: Vec<(String, usize)> = vec![];
+            for n in &pic.nodes {
+                match counts.iter_mut().find(|c| c.0 == n.source) {
+                    Some(c) => c.1 += 1,
+                    None => counts.push((n.source.clone(), 1)),
                 }
-                rows += 1;
-                x = rect.left() + 10.0;
-                y += 22.0;
             }
-            let label = if s.is_empty() { t(lang, "all").to_string() } else { s.clone() };
-            let on = if s.is_empty() { app.focus.is_none() } else { app.focus.as_deref() == Some(s.as_str()) };
-            let colour = if s.is_empty() { ink.muted } else { ink.source(app.colours.get(&s).copied().unwrap_or(0)) };
-            let g = painter.layout_no_wrap(
-                label,
-                egui::FontId::proportional(12.0),
-                if on { ink.on_accent() } else { colour },
-            );
-            let chip = Rect::from_min_size(pos2(x, y), g.size() + vec2(14.0, 6.0));
-            painter.rect_filled(chip, 3.0, if on { colour } else { faded(colour, 0.14) });
-            painter.galley(chip.min + vec2(7.0, 3.0), g, if on { ink.on_accent() } else { colour });
-            let r = ui.interact(chip, egui::Id::new(("focus-chip", &s)), Sense::click());
-            if r.double_clicked() && !s.is_empty() {
-                app.dive(&s);
-            } else if r.clicked() {
-                app.focus = if s.is_empty() { None } else { Some(s.clone()) };
-            }
-            // under the right button: what can be done with this network (go into it, play, quarantine, remove...)
-            if !s.is_empty() {
-                let outputs: Vec<String> =
-                    pic.nodes.iter().filter(|n| n.source == s && n.output).map(|n| n.name.clone()).collect();
-                r.on_hover_text(t(lang, "t_row_hint")).context_menu(|ui| {
-                    ui.set_min_width(280.0);
-                    crate::tree::network_menu(app, ui, &s, &outputs)
-                });
-            }
-            x = chip.right() + 6.0;
-        }
-        if !rest.is_empty() {
-            let g = painter.layout_no_wrap(format!("+{}", rest.len()), egui::FontId::proportional(12.0), ink.muted);
-            let chip = Rect::from_min_size(pos2(x, y), g.size() + vec2(14.0, 6.0));
-            painter.rect_filled(chip, 3.0, faded(ink.muted, 0.14));
-            painter.galley(chip.min + vec2(7.0, 3.0), g, ink.muted);
-            let r = ui.interact(chip, egui::Id::new("focus-chip-more"), Sense::click());
-            egui::Popup::menu(&r).show(|ui| {
-                egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
-                    for s in &rest {
-                        if ui.button(s).clicked() {
-                            app.focus = Some(s.clone());
-                            ui.close();
-                        }
+            let list =
+                Rect::from_min_max(pos2(rect.left() + 6.0, y + 2.0), pos2(rect.left() + 206.0, rect.bottom() - 28.0));
+            let mut child =
+                ui.new_child(egui::UiBuilder::new().max_rect(list).layout(egui::Layout::top_down(egui::Align::Min)));
+            egui::Frame::new()
+                .fill(faded(ink.surface, 0.9))
+                .stroke(Stroke::new(1.0_f32, faded(ink.faint, 0.6)))
+                .corner_radius(3.0)
+                .inner_margin(egui::Margin::same(6))
+                .show(&mut child, |ui| {
+                    ui.set_width(list.width() - 12.0);
+                    ui.horizontal(|ui| {
+                        crate::icons::show(ui, "search", 13.0, ink.muted);
+                        ui.add(
+                            egui::TextEdit::singleline(&mut app.net_search)
+                                .hint_text(crate::style::hint(t(lang, "net_search")))
+                                .desired_width(ui.available_width()),
+                        );
+                    });
+                    let q = app.net_search.trim().to_lowercase();
+                    let all_on = app.focus.is_none();
+                    if crate::icons::toggle(ui, "layers", format!("{} · {}", t(lang, "all"), counts.len()), all_on)
+                        .clicked()
+                    {
+                        app.focus = None;
                     }
+                    egui::ScrollArea::vertical().id_salt("net-list").max_height(list.height() - 70.0).show(ui, |ui| {
+                        for (s, k) in counts.iter().filter(|(s, _)| q.is_empty() || s.to_lowercase().contains(&q)) {
+                            let colour = ink.source(app.colours.get(s).copied().unwrap_or(0));
+                            let on = app.focus.as_deref() == Some(s.as_str());
+                            let r = ui
+                                .horizontal(|ui| {
+                                    let (dot, _) = ui.allocate_exact_size(vec2(10.0, 14.0), Sense::hover());
+                                    ui.painter().circle_filled(dot.center(), 4.0, colour);
+                                    let text =
+                                        egui::RichText::new(s).small().color(if on { ink.on_accent() } else { colour });
+                                    let b = egui::Button::new(text)
+                                        .fill(if on { colour } else { egui::Color32::TRANSPARENT })
+                                        .frame(on);
+                                    let r = ui.add(b);
+                                    ui.label(egui::RichText::new(format!("{k}")).small().color(ink.muted));
+                                    r
+                                })
+                                .inner;
+                            if r.double_clicked() {
+                                zoom_to_net(app, rect, &pic, s);
+                            } else if r.clicked() {
+                                app.focus = if on { None } else { Some(s.clone()) };
+                            }
+                            let outputs: Vec<String> = pic
+                                .nodes
+                                .iter()
+                                .filter(|n| &n.source == s && n.output)
+                                .map(|n| n.name.clone())
+                                .collect();
+                            r.on_hover_text(t(lang, "net_list_hint")).context_menu(|ui| {
+                                ui.set_min_width(280.0);
+                                crate::tree::network_menu(app, ui, s, &outputs)
+                            });
+                        }
+                    });
                 });
-            });
         }
     }
     // what the pointer does
@@ -830,6 +824,33 @@ fn health(n: &crate::model::NodeView) -> (String, bool) {
     }
 }
 
+/// The view comes close to a network, until its nodes fill it, and the others are dimmed.
+fn zoom_to_net(app: &mut App, rect: Rect, pic: &crate::model::Picture, net: &str) {
+    let pts: Vec<[f32; 2]> = pic
+        .nodes
+        .iter()
+        .filter(|n| n.source == net)
+        .filter_map(|n| app.graph.pos.get(&item_of(&n.name)).copied())
+        .collect();
+    if pts.is_empty() {
+        return;
+    }
+    let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+    for p in &pts {
+        x0 = x0.min(p[0]);
+        y0 = y0.min(p[1]);
+        x1 = x1.max(p[0]);
+        y1 = y1.max(p[1]);
+    }
+    let zoom =
+        (rect.width() / (x1 - x0 + 120.0)).min(rect.height() / (y1 - y0 + 120.0)).clamp(COLLAPSE_FROM + 0.1, 2.0);
+    app.view.zoom = zoom;
+    // a little to the right: the list of networks is on the left
+    app.view.offset = vec2(-(x0 + x1) / 2.0 * zoom + 100.0, -(y0 + y1) / 2.0 * zoom);
+    app.view.fitted = true;
+    app.focus = Some(net.to_string());
+}
+
 fn pointer_over(resp: &egui::Response, c: Pos2, r: f32) -> bool {
     resp.hover_pos().is_some_and(|m| m.distance(c) < r)
 }
@@ -912,6 +933,8 @@ fn fit(app: &mut App, rect: Rect) {
 
 /// value ± sigma, as a human reads it: a positive node's spread is a factor (shown as a percentage).
 pub fn reading(value: f64, sigma: f64, signed: bool) -> String {
+    // what is nothing but rounding is nothing
+    let value = if value.abs() < 1e-12 { 0.0 } else { value };
     let v = grm_engine::lang::g(value);
     if !sigma.is_finite() || (!signed && sigma > 6.0) || (signed && sigma > 1e4 * value.abs().max(1.0)) {
         // a value it starts from, not one it knows: said as such

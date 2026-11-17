@@ -80,35 +80,71 @@ pub fn remember(app: &mut App) {
     }
 }
 
+/// A line with its sign.
+fn row(ui: &mut egui::Ui, sign: &str, text: RichText, colour: Color32) {
+    ui.horizontal(|ui| {
+        crate::icons::show(ui, sign, 13.0, colour);
+        ui.label(text);
+    });
+}
+
+/// A small heading inside the card.
+fn heading(ui: &mut egui::Ui, sign: &str, text: &str, ink: &Ink) {
+    ui.add_space(3.0);
+    ui.horizontal(|ui| {
+        crate::icons::show(ui, sign, 12.0, ink.muted);
+        ui.label(RichText::new(text.to_uppercase()).small().strong().color(ink.muted));
+    });
+}
+
 /// What a node is.
 pub fn node(app: &App, ui: &mut egui::Ui, name: &str) {
     let ink = Ink::of(ui.ctx());
     let lang = app.settings.lang;
     let Some(n) = app.picture.node(name) else { return };
     let k = app.colours.get(&n.source).copied().unwrap_or(0);
-    ui.label(RichText::new(&n.name).strong().size(15.0).color(ink.source(k)));
-    ui.label(RichText::new(reading(n.value, n.sigma, n.signed)).monospace().size(14.0));
-    let mut what = vec![if n.observed { t(lang, "observed") } else { t(lang, "computed") }];
-    for (on, key) in [
-        (n.fixed, "fixed"),
-        (n.var, "var"),
-        (n.learn, "learn"),
-        (n.input, "input"),
-        (n.output, "output"),
-        (n.tracked, "tracked"),
-    ] {
-        if on {
-            what.push(t(lang, key));
+    ui.set_max_width(320.0);
+    ui.horizontal(|ui| {
+        crate::icons::show(ui, if n.observed { "circle-dot" } else { "circle" }, 16.0, ink.source(k));
+        ui.label(RichText::new(&n.name).strong().size(15.0).color(ink.source(k)));
+    });
+    ui.label(RichText::new(reading(n.value, n.sigma, n.signed)).monospace().size(15.0));
+    ui.horizontal_wrapped(|ui| {
+        let mut what =
+            vec![if n.observed { ("eye", t(lang, "observed")) } else { ("calculator", t(lang, "computed")) }];
+        for (on, sign, key) in [
+            (n.fixed, "pin", "fixed"),
+            (n.var, "variable", "var"),
+            (n.learn, "graduation-cap", "learn"),
+            (n.input, "log-in", "input"),
+            (n.output, "log-out", "output"),
+            (n.tracked, "timer", "tracked"),
+        ] {
+            if on {
+                what.push((sign, t(lang, key)));
+            }
+        }
+        for (sign, w) in what {
+            crate::icons::show(ui, sign, 12.0, ink.muted);
+            ui.label(RichText::new(w).small().color(ink.muted));
+        }
+    });
+    row(ui, "waypoints", RichText::new(&n.source).small().color(ink.source(k)), ink.source(k));
+    let rels: Vec<&crate::model::RelationView> =
+        app.picture.relations.iter().filter(|r| r.nodes.contains(&n.name)).collect();
+    if !rels.is_empty() {
+        heading(ui, "link", t(lang, "card_relations"), &ink);
+        for r in rels.iter().take(6) {
+            let colour = if r.tension > 1.0 { ink.amber } else { ink.text };
+            ui.horizontal_wrapped(|ui| {
+                crate::icons::show(ui, "diamond", 11.0, colour);
+                ui.label(RichText::new(&r.name).small().strong().color(colour));
+                crate::math::show(ui, &r.text, 12.0, lang);
+            });
         }
     }
-    ui.label(
-        RichText::new(format!("{} · {} {}", what.join(" · "), t(lang, "source"), n.source)).small().color(ink.muted),
-    );
-    for r in app.picture.relations.iter().filter(|r| r.nodes.contains(&n.name)) {
-        let colour = if r.tension > 1.0 { ink.amber } else { ink.text };
-        ui.label(RichText::new(format!("{}: {}", r.name, r.text)).monospace().small().color(colour));
-    }
     // its curve: the wave it plays, or how it moved lately
+    heading(ui, "activity", t(lang, "card_moves"), &ink);
     let scope = app.mixer.lock().ok().and_then(|m| m.scope(name));
     match scope {
         Some(s) => {
@@ -122,7 +158,12 @@ pub fn node(app: &App, ui: &mut egui::Ui, name: &str) {
         }
     }
     if let Some((a, l)) = app.line_in_app(name) {
-        ui.label(RichText::new(format!("{a}, {} {l}", t(lang, "line"))).small().color(ink.muted));
+        row(
+            ui,
+            "file-code",
+            RichText::new(format!("{a}, {} {l}", t(lang, "line"))).small().color(ink.muted),
+            ink.muted,
+        );
     }
 }
 
@@ -131,38 +172,87 @@ pub fn relation(app: &App, ui: &mut egui::Ui, name: &str) {
     let ink = Ink::of(ui.ctx());
     let lang = app.settings.lang;
     let Some(r) = app.picture.relations.iter().find(|r| r.name == name) else { return };
-    ui.label(RichText::new(&r.name).strong().size(15.0));
-    ui.label(RichText::new(&r.text).monospace().size(14.0).color(if r.tension > 1.0 { ink.amber } else { ink.text }));
-    let mut state = format!("{} · {} {:.2} σ", r.source, t(lang, "strain"), r.tension);
-    if !r.awake {
-        state.push_str(&format!(" · {}", t(lang, "asleep")));
-    }
-    if r.strength < 0.999 {
-        state.push_str(&format!(" · {} {:.0} %", t(lang, "integrating"), r.strength * 100.0));
-    }
-    ui.label(RichText::new(state).small().color(ink.muted));
+    ui.set_max_width(340.0);
+    let strained = r.tension > 1.0;
+    ui.horizontal(|ui| {
+        crate::icons::show(ui, "diamond", 16.0, if strained { ink.amber } else { ink.accent });
+        ui.label(RichText::new(&r.name).strong().size(15.0));
+    });
+    // what it says, as mathematics
+    crate::math::show(ui, &r.text, 15.0, lang);
+    // how it is: where from, how far from holding, awake or not, how far in
+    ui.horizontal_wrapped(|ui| {
+        let k = app.colours.get(&r.source).copied().unwrap_or(0);
+        crate::icons::show(ui, "waypoints", 12.0, ink.source(k));
+        ui.label(RichText::new(&r.source).small().color(ink.source(k)));
+        crate::icons::show(ui, "activity", 12.0, if strained { ink.amber } else { ink.muted });
+        ui.label(RichText::new(format!("{} {:.2} σ", t(lang, "strain"), r.tension)).small().color(if strained {
+            ink.amber
+        } else {
+            ink.muted
+        }));
+        if !r.awake {
+            crate::icons::show(ui, "moon", 12.0, ink.muted);
+            ui.label(RichText::new(t(lang, "asleep")).small().color(ink.muted));
+        }
+        if r.strength < 0.999 {
+            crate::icons::show(ui, "trending-up", 12.0, ink.muted);
+            ui.label(
+                RichText::new(format!("{} {:.0} %", t(lang, "integrating"), r.strength * 100.0))
+                    .small()
+                    .color(ink.muted),
+            );
+        }
+    });
     // what it is worth: what it brings against the rent of its links
     let pays = r.bits >= r.rent;
-    ui.label(
-        RichText::new(format!(
-            "{} {} bits · {} {} · {}",
-            t(lang, "brings"),
-            grm_engine::lang::g(r.bits),
-            t(lang, "rent"),
-            grm_engine::lang::g(r.rent),
-            if pays { t(lang, "pays_rent") } else { t(lang, "no_rent") }
-        ))
-        .small()
-        .color(if pays { ink.muted } else { ink.amber }),
-    );
+    heading(ui, "coins", t(lang, "card_worth"), &ink);
+    ui.horizontal_wrapped(|ui| {
+        crate::icons::show(
+            ui,
+            if pays { "circle-check" } else { "circle-alert" },
+            12.0,
+            if pays { ink.source(2) } else { ink.amber },
+        );
+        ui.label(
+            RichText::new(format!(
+                "{} {} bits · {} {} · {}",
+                t(lang, "brings"),
+                grm_engine::lang::g((r.bits * 100.0).round() / 100.0),
+                t(lang, "rent"),
+                grm_engine::lang::g(r.rent),
+                if pays { t(lang, "pays_rent") } else { t(lang, "no_rent") }
+            ))
+            .small()
+            .color(if pays { ink.muted } else { ink.amber }),
+        );
+    });
+    // the nodes it holds, once each
+    heading(ui, "circle-dot", t(lang, "card_nodes"), &ink);
+    let mut seen: Vec<&String> = vec![];
     for n in r.nodes.iter().filter(|n| !n.contains("__next")) {
+        if seen.contains(&n) {
+            continue;
+        }
+        seen.push(n);
         if let Some(v) = app.picture.node(n) {
-            ui.label(RichText::new(format!("{n} = {}", reading(v.value, v.sigma, v.signed))).monospace().small());
+            let k = app.colours.get(&v.source).copied().unwrap_or(0);
+            ui.horizontal(|ui| {
+                crate::icons::show(ui, if v.observed { "circle-dot" } else { "circle" }, 11.0, ink.source(k));
+                ui.label(RichText::new(n).small().monospace().color(ink.source(k)));
+                ui.label(RichText::new(reading(v.value, v.sigma, v.signed)).small().monospace());
+            });
         }
     }
+    heading(ui, "activity", t(lang, "card_strain_lately"), &ink);
     let v: Vec<f32> = app.traces.get(&format!("rel:{name}")).map(|t| t.iter().copied().collect()).unwrap_or_default();
     curve(ui, &v, ink.amber, &ink, t(lang, "its_strain"));
     if let Some((a, l)) = app.line_in_app(name) {
-        ui.label(RichText::new(format!("{a}, {} {l}", t(lang, "line"))).small().color(ink.muted));
+        row(
+            ui,
+            "file-code",
+            RichText::new(format!("{a}, {} {l}", t(lang, "line"))).small().color(ink.muted),
+            ink.muted,
+        );
     }
 }

@@ -165,6 +165,10 @@
    shared); knobs, faders and step lights; small frames that say less instead of spilling; what would help her
    feel better, in signs; the journal as a terminal, its changes as buttons; the prompt's lines selectable; a
    double click on a gathered network comes close to it and dims the others; Our World in Data's new headers.
+   *Then done*: her consciousness as a triangle, its lines with signs, its equations the Planck units; a desk look
+   for apps (sections, knobs with scales, switches with lights, steps with note names); two full envelopes; the
+   trash asked softly and toasted; a sandbox let in shown as such; improvising by ear (the next notes written from
+   how clear she hears herself; the learning in the window for now, to move into nodes).
    **To think through with Anthony**: every node and every relation as a potential input and output (a relation's
    strain read as a node, a network that pulses, with feedback, plugged into the sequencer).
    **Agreed next** (with Anthony): Our World in Data as a first source of the world (the next lot); MIDI in, as

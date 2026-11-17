@@ -1,0 +1,12 @@
+# A full envelope: attack, decay, sustain, release. While the gate is open it rises to 1 (as fast as {attack}),
+# then falls to the sustain level (as fast as {decay}) and stays there; the gate closed, it falls to 0 (as fast as
+# {release}). {name}_e is how loud (or how open), from 0 to 1; {name}_up is 1 while it rises.
+network adsr(name, gate, attack, decay, sustain, release)
+  var {name}_e = 0
+  var {name}_up = 1
+  set {name}_e = {name}_e + 1.2 * {attack} - {attack} * {name}_e when {gate} in 0.5 .. 2 and {name}_up in 0.5 .. 2
+  set {name}_e = {name}_e + {decay} * {sustain} - {decay} * {name}_e when {gate} in 0.5 .. 2 and {name}_up in -1 .. 0.5
+  set {name}_e = {name}_e - {release} * {name}_e when {gate} in -1 .. 0.5
+  set {name}_up = 0 when {name}_e in 0.999 .. 9
+  set {name}_up = 1 when {gate} in -1 .. 0.5
+end

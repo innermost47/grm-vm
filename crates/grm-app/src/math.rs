@@ -239,6 +239,12 @@ fn latex_num(n: &str) -> String {
 }
 
 fn latex_name(n: &str) -> String {
+    if n == "hbar" {
+        return "\\hbar".to_string();
+    }
+    if let Some((a, b)) = n.split_once('_').filter(|(a, b)| a.chars().count() == 1 && b.chars().count() <= 2) {
+        return format!("{a}_{{{b}}}");
+    }
     if n.chars().count() == 1 {
         n.to_string()
     } else {
@@ -382,6 +388,8 @@ impl Layout<'_> {
         let ink = self.ink;
         match e {
             Expr::Num(n) => self.text(&short(n), size, ink.source(4), false),
+            // a few names written as physics writes them: ħ, and a short index after a lone letter (l_P → l_P)
+            Expr::Var(v) if v == "hbar" => self.text("ħ", size, ink.text, true),
             Expr::Var(v) => self.text(v, size, ink.text, true),
             Expr::Neg(x) => self.row(vec![self.op("−", size), self.piece(x, size)], 1.0),
             Expr::Sum(terms) => {
@@ -488,11 +496,23 @@ pub fn show(ui: &mut egui::Ui, text: &str, size: f32, lang: crate::text::Lang) -
     let Some(e) = parse(text) else {
         return ui.label(egui::RichText::new(text).monospace().size(size * 0.9));
     };
-    let piece = Layout { ui, ink: &ink }.piece(&e, size);
-    let (rect, resp) = ui.allocate_exact_size(piece.size + vec2(4.0, 4.0), Sense::click());
+    let mut piece = Layout { ui, ink: &ink }.piece(&e, size);
+    // too wide for where it is: drawn smaller (never under 9 points), so that it never widens what holds it; what
+    // is still wider is cut, and whole on the pointer
+    let room = ui.available_width().max(60.0);
+    if piece.size.x + 4.0 > room {
+        let smaller = (size * (room - 4.0) / piece.size.x).max(9.0);
+        piece = Layout { ui, ink: &ink }.piece(&e, smaller);
+    }
+    let want = piece.size + vec2(4.0, 4.0);
+    let (rect, resp) = ui.allocate_exact_size(vec2(want.x.min(room), want.y), Sense::click());
     paint(ui, rect, piece);
     let tex = latex(&e);
-    let resp = resp.on_hover_text(crate::text::t(lang, "latex_hint"));
+    let resp = if want.x > room {
+        resp.on_hover_text(format!("{text}\n\n{}", crate::text::t(lang, "latex_hint")))
+    } else {
+        resp.on_hover_text(crate::text::t(lang, "latex_hint"))
+    };
     resp.context_menu(|ui| {
         if crate::menu::item(ui, "copy", crate::text::t(lang, "copy_latex"), &tex) {
             ui.ctx().copy_text(tex.clone());
@@ -511,7 +531,7 @@ pub fn show(ui: &mut egui::Ui, text: &str, size: f32, lang: crate::text::Lang) -
 
 fn paint(ui: &egui::Ui, rect: Rect, piece: Piece) {
     let origin = rect.min + vec2(2.0, 2.0);
-    let painter = ui.painter();
+    let painter = &ui.painter().with_clip_rect(rect.intersect(ui.clip_rect()));
     for d in piece.draws {
         match d {
             Draw::Text(p, s, size, colour, italic) => {

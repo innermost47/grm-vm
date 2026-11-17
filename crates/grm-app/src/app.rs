@@ -119,6 +119,10 @@ pub struct App {
     pub world_off: Vec<bool>,
     /// The node chosen in a workshop: (workshop, node).
     pub ws_selected: Option<(String, String)>,
+    /// What is looked for in the list of networks.
+    pub net_search: String,
+    /// The ear it improvises by (what it learned of the intervals, by what it heard).
+    pub ear: crate::improvise::Ear,
     /// A node in hand: the range of its slider (chosen once) and the value being moved.
     pub hand_range: std::collections::HashMap<String, (f64, f64)>,
     pub hand_value: std::collections::HashMap<String, f64>,
@@ -282,6 +286,8 @@ pub struct Confirm {
     pub title: String,
     pub detail: Vec<String>,
     pub line: String,
+    /// To the trash (it can be given back): softer words, and a toast once it is done.
+    pub trash: bool,
 }
 
 /// What files chosen in the system's window are for.
@@ -416,6 +422,8 @@ impl App {
             world_place: String::new(),
             world_off: vec![],
             ws_selected: None,
+            net_search: String::new(),
+            ear: Default::default(),
             hand_range: Default::default(),
             hand_value: Default::default(),
             midi: crate::midi::Midi::start(),
@@ -1806,7 +1814,7 @@ impl App {
                         ui.close();
                     }
                     if crate::menu::item(ui, "trash-2", t(lang, "m_trash_app"), t(lang, "m_trash_app_d")) {
-                        self.say(format!("app trash {}", a.name));
+                        self.ask_trash(&a.name.clone(), true);
                         ui.close();
                     }
                 });
@@ -2419,8 +2427,41 @@ impl App {
         ctx.request_repaint();
     }
 
+    /// Improvising by ear: an instrument whose `auto_on` and sequencer are on gets its next notes from what the
+    /// machine hears of itself.
+    fn improvise(&mut self, ctx: &egui::Context) {
+        let Some(auto) = self.picture.nodes.iter().find(|n| n.name.ends_with("auto_on") && n.value > 0.5) else {
+            return;
+        };
+        let prefix = auto.name.trim_end_matches("auto_on").to_string();
+        let on = |s: &str| self.picture.node(&format!("{prefix}{s}")).map(|n| n.value);
+        if on("seq_on").unwrap_or(0.0) < 0.5 {
+            return;
+        }
+        let Some(step) = on("s_i") else { return };
+        let (samples, rate) = match self.mixer.lock() {
+            Ok(m) => {
+                let playing = m.playing();
+                let name = playing.iter().find(|p| p.ends_with("out")).or(playing.first()).cloned();
+                (name.and_then(|n| m.scope(&n)), m.rate as f64)
+            }
+            Err(_) => (None, 48000.0),
+        };
+        let Some(s) = samples else { return };
+        let tail = &s[s.len().saturating_sub(1024)..];
+        for (k, hz) in self.ear.listen(tail, rate, step.round() as i64) {
+            self.worker.send(format!(
+                "observe {prefix}s_n{} = {}",
+                k + 1,
+                grm_engine::lang::g((hz * 100.0).round() / 100.0)
+            ));
+        }
+        ctx.request_repaint_after(std::time::Duration::from_millis(40));
+    }
+
     fn toasts(&mut self, ctx: &egui::Context) {
         self.midi_in(ctx);
+        self.improvise(ctx);
         self.witness_speaks();
         const STAY: f32 = 8.0;
         self.toasts.retain(|(_, _, at)| at.elapsed().as_secs_f32() < STAY);
@@ -2461,7 +2502,7 @@ impl App {
                                 let sign = if matches!(kind, LineKind::Error | LineKind::Warning) {
                                     "triangle-alert"
                                 } else {
-                                    "circle-dashed"
+                                    "triangle"
                                 };
                                 crate::icons::show(ui, sign, 16.0, colour.gamma_multiply(a));
                                 ui.add(egui::Label::new(RichText::new(shown).color(ink.text.gamma_multiply(a))).wrap());
@@ -2562,6 +2603,34 @@ impl App {
             title: format!("{} {name} ?", t(lang, "remove_q")),
             detail,
             line: format!("remove {name}"),
+            trash: false,
+        });
+    }
+
+    /// A network or an app to the trash: asked softly first (it can be given back), a toast once it is done.
+    pub fn ask_trash(&mut self, what: &str, app: bool) {
+        let lang = self.settings.lang;
+        let mut detail = vec![];
+        if app {
+            detail.push(format!("# app {what}"));
+        } else {
+            let nodes: Vec<String> =
+                self.picture.nodes.iter().filter(|n| n.source == what).map(|n| n.name.clone()).collect();
+            let rels: Vec<String> =
+                self.picture.relations.iter().filter(|r| r.source == what).map(|r| r.name.clone()).collect();
+            detail.push(format!("# {what}"));
+            if !nodes.is_empty() {
+                detail.push(format!("node {}", nodes.join(", ")));
+            }
+            if !rels.is_empty() {
+                detail.push(format!("relate {}", rels.join(", ")));
+            }
+        }
+        self.confirm = Some(Confirm {
+            title: format!("{} {what} ?", t(lang, "trash_q")),
+            detail,
+            line: if app { format!("app trash {what}") } else { format!("trash {what}") },
+            trash: true,
         });
     }
 
@@ -2579,14 +2648,16 @@ impl App {
             ui.add_space(6.0);
             ui.label(RichText::new(t(lang, "remove_what")).small().color(ink.muted));
             crate::style::terminal(ui, &c.detail);
-            ui.label(RichText::new(t(lang, "remove_undo")).small().color(ink.muted));
+            ui.label(
+                RichText::new(t(lang, if c.trash { "trash_undo" } else { "remove_undo" })).small().color(ink.muted),
+            );
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 let yes = egui::Button::image_and_text(
                     crate::icons::image("trash-2", 15.0, ink.on_accent()),
-                    RichText::new(t(lang, "remove_yes")).color(ink.on_accent()),
+                    RichText::new(t(lang, if c.trash { "trash_yes" } else { "remove_yes" })).color(ink.on_accent()),
                 )
-                .fill(ink.amber);
+                .fill(if c.trash { ink.accent } else { ink.amber });
                 if ui.add(yes).clicked() || ui.input(|i| i.key_pressed(Key::Enter)) {
                     answer = Some(true);
                 }
@@ -2602,6 +2673,10 @@ impl App {
             Some(true) => {
                 self.confirm = None;
                 self.quiet_yes = Some(c.line.clone());
+                if c.trash {
+                    let what = c.line.rsplit(' ').next().unwrap_or("").to_string();
+                    self.toast(format!("{} {what}", t(lang, "trash_done")));
+                }
                 self.say(c.line);
             }
             Some(false) => self.confirm = None,

@@ -59,6 +59,13 @@ pub enum WidgetKind {
     Fader,
     /// A row of lights, one lit: which step a node is on (lo .. hi, a light each).
     Steps,
+    /// An on/off switch with its light (a node at 0 or 1).
+    Switch,
+    /// A band with a title, framing the widgets under it (a section of a panel).
+    Section,
+    /// A step of a sequencer: a fader for its pitch, its note's name above, lit when the sequencer is on it
+    /// (nodes: the pitch, the step the sequencer is on; its words: its number, from 1).
+    Step,
 }
 
 impl WidgetKind {
@@ -79,6 +86,9 @@ impl WidgetKind {
             "knob" => WidgetKind::Knob,
             "fader" | "vslider" => WidgetKind::Fader,
             "steps" | "leds" => WidgetKind::Steps,
+            "switch" => WidgetKind::Switch,
+            "section" => WidgetKind::Section,
+            "step" => WidgetKind::Step,
             _ => return None,
         })
     }
@@ -100,14 +110,17 @@ impl WidgetKind {
             WidgetKind::Knob => "knob",
             WidgetKind::Fader => "fader",
             WidgetKind::Steps => "steps",
+            WidgetKind::Switch => "switch",
+            WidgetKind::Section => "section",
+            WidgetKind::Step => "step",
         }
     }
 
     /// How many nodes it is bound to.
     pub fn nodes(self) -> usize {
         match self {
-            WidgetKind::Text => 0,
-            WidgetKind::Pad | WidgetKind::Keys => 2,
+            WidgetKind::Text | WidgetKind::Section => 0,
+            WidgetKind::Pad | WidgetKind::Keys | WidgetKind::Step => 2,
             _ => 1,
         }
     }
@@ -128,10 +141,13 @@ impl WidgetKind {
             WidgetKind::Knob => (2, 2),
             WidgetKind::Fader => (1, 3),
             WidgetKind::Steps => (8, 1),
+            WidgetKind::Switch => (2, 1),
+            WidgetKind::Section => (6, 3),
+            WidgetKind::Step => (1, 4),
         }
     }
 
-    pub const ALL: [WidgetKind; 15] = [
+    pub const ALL: [WidgetKind; 18] = [
         WidgetKind::Slider,
         WidgetKind::Toggle,
         WidgetKind::Button,
@@ -147,6 +163,9 @@ impl WidgetKind {
         WidgetKind::Knob,
         WidgetKind::Fader,
         WidgetKind::Steps,
+        WidgetKind::Switch,
+        WidgetKind::Section,
+        WidgetKind::Step,
     ];
 }
 
@@ -173,6 +192,9 @@ pub struct Widget {
     /// Its look (None: the app's).
     #[serde(default)]
     pub look: Option<String>,
+    /// `icon NAME`: a sign beside its words (a Lucide icon's name).
+    #[serde(default)]
+    pub icon: Option<String>,
 }
 
 impl Widget {
@@ -193,6 +215,7 @@ impl Widget {
                 | WidgetKind::Knob
                 | WidgetKind::Fader
                 | WidgetKind::Steps
+                | WidgetKind::Step
         ) {
             s.push_str(&format!(" {} .. {}", grm_engine::lang::g(self.lo), grm_engine::lang::g(self.hi)));
         }
@@ -202,6 +225,9 @@ impl Widget {
         }
         if let Some(l) = &self.look {
             s.push_str(&format!(" look {l}"));
+        }
+        if let Some(i) = &self.icon {
+            s.push_str(&format!(" icon {i}"));
         }
         s
     }
@@ -236,6 +262,7 @@ pub fn parse_widget(rest: &str, line: usize) -> Result<Widget, String> {
     let mut at = None;
     let mut size = None;
     let mut look = None;
+    let mut icon = None;
     let num = |s: Option<&&str>| -> Result<f64, String> {
         s.ok_or_else(|| usage.to_string())?.parse::<f64>().map_err(|_| format!("{} is not a number", s.unwrap()))
     };
@@ -252,6 +279,10 @@ pub fn parse_widget(rest: &str, line: usize) -> Result<Widget, String> {
             }
             "look" => {
                 look = words.get(k + 1).map(|w| w.to_string());
+                k += 2;
+            }
+            "icon" => {
+                icon = words.get(k + 1).map(|w| w.to_string());
                 k += 2;
             }
             w if words.get(k + 1) == Some(&"..") => {
@@ -286,6 +317,7 @@ pub fn parse_widget(rest: &str, line: usize) -> Result<Widget, String> {
         text,
         line,
         look,
+        icon,
     })
 }
 

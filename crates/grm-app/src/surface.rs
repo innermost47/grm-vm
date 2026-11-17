@@ -81,6 +81,29 @@ fn rewritten(view: &AppView, w: &Widget) -> String {
     grm_shell::apps::with_line(&view.text, w.line, Some(&original.statement()))
 }
 
+/// A pitch's name as a musician says it (A4 = 440 Hz), the nearest note.
+fn note_name(hz: f64) -> String {
+    if hz.is_nan() || hz <= 0.0 {
+        return "·".into();
+    }
+    const NAMES: [&str; 12] = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    let n = (69.0 + 12.0 * (hz / 440.0).log2()).round() as i64;
+    format!("{}{}", NAMES[n.rem_euclid(12) as usize], n.div_euclid(12) - 1)
+}
+
+/// A widget's words under it, in capitals, its sign before them when it has one.
+fn caption(ui: &egui::Ui, painter: &egui::Painter, bottom: Pos2, label: &str, icon: Option<&str>, ink: &Ink) {
+    let g = painter.layout_no_wrap(label.to_uppercase(), egui::FontId::proportional(10.5), ink.text);
+    let (w, h) = (g.size().x, g.size().y);
+    let icon_w = if icon.is_some() { 15.0 } else { 0.0 };
+    let left = bottom.x - (w + icon_w) / 2.0;
+    if let Some(i) = icon {
+        crate::icons::image(i, 11.0, ink.accent)
+            .paint_at(ui, Rect::from_min_size(pos2(left, bottom.y - h + 1.0), vec2(11.0, 11.0)));
+    }
+    painter.galley(pos2(left + icon_w, bottom.y - h), g, ink.text);
+}
+
 fn observe(app: &App, node: &str, v: f64) {
     let line = format!("observe {node} = {v} ± 0.000001");
     app.engine.send(move |w| w.say(&line, &grm_engine::Provenance::of("surface")).map(|_| String::new()));
@@ -469,7 +492,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
             WidgetKind::Keys => keys(app, ui, &painter, rect, id, w, &ink),
             WidgetKind::Knob => {
                 if let Some(n) = node(0) {
-                    // a round knob: dragged up and down; its arc from seven o'clock to five o'clock
+                    // a round knob, as on a desk: its scale of ticks, its cap, its words under it; dragged up and
+                    // down (the value shows while it moves, and on the pointer)
                     let r = ui.interact(rect, id, Sense::click_and_drag());
                     let span = (w.hi - w.lo).abs().max(1e-12);
                     let mut v = n.value;
@@ -478,43 +502,56 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                         v = (v + dy / 150.0 * span).clamp(w.lo.min(w.hi), w.hi.max(w.lo));
                         observe(app, &n.name, v);
                     }
-                    let lab_h = if small { 0.0 } else { 14.0 };
-                    let d = (rect.width().min(rect.height() - lab_h - 14.0) - 6.0).max(16.0);
-                    let c = pos2(rect.center().x, rect.top() + 4.0 + d / 2.0);
+                    // a knob says less only when it is really small
+                    let small = rect.width() < 70.0 || rect.height() < 70.0;
+                    let lab_h = if small { 0.0 } else { 16.0 };
+                    let d = (rect.width().min(rect.height() - lab_h - 8.0) - 14.0).clamp(16.0, 58.0);
+                    let c = pos2(rect.center().x, rect.top() + 6.0 + d / 2.0);
                     let rad = d / 2.0;
                     let a0 = std::f32::consts::PI * 0.75;
                     let sweep = std::f32::consts::PI * 1.5;
                     let share = (((v - w.lo) / (w.hi - w.lo)).clamp(0.0, 1.0)) as f32;
-                    let arc = |from: f32, to: f32| -> Vec<Pos2> {
-                        (0..=32)
-                            .map(|k| {
-                                let a = from + (to - from) * k as f32 / 32.0;
-                                c + vec2(a.cos(), a.sin()) * rad
-                            })
-                            .collect()
-                    };
-                    painter.add(egui::Shape::line(arc(a0, a0 + sweep), Stroke::new(3.0_f32, ink.faint)));
-                    painter.add(egui::Shape::line(arc(a0, a0 + sweep * share), Stroke::new(3.0_f32, ink.accent)));
-                    painter.circle_filled(c, rad * 0.62, ink.surface);
+                    let at = |a: f32, r: f32| c + vec2(a.cos(), a.sin()) * r;
+                    // the scale: eleven ticks, the ones passed in the accent
+                    for k in 0..=10 {
+                        let f = k as f32 / 10.0;
+                        let a = a0 + sweep * f;
+                        let colour = if f <= share + 1e-4 { ink.accent } else { ink.faint };
+                        let long = if k % 5 == 0 { 0.30 } else { 0.18 };
+                        painter.line_segment([at(a, rad * (1.0 - long)), at(a, rad)], Stroke::new(1.2_f32, colour));
+                    }
+                    // the cap: light, a dark line where it points
+                    let cap = rad * 0.66;
+                    painter.circle_filled(c, cap + 1.5, ink.faint);
+                    painter.circle_filled(c, cap, ink.text.gamma_multiply(0.78));
+                    painter.circle_filled(c, cap * 0.55, ink.text.gamma_multiply(0.9));
                     let a = a0 + sweep * share;
-                    painter.line_segment(
-                        [c + vec2(a.cos(), a.sin()) * rad * 0.2, c + vec2(a.cos(), a.sin()) * rad * 0.6],
-                        Stroke::new(2.0_f32, ink.text),
-                    );
-                    painter.text(
-                        c + vec2(0.0, rad + 2.0),
-                        egui::Align2::CENTER_TOP,
-                        grm_engine::lang::g((v * 1000.0).round() / 1000.0),
-                        egui::FontId::monospace(10.0),
-                        ink.muted,
-                    );
+                    painter.line_segment([at(a, cap * 0.25), at(a, cap * 0.95)], Stroke::new(2.2_f32, ink.surface));
                     if !small {
+                        let g = |x: f64| grm_engine::lang::g((x * 1000.0).round() / 1000.0);
                         painter.text(
-                            pos2(c.x, rect.bottom()),
+                            at(a0, rad + 2.0),
+                            egui::Align2::RIGHT_TOP,
+                            g(w.lo),
+                            egui::FontId::monospace(8.5),
+                            ink.muted,
+                        );
+                        painter.text(
+                            at(a0 + sweep, rad + 2.0),
+                            egui::Align2::LEFT_TOP,
+                            g(w.hi),
+                            egui::FontId::monospace(8.5),
+                            ink.muted,
+                        );
+                        caption(ui, &painter, pos2(c.x, rect.bottom()), &label, w.icon.as_deref(), &ink);
+                    }
+                    if r.dragged() || r.hovered() {
+                        painter.text(
+                            c + vec2(0.0, -rad - 1.0),
                             egui::Align2::CENTER_BOTTOM,
-                            &label,
-                            egui::FontId::proportional(11.0),
-                            ink.text,
+                            grm_engine::lang::g((v * 1000.0).round() / 1000.0),
+                            egui::FontId::monospace(10.0),
+                            ink.accent,
                         );
                     }
                     let r = r
@@ -531,11 +568,135 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                     });
                 }
             }
+            WidgetKind::Switch => {
+                if let Some(n) = node(0) {
+                    // an on/off switch and its light
+                    let on = n.value > 0.5;
+                    let r = ui.interact(rect, id, Sense::click());
+                    if r.clicked() {
+                        observe(app, &n.name, if on { 0.0 } else { 1.0 });
+                    }
+                    let h = rect.height().min(22.0);
+                    let track =
+                        Rect::from_min_size(pos2(rect.left() + 2.0, rect.center().y - h / 2.0), vec2(h * 1.8, h));
+                    painter.rect_filled(track, 3.0, ink.surface);
+                    painter.rect_stroke(track, 3.0, Stroke::new(1.0_f32, ink.faint), egui::StrokeKind::Inside);
+                    let knob_w = track.width() / 2.0 - 2.0;
+                    let x = if on { track.right() - knob_w - 2.0 } else { track.left() + 2.0 };
+                    painter.rect_filled(
+                        Rect::from_min_size(pos2(x, track.top() + 2.0), vec2(knob_w, h - 4.0)),
+                        2.0,
+                        ink.text.gamma_multiply(0.8),
+                    );
+                    let led = pos2(track.right() + 9.0, rect.center().y);
+                    painter.circle_filled(led, 4.0, if on { ink.accent } else { ink.faint.gamma_multiply(0.6) });
+                    if !small || rect.width() > 110.0 {
+                        let tx = led.x + 9.0;
+                        if let Some(i) = w.icon.as_deref() {
+                            crate::icons::image(i, 13.0, ink.muted)
+                                .paint_at(ui, Rect::from_min_size(pos2(tx, rect.center().y - 6.5), vec2(13.0, 13.0)));
+                            painter.text(
+                                pos2(tx + 17.0, rect.center().y),
+                                egui::Align2::LEFT_CENTER,
+                                label.to_uppercase(),
+                                egui::FontId::proportional(11.0),
+                                ink.text,
+                            );
+                        } else {
+                            painter.text(
+                                pos2(tx, rect.center().y),
+                                egui::Align2::LEFT_CENTER,
+                                label.to_uppercase(),
+                                egui::FontId::proportional(11.0),
+                                ink.text,
+                            );
+                        }
+                    }
+                    r.on_hover_text(format!("{label}: {}", if on { "on" } else { "off" }))
+                        .on_hover_cursor(egui::CursorIcon::PointingHand);
+                }
+            }
+            WidgetKind::Step => {
+                if let (Some(n), Some(at)) = (node(0), node(1)) {
+                    // a step: its note's name in a small plate (lit when the sequencer is on it), its fader under it
+                    let k: i64 = w.text.trim().parse().unwrap_or(1);
+                    let here = (at.value.round() as i64) == k - 1;
+                    let plate =
+                        Rect::from_min_size(pos2(rect.left() + 3.0, rect.top() + 2.0), vec2(rect.width() - 6.0, 20.0));
+                    painter.rect_filled(plate, 3.0, if here { ink.accent } else { ink.surface });
+                    painter.rect_stroke(
+                        plate,
+                        3.0,
+                        Stroke::new(1.0_f32, if here { ink.accent } else { ink.faint }),
+                        egui::StrokeKind::Inside,
+                    );
+                    painter.text(
+                        plate.center(),
+                        egui::Align2::CENTER_CENTER,
+                        note_name(n.value),
+                        egui::FontId::monospace(11.0),
+                        if here { ink.surface } else { ink.text },
+                    );
+                    let mut v = n.value;
+                    let inner = Rect::from_min_max(
+                        pos2(rect.left(), plate.bottom() + 4.0),
+                        pos2(rect.right(), rect.bottom() - 14.0),
+                    );
+                    ui.spacing_mut().slider_width = (inner.height() - 10.0).max(30.0);
+                    let r = ui.put(
+                        inner,
+                        egui::Slider::new(&mut v, w.lo..=w.hi)
+                            .vertical()
+                            .logarithmic(w.lo > 0.0)
+                            .clamping(egui::SliderClamping::Always)
+                            .show_value(false),
+                    );
+                    if r.changed() {
+                        observe(app, &n.name, v);
+                    }
+                    painter.text(
+                        pos2(rect.center().x, rect.bottom()),
+                        egui::Align2::CENTER_BOTTOM,
+                        format!("{k}"),
+                        egui::FontId::monospace(10.0),
+                        if here { ink.accent } else { ink.muted },
+                    );
+                    r.on_hover_text(format!(
+                        "{} · {} Hz",
+                        note_name(v),
+                        grm_engine::lang::g((v * 10.0).round() / 10.0)
+                    ));
+                }
+            }
+            WidgetKind::Section => {
+                // a band with its title, and a frame around the widgets under it
+                let band = Rect::from_min_size(rect.min, vec2(rect.width(), 22.0f32.min(rect.height())));
+                let whole = rect;
+                painter.rect_stroke(whole, 3.0, Stroke::new(1.0_f32, ink.faint), egui::StrokeKind::Inside);
+                painter.rect_filled(
+                    band,
+                    egui::CornerRadius { nw: 3, ne: 3, sw: 0, se: 0 },
+                    ink.faint.gamma_multiply(0.55),
+                );
+                let mut x = band.center().x;
+                let title = painter.layout_no_wrap(label.to_uppercase(), egui::FontId::proportional(12.0), ink.text);
+                if let Some(i) = w.icon.as_deref() {
+                    x += 9.0;
+                    crate::icons::image(i, 13.0, ink.accent).paint_at(
+                        ui,
+                        Rect::from_min_size(
+                            pos2(x - title.size().x / 2.0 - 19.0, band.center().y - 6.5),
+                            vec2(13.0, 13.0),
+                        ),
+                    );
+                }
+                painter.galley(pos2(x - title.size().x / 2.0, band.center().y - title.size().y / 2.0), title, ink.text);
+            }
             WidgetKind::Fader => {
                 if let Some(n) = node(0) {
                     // a slider standing up, its words under it
                     let mut v = n.value;
-                    let lab_h = if small && rect.width() < 60.0 { 0.0 } else { 16.0 };
+                    let lab_h = if rect.width() < 40.0 { 0.0 } else { 16.0 };
                     let inner = Rect::from_min_max(rect.min, pos2(rect.max.x, rect.max.y - lab_h));
                     ui.spacing_mut().slider_width = (inner.height() - 30.0).max(30.0);
                     let r = ui.put(
@@ -629,10 +790,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                         ui.ctx().request_repaint_after(std::time::Duration::from_millis(33));
                     }
                     None => {
+                        // small, it only says it is quiet
                         painter.text(
                             inner.center(),
                             egui::Align2::CENTER_CENTER,
-                            t(lang, "not_playing"),
+                            if small { "·" } else { t(lang, "not_playing") },
                             egui::FontId::proportional(12.0),
                             ink.muted,
                         );

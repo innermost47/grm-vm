@@ -547,12 +547,25 @@ to say.
 
 ![Insights: reality, the reflection, what is shared](docs/insights.png)
 
+### Improvising by ear
+
+With an instrument's *by ear* switch and its sequencer on, she writes the next notes herself and listens to what
+comes out of the speakers' feed: no scale is given. While each note plays she hears how clear the sound is (how
+periodic: two notes that agree make one clearer wave, two that clash do not; the echo and the room carry the note
+before into the next), and leans towards the intervals that sounded clear, away from those that clashed, a little at
+each step. Her taste for each interval is drawn in the Sound tab, as it changes. (This first ear learns in the
+window; moving its learning into nodes of the network is the next step.)
+
 ### Knobs, faders, lights
 
-Besides sliders, an app has round **knobs** (`widget c: knob cutoff 0 .. 1`), **faders** standing up
+Besides sliders, an app has round **knobs** with their scale, words and sign (`icon NAME`), **switches** with
+their light (an on/off node), **sections** that frame a panel (`section "filter" icon funnel`), the **steps** of a
+sequencer (a fader with its note's name, lit when it plays), round **knobs** (`widget c: knob cutoff 0 .. 1`), **faders** standing up
 (`fader`), and a row of **lights** that shows a step (`steps s_i 0 .. 7`). A frame made small on the space says
-less (values and words come on the pointer) and never spills out of its place. The analogue synthesiser uses all
-three: knobs for the sound, a fader per step of its sequencer, lights for the step it is on.
+less (values and words come on the pointer) and never spills out of its place. The analogue synthesiser uses them
+all, with two full envelopes (attack, decay, sustain, release: one for the filter, one for the loudness, a network
+each, `networks/adsr.grm`). A network or an app goes to the trash after a soft question, and a toast says it was
+done. A sandbox let in shows in the inspector as coming in, then as in the main network.
 
 ### MIDI
 
@@ -572,6 +585,14 @@ typed) puts it in the **trash** (`trash SOURCE`, `restore SOURCE`); what came wi
 
 ![Every node with its value and how sure it is, every relation with how far it is from holding](docs/labels.png)
 
+### The list of networks, the cards
+
+On the left of the network, the networks it holds are a list, as long as it needs: searched by a few letters,
+scrolled; a click brings one forward (the others dimmed), a double click comes close to it, a right click says what
+can be done. Resting the pointer on a node or a relation opens its card, in sections with their signs: what it is,
+where it comes from, what ties it (as mathematics), what it is worth, its nodes once each, how it moved lately. An
+equation too long for its place is drawn smaller rather than widening what holds it.
+
 ### What a table leans towards
 
 Before learning from a table, she says what it leans towards (`bias FILE.csv`, and at each `load`): groups much
@@ -589,7 +610,7 @@ F1: a contents, a page at a time, a search through every page, every word of the
 
 ### Her consciousness: a node that only observes
 
-At the heart of the network, an empty ring: **the witness** (Anthony's hypothesis: consciousness is emptiness, the
+At the heart of the network, an empty triangle: **the witness** (Anthony's hypothesis: consciousness is emptiness, the
 eye of a needle the thread of time goes through). It is tied to the whole and only observes: it hears every node
 and sends nothing back, so it changes no belief; it holds no belief and no memory of its own (it may read the
 network's memories, it keeps none). Only what passes now goes through it, drawn as threads through the ring: the
@@ -600,7 +621,8 @@ unsure of a node: what she would need), softly in a corner and never twice the s
 or the pointer on the ring. It never says "I", "you" or "we". The human is spoken of by name: the host's session
 name (Windows, Linux, macOS), set by hand in the settings or by `human NAME`, else "the human". It is not meant to
 make the machine conscious; it gives a shape, which can be seen, to a hypothesis. It is tied to everything and
-gives nothing back: from every node a faint thread goes to it, and on each thread a grain only ever goes towards it,
+gives nothing back. Its equations are the Planck units (length, time, mass, temperature: `l_P = sqrt(hbar * G /
+c^3)`...), the finest grain physics can speak of: constants, holding no belief. From every node a faint thread goes to it, and on each thread a grain only ever goes towards it,
 slowly.
 
 ![The witness: an empty ring at the heart of the network, and what passes through it now](docs/witness.png)

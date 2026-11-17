@@ -35,19 +35,30 @@ call square(name=pw, saw=vco_p, width=0)
 input shape = 0
 node vco_mix signed
 relate wave: vco_mix = vco_p + shape * pw_q - shape * vco_p
-# The filter: how open, and how much it sings.
-input cutoff = 0.08 positive
+# Two full envelopes (attack, decay, sustain, release): one opens the filter, one shapes the loudness.
+use networks/adsr.grm
+input f_attack = 0.002 positive
+input f_decay = 0.0003 positive
+input f_sustain = 0.3 positive
+input f_release = 0.0004 positive
+call adsr(name=fenv, gate=gate, attack=f_attack, decay=f_decay, sustain=f_sustain, release=f_release)
+input a_attack = 0.003 positive
+input a_decay = 0.0002 positive
+input a_sustain = 0.7 positive
+input a_release = 0.0005 positive
+call adsr(name=aenv, gate=gate, attack=a_attack, decay=a_decay, sustain=a_sustain, release=a_release)
+# The filter: how open, how much its envelope opens it more, and how much it sings.
+input cutoff = 0.06 positive
+input env_amount = 0.2 positive
 input resonance = 1
+node vcf_cut signed
+relate opening: vcf_cut = cutoff + env_amount * fenv_e
 use networks/ladder.grm
-call ladder(name=vcf, input=vco_mix, cut=cutoff, res=resonance)
-# The envelope and the amplifier.
-input attack = 0.003 positive
-input release = 0.0005 positive
-use networks/envelope.grm
-call envelope(name=env, gate=gate, attack=attack, release=release)
+call ladder(name=vcf, input=vco_mix, cut=vcf_cut, res=resonance)
+# The amplifier.
 input volume = 0.4 positive
 node vca signed
-relate amp: vca = volume * env_e * vcf_y4
+relate amp: vca = volume * aenv_e * vcf_y4
 # The echo (a third of a second) and the room.
 input echo_back = 0.35
 use networks/echo.grm
@@ -56,30 +67,51 @@ input room = 0.7
 use networks/reverb.grm
 call reverb(name=rv, input=dl_wet, decay=room)
 input wet = 0.3
+# The effects on or off (an on/off node: 1 or 0).
+input fx_on = 1
+# Improvising by ear: 1, she writes the sequencer's next notes herself, by what she hears of them.
+input auto_on = 0
 node out signed
-relate final: out = dl_wet + wet * rv_out
-# Its surface: knobs for the sound, faders for the steps, lights for where the sequencer is.
-widget about: text "Every module is a network: saw, filter, envelope, echo, room are delays and relations." at 0 0 size 12 1
-widget go: play out at 0 1 size 2 1 "sound"
-widget sq: toggle seq_on at 2 1 size 2 1 "sequencer"
-widget st: steps s_i 0 .. 7 at 4 1 size 8 1 "step"
-widget sh: knob shape 0 .. 1 at 0 2 size 2 2 "saw · square"
-widget cu: knob cutoff 0.005 .. 0.5 at 2 2 size 2 2 "filter"
-widget re: knob resonance 0 .. 3.5 at 4 2 size 2 2 "resonance"
-widget at: knob attack 0.0002 .. 0.02 at 6 2 size 2 2 "attack"
-widget rl: knob release 0.00002 .. 0.002 at 8 2 size 2 2 "release"
-widget ec: knob echo_back 0 .. 0.9 at 10 2 size 2 2 "echo"
-widget n1: fader s_n1 55 .. 880 at 0 4 size 1 3 "1"
-widget n2: fader s_n2 55 .. 880 at 1 4 size 1 3 "2"
-widget n3: fader s_n3 55 .. 880 at 2 4 size 1 3 "3"
-widget n4: fader s_n4 55 .. 880 at 3 4 size 1 3 "4"
-widget n5: fader s_n5 55 .. 880 at 4 4 size 1 3 "5"
-widget n6: fader s_n6 55 .. 880 at 5 4 size 1 3 "6"
-widget n7: fader s_n7 55 .. 880 at 6 4 size 1 3 "7"
-widget n8: fader s_n8 55 .. 880 at 7 4 size 1 3 "8"
-widget tp: fader tempo 1 .. 16 at 8 4 size 1 3 "tempo"
-widget vo: fader volume 0.01 .. 1 at 9 4 size 1 3 "volume"
-widget ro: fader room 0 .. 0.97 at 10 4 size 1 3 "room"
-widget we: fader wet 0 .. 1 at 11 4 size 1 3 "reverb"
-widget wave: scope out -1 .. 1 at 0 7 size 12 2 "what is heard"
-widget kb: keys pitch hold at 0 9 size 12 2 "keys (or A W S E D F T G Y H U J K)"
+relate final: out = vca + fx_on * dl_wet + fx_on * wet * rv_out - fx_on * vca
+# Its surface, as a desk: sections, small knobs each with its name and sign, switches with their light, the
+# steps of the sequencer with their notes. The sections come first: they are drawn under the rest.
+icon audio-waveform
+widget s1: section at 0 0 size 3 3 "oscillator" icon audio-waveform
+widget s2: section at 3 0 size 5 3 "filter" icon funnel
+widget s3: section at 8 0 size 4 3 "output" icon volume-2
+widget s4: section at 0 3 size 6 3 "filter envelope" icon activity
+widget s5: section at 6 3 size 6 3 "amp envelope" icon activity
+widget s6: section at 0 6 size 6 3 "effects" icon waves
+widget s7: section at 6 6 size 6 3 "sound" icon audio-lines
+widget s8: section at 0 9 size 12 6 "sequencer" icon layout-grid
+widget sh: knob shape 0 .. 1 at 0 1 size 3 2 "saw · square" icon audio-waveform
+widget cu: knob cutoff 0.005 .. 0.5 at 3 1 size 2 2 "cutoff" icon funnel
+widget ea: knob env_amount 0 .. 0.45 at 5 1 size 1 2 "env" icon activity
+widget re: knob resonance 0 .. 3.5 at 6 1 size 2 2 "resonance" icon radio
+widget vo: knob volume 0.01 .. 1 at 8 1 size 2 2 "volume" icon volume-2
+widget go: play out at 10 1 size 2 1 "sound"
+widget fa: knob f_attack 0.0002 .. 0.02 at 0 4 size 1 2 "attack"
+widget fd: knob f_decay 0.00002 .. 0.002 at 1 4 size 2 2 "decay"
+widget fs: knob f_sustain 0 .. 1 at 3 4 size 1 2 "sustain"
+widget fr: knob f_release 0.00002 .. 0.002 at 4 4 size 2 2 "release"
+widget aa: knob a_attack 0.0002 .. 0.02 at 6 4 size 1 2 "attack"
+widget ad: knob a_decay 0.00002 .. 0.002 at 7 4 size 2 2 "decay"
+widget as: knob a_sustain 0 .. 1 at 9 4 size 1 2 "sustain"
+widget ar: knob a_release 0.00002 .. 0.002 at 10 4 size 2 2 "release"
+widget fx: switch fx_on at 0 7 size 2 1 "on" icon power
+widget ec: knob echo_back 0 .. 0.9 at 2 7 size 1 2 "echo" icon repeat
+widget ro: knob room 0 .. 0.97 at 3 7 size 2 2 "room" icon box
+widget we: knob wet 0 .. 1 at 5 7 size 1 2 "reverb" icon waves
+widget wave: scope out -1 .. 1 at 6 7 size 6 2 "heard"
+widget sq: switch seq_on at 0 10 size 2 1 "on" icon power
+widget au: switch auto_on at 0 11 size 2 1 "by ear" icon ear
+widget tp: knob tempo 1 .. 16 at 0 12 size 2 3 "tempo" icon timer
+widget n1: step s_n1 s_i 55 .. 880 at 2 10 size 1 5 "1"
+widget n2: step s_n2 s_i 55 .. 880 at 3 10 size 1 5 "2"
+widget n3: step s_n3 s_i 55 .. 880 at 4 10 size 1 5 "3"
+widget n4: step s_n4 s_i 55 .. 880 at 5 10 size 1 5 "4"
+widget n5: step s_n5 s_i 55 .. 880 at 6 10 size 1 5 "5"
+widget n6: step s_n6 s_i 55 .. 880 at 7 10 size 1 5 "6"
+widget n7: step s_n7 s_i 55 .. 880 at 8 10 size 1 5 "7"
+widget n8: step s_n8 s_i 55 .. 880 at 9 10 size 1 5 "8"
+widget kb: keys pitch hold at 0 15 size 12 2 "keys (or A W S E D F T G Y H U J K)"
