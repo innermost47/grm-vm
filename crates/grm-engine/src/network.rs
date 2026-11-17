@@ -45,6 +45,10 @@ pub struct NodeSpec {
     pub input: bool,
     #[serde(default)]
     pub output: bool,
+    /// `memory`: a variable that keeps what it holds (said again, it is not set back; the sound's fuse does not
+    /// clear it): what a network learns while it runs.
+    #[serde(default)]
+    pub memory: bool,
     /// Its dimension [M L T Q K]: given and read in SI, counted inside in the machine's units.
     #[serde(default)]
     pub dim: Option<[f64; 5]>,
@@ -62,6 +66,7 @@ impl NodeSpec {
             learn: false,
             input: false,
             output: false,
+            memory: false,
             dim: None,
             origin: Provenance::default(),
         }

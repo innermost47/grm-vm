@@ -270,7 +270,12 @@
    hypotheses, human experts, vaccines.
 6. **Apps made of networks**: a word processor, a spreadsheet, a DAW (*first version done*: the studio, its
    transport, synthesisers and drum machines added by the human, a mixer with shared echo and reverb, her hands on
-   each instrument by the `hand` word, her own network ELLE apart from the tools, a first knowledge), a physical model of a guitar shared with
+   each instrument by the `hand` word, her own network ELLE in GRML apart from the tools, deterministic, with
+   contexts, a first knowledge). Next for her: the human's notes heard by her cochlea alone, her sense of beat as
+   an oscillator that entrains, curiosity choosing what to learn, the lessons as contexts, sleep that consolidates
+   and forgets, contexts recognised by herself; the drums, the knobs, the sequencer and the arpeggiator as GRML
+   modules she plays; the old improviser in Rust removed (its chance with it); a library of modules in the window;
+   apps wired together. a physical model of a guitar shared with
    others; programming by networks; flows wired like modules (sound, pictures, video, as in TouchDesigner) on the
    mixer's sources; plug-ins (VST) loading GRM packages.
 7. **Further**: a bootable USB key, GRM-OS.

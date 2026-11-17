@@ -7,7 +7,7 @@
 use std::collections::{HashMap, HashSet};
 
 /// The most a point moves in one step (in view units): slow, never a jump.
-const MAX_STEP: f32 = 3.0;
+const MAX_STEP: f32 = 1.2;
 const REST: f32 = 70.0;
 
 #[derive(Default)]
@@ -16,6 +16,8 @@ pub struct Graph {
     vel: HashMap<String, [f32; 2]>,
     /// Points the human put somewhere: they stay there.
     pub pinned: HashSet<String>,
+    /// Points near the human's pointer: still while it is there (they can be taken without a fight).
+    pub held: HashSet<String>,
     /// How much it moved at the last step (0: at rest).
     pub motion: f32,
 }
@@ -114,6 +116,10 @@ impl Graph {
         let mut motion = 0.0f32;
         for (k, item) in items.iter().enumerate() {
             if self.pinned.contains(item) {
+                continue;
+            }
+            if self.held.contains(item) {
+                self.vel.insert(item.clone(), [0.0, 0.0]);
                 continue;
             }
             let v = self.vel.get_mut(item).unwrap();

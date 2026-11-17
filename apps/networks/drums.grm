@@ -1,0 +1,220 @@
+# A drum machine of four instruments for the studio: a kick (a sine whose pitch falls fast), a snare (a tone and
+# noise), a hi-hat (noise, its low part taken away), a tom (a sine, a little fall). Each its sixteen steps on the
+# transport ({name}_X_s1 .. s16: 1 plays), its pad (the human's hand: 1 while pressed), its level, its pitch and
+# its decay (seconds); each its own hand for her ({name}_X_hers): she strikes it ({her_k} .. {her_t}). Its sound: {name}_out.
+# Needs: lfo, adsr, noise.
+network drums(name, clock_i, clock_f, her_k, her_s, her_h, her_t)
+  input {name}_k_hers = 0
+  input {name}_k_pad = 0
+  input {name}_k_level = 0.9
+  input {name}_k_tune = 50 positive
+  input {name}_k_decay = 0.35 positive
+  input {name}_k_s1 = 1
+  input {name}_k_s2 = 0
+  input {name}_k_s3 = 0
+  input {name}_k_s4 = 0
+  input {name}_k_s5 = 1
+  input {name}_k_s6 = 0
+  input {name}_k_s7 = 0
+  input {name}_k_s8 = 0
+  input {name}_k_s9 = 1
+  input {name}_k_s10 = 0
+  input {name}_k_s11 = 0
+  input {name}_k_s12 = 0
+  input {name}_k_s13 = 1
+  input {name}_k_s14 = 0
+  input {name}_k_s15 = 0
+  input {name}_k_s16 = 0
+  var {name}_k_g = 0
+  set {name}_k_g = {name}_k_s1 when {clock_i} in -0.5 .. 0.5 and {clock_f} in -1 .. 0.5
+  set {name}_k_g = {name}_k_s2 when {clock_i} in 0.5 .. 1.5 and {clock_f} in -1 .. 0.5
+  set {name}_k_g = {name}_k_s3 when {clock_i} in 1.5 .. 2.5 and {clock_f} in -1 .. 0.5
+  set {name}_k_g = {name}_k_s4 when {clock_i} in 2.5 .. 3.5 and {clock_f} in -1 .. 0.5
+  set {name}_k_g = {name}_k_s5 when {clock_i} in 3.5 .. 4.5 and {clock_f} in -1 .. 0.5
+  set {name}_k_g = {name}_k_s6 when {clock_i} in 4.5 .. 5.5 and {clock_f} in -1 .. 0.5
+  set {name}_k_g = {name}_k_s7 when {clock_i} in 5.5 .. 6.5 and {clock_f} in -1 .. 0.5
+  set {name}_k_g = {name}_k_s8 when {clock_i} in 6.5 .. 7.5 and {clock_f} in -1 .. 0.5
+  set {name}_k_g = {name}_k_s9 when {clock_i} in 7.5 .. 8.5 and {clock_f} in -1 .. 0.5
+  set {name}_k_g = {name}_k_s10 when {clock_i} in 8.5 .. 9.5 and {clock_f} in -1 .. 0.5
+  set {name}_k_g = {name}_k_s11 when {clock_i} in 9.5 .. 10.5 and {clock_f} in -1 .. 0.5
+  set {name}_k_g = {name}_k_s12 when {clock_i} in 10.5 .. 11.5 and {clock_f} in -1 .. 0.5
+  set {name}_k_g = {name}_k_s13 when {clock_i} in 11.5 .. 12.5 and {clock_f} in -1 .. 0.5
+  set {name}_k_g = {name}_k_s14 when {clock_i} in 12.5 .. 13.5 and {clock_f} in -1 .. 0.5
+  set {name}_k_g = {name}_k_s15 when {clock_i} in 13.5 .. 14.5 and {clock_f} in -1 .. 0.5
+  set {name}_k_g = {name}_k_s16 when {clock_i} in 14.5 .. 15.5 and {clock_f} in -1 .. 0.5
+  set {name}_k_g = 0 when {clock_f} in 0.5 .. 3
+  node {name}_k_gate signed
+  # her hand on it, when it is hers: she strikes it as the human strikes its pad
+  node {name}_k_p signed
+  relate {name}_k_hand: {name}_k_p = {name}_k_pad + {name}_k_hers * {her_k}
+  relate {name}_k_trig: {name}_k_gate = {name}_k_g + {name}_k_p - {name}_k_g * {name}_k_p
+  node {name}_k_dr
+  relate {name}_k_decay_rate: {name}_k_dr * {name}_k_decay = 0.0000208333333
+  call adsr(name={name}_k_e, gate={name}_k_gate, attack=0.2, decay={name}_k_dr, sustain=0, release={name}_k_dr)
+  input {name}_s_hers = 0
+  input {name}_s_pad = 0
+  input {name}_s_level = 0.7
+  input {name}_s_tune = 180 positive
+  input {name}_s_decay = 0.18 positive
+  input {name}_s_s1 = 0
+  input {name}_s_s2 = 0
+  input {name}_s_s3 = 0
+  input {name}_s_s4 = 0
+  input {name}_s_s5 = 1
+  input {name}_s_s6 = 0
+  input {name}_s_s7 = 0
+  input {name}_s_s8 = 0
+  input {name}_s_s9 = 0
+  input {name}_s_s10 = 0
+  input {name}_s_s11 = 0
+  input {name}_s_s12 = 0
+  input {name}_s_s13 = 1
+  input {name}_s_s14 = 0
+  input {name}_s_s15 = 0
+  input {name}_s_s16 = 0
+  var {name}_s_g = 0
+  set {name}_s_g = {name}_s_s1 when {clock_i} in -0.5 .. 0.5 and {clock_f} in -1 .. 0.5
+  set {name}_s_g = {name}_s_s2 when {clock_i} in 0.5 .. 1.5 and {clock_f} in -1 .. 0.5
+  set {name}_s_g = {name}_s_s3 when {clock_i} in 1.5 .. 2.5 and {clock_f} in -1 .. 0.5
+  set {name}_s_g = {name}_s_s4 when {clock_i} in 2.5 .. 3.5 and {clock_f} in -1 .. 0.5
+  set {name}_s_g = {name}_s_s5 when {clock_i} in 3.5 .. 4.5 and {clock_f} in -1 .. 0.5
+  set {name}_s_g = {name}_s_s6 when {clock_i} in 4.5 .. 5.5 and {clock_f} in -1 .. 0.5
+  set {name}_s_g = {name}_s_s7 when {clock_i} in 5.5 .. 6.5 and {clock_f} in -1 .. 0.5
+  set {name}_s_g = {name}_s_s8 when {clock_i} in 6.5 .. 7.5 and {clock_f} in -1 .. 0.5
+  set {name}_s_g = {name}_s_s9 when {clock_i} in 7.5 .. 8.5 and {clock_f} in -1 .. 0.5
+  set {name}_s_g = {name}_s_s10 when {clock_i} in 8.5 .. 9.5 and {clock_f} in -1 .. 0.5
+  set {name}_s_g = {name}_s_s11 when {clock_i} in 9.5 .. 10.5 and {clock_f} in -1 .. 0.5
+  set {name}_s_g = {name}_s_s12 when {clock_i} in 10.5 .. 11.5 and {clock_f} in -1 .. 0.5
+  set {name}_s_g = {name}_s_s13 when {clock_i} in 11.5 .. 12.5 and {clock_f} in -1 .. 0.5
+  set {name}_s_g = {name}_s_s14 when {clock_i} in 12.5 .. 13.5 and {clock_f} in -1 .. 0.5
+  set {name}_s_g = {name}_s_s15 when {clock_i} in 13.5 .. 14.5 and {clock_f} in -1 .. 0.5
+  set {name}_s_g = {name}_s_s16 when {clock_i} in 14.5 .. 15.5 and {clock_f} in -1 .. 0.5
+  set {name}_s_g = 0 when {clock_f} in 0.5 .. 3
+  node {name}_s_gate signed
+  # her hand on it, when it is hers: she strikes it as the human strikes its pad
+  node {name}_s_p signed
+  relate {name}_s_hand: {name}_s_p = {name}_s_pad + {name}_s_hers * {her_s}
+  relate {name}_s_trig: {name}_s_gate = {name}_s_g + {name}_s_p - {name}_s_g * {name}_s_p
+  node {name}_s_dr
+  relate {name}_s_decay_rate: {name}_s_dr * {name}_s_decay = 0.0000208333333
+  call adsr(name={name}_s_e, gate={name}_s_gate, attack=0.2, decay={name}_s_dr, sustain=0, release={name}_s_dr)
+  input {name}_h_hers = 0
+  input {name}_h_pad = 0
+  input {name}_h_level = 0.5
+  input {name}_h_tune = 1 positive
+  input {name}_h_decay = 0.05 positive
+  input {name}_h_s1 = 1
+  input {name}_h_s2 = 0
+  input {name}_h_s3 = 1
+  input {name}_h_s4 = 0
+  input {name}_h_s5 = 1
+  input {name}_h_s6 = 0
+  input {name}_h_s7 = 1
+  input {name}_h_s8 = 0
+  input {name}_h_s9 = 1
+  input {name}_h_s10 = 0
+  input {name}_h_s11 = 1
+  input {name}_h_s12 = 0
+  input {name}_h_s13 = 1
+  input {name}_h_s14 = 0
+  input {name}_h_s15 = 1
+  input {name}_h_s16 = 0
+  var {name}_h_g = 0
+  set {name}_h_g = {name}_h_s1 when {clock_i} in -0.5 .. 0.5 and {clock_f} in -1 .. 0.5
+  set {name}_h_g = {name}_h_s2 when {clock_i} in 0.5 .. 1.5 and {clock_f} in -1 .. 0.5
+  set {name}_h_g = {name}_h_s3 when {clock_i} in 1.5 .. 2.5 and {clock_f} in -1 .. 0.5
+  set {name}_h_g = {name}_h_s4 when {clock_i} in 2.5 .. 3.5 and {clock_f} in -1 .. 0.5
+  set {name}_h_g = {name}_h_s5 when {clock_i} in 3.5 .. 4.5 and {clock_f} in -1 .. 0.5
+  set {name}_h_g = {name}_h_s6 when {clock_i} in 4.5 .. 5.5 and {clock_f} in -1 .. 0.5
+  set {name}_h_g = {name}_h_s7 when {clock_i} in 5.5 .. 6.5 and {clock_f} in -1 .. 0.5
+  set {name}_h_g = {name}_h_s8 when {clock_i} in 6.5 .. 7.5 and {clock_f} in -1 .. 0.5
+  set {name}_h_g = {name}_h_s9 when {clock_i} in 7.5 .. 8.5 and {clock_f} in -1 .. 0.5
+  set {name}_h_g = {name}_h_s10 when {clock_i} in 8.5 .. 9.5 and {clock_f} in -1 .. 0.5
+  set {name}_h_g = {name}_h_s11 when {clock_i} in 9.5 .. 10.5 and {clock_f} in -1 .. 0.5
+  set {name}_h_g = {name}_h_s12 when {clock_i} in 10.5 .. 11.5 and {clock_f} in -1 .. 0.5
+  set {name}_h_g = {name}_h_s13 when {clock_i} in 11.5 .. 12.5 and {clock_f} in -1 .. 0.5
+  set {name}_h_g = {name}_h_s14 when {clock_i} in 12.5 .. 13.5 and {clock_f} in -1 .. 0.5
+  set {name}_h_g = {name}_h_s15 when {clock_i} in 13.5 .. 14.5 and {clock_f} in -1 .. 0.5
+  set {name}_h_g = {name}_h_s16 when {clock_i} in 14.5 .. 15.5 and {clock_f} in -1 .. 0.5
+  set {name}_h_g = 0 when {clock_f} in 0.5 .. 3
+  node {name}_h_gate signed
+  # her hand on it, when it is hers: she strikes it as the human strikes its pad
+  node {name}_h_p signed
+  relate {name}_h_hand: {name}_h_p = {name}_h_pad + {name}_h_hers * {her_h}
+  relate {name}_h_trig: {name}_h_gate = {name}_h_g + {name}_h_p - {name}_h_g * {name}_h_p
+  node {name}_h_dr
+  relate {name}_h_decay_rate: {name}_h_dr * {name}_h_decay = 0.0000208333333
+  call adsr(name={name}_h_e, gate={name}_h_gate, attack=0.2, decay={name}_h_dr, sustain=0, release={name}_h_dr)
+  input {name}_t_hers = 0
+  input {name}_t_pad = 0
+  input {name}_t_level = 0.6
+  input {name}_t_tune = 110 positive
+  input {name}_t_decay = 0.3 positive
+  input {name}_t_s1 = 0
+  input {name}_t_s2 = 0
+  input {name}_t_s3 = 0
+  input {name}_t_s4 = 0
+  input {name}_t_s5 = 0
+  input {name}_t_s6 = 0
+  input {name}_t_s7 = 0
+  input {name}_t_s8 = 0
+  input {name}_t_s9 = 0
+  input {name}_t_s10 = 0
+  input {name}_t_s11 = 0
+  input {name}_t_s12 = 0
+  input {name}_t_s13 = 0
+  input {name}_t_s14 = 0
+  input {name}_t_s15 = 0
+  input {name}_t_s16 = 0
+  var {name}_t_g = 0
+  set {name}_t_g = {name}_t_s1 when {clock_i} in -0.5 .. 0.5 and {clock_f} in -1 .. 0.5
+  set {name}_t_g = {name}_t_s2 when {clock_i} in 0.5 .. 1.5 and {clock_f} in -1 .. 0.5
+  set {name}_t_g = {name}_t_s3 when {clock_i} in 1.5 .. 2.5 and {clock_f} in -1 .. 0.5
+  set {name}_t_g = {name}_t_s4 when {clock_i} in 2.5 .. 3.5 and {clock_f} in -1 .. 0.5
+  set {name}_t_g = {name}_t_s5 when {clock_i} in 3.5 .. 4.5 and {clock_f} in -1 .. 0.5
+  set {name}_t_g = {name}_t_s6 when {clock_i} in 4.5 .. 5.5 and {clock_f} in -1 .. 0.5
+  set {name}_t_g = {name}_t_s7 when {clock_i} in 5.5 .. 6.5 and {clock_f} in -1 .. 0.5
+  set {name}_t_g = {name}_t_s8 when {clock_i} in 6.5 .. 7.5 and {clock_f} in -1 .. 0.5
+  set {name}_t_g = {name}_t_s9 when {clock_i} in 7.5 .. 8.5 and {clock_f} in -1 .. 0.5
+  set {name}_t_g = {name}_t_s10 when {clock_i} in 8.5 .. 9.5 and {clock_f} in -1 .. 0.5
+  set {name}_t_g = {name}_t_s11 when {clock_i} in 9.5 .. 10.5 and {clock_f} in -1 .. 0.5
+  set {name}_t_g = {name}_t_s12 when {clock_i} in 10.5 .. 11.5 and {clock_f} in -1 .. 0.5
+  set {name}_t_g = {name}_t_s13 when {clock_i} in 11.5 .. 12.5 and {clock_f} in -1 .. 0.5
+  set {name}_t_g = {name}_t_s14 when {clock_i} in 12.5 .. 13.5 and {clock_f} in -1 .. 0.5
+  set {name}_t_g = {name}_t_s15 when {clock_i} in 13.5 .. 14.5 and {clock_f} in -1 .. 0.5
+  set {name}_t_g = {name}_t_s16 when {clock_i} in 14.5 .. 15.5 and {clock_f} in -1 .. 0.5
+  set {name}_t_g = 0 when {clock_f} in 0.5 .. 3
+  node {name}_t_gate signed
+  # her hand on it, when it is hers: she strikes it as the human strikes its pad
+  node {name}_t_p signed
+  relate {name}_t_hand: {name}_t_p = {name}_t_pad + {name}_t_hers * {her_t}
+  relate {name}_t_trig: {name}_t_gate = {name}_t_g + {name}_t_p - {name}_t_g * {name}_t_p
+  node {name}_t_dr
+  relate {name}_t_decay_rate: {name}_t_dr * {name}_t_decay = 0.0000208333333
+  call adsr(name={name}_t_e, gate={name}_t_gate, attack=0.2, decay={name}_t_dr, sustain=0, release={name}_t_dr)
+  call noise(name={name}_nz, seed=0.29)
+  # the kick and the tom: a sine whose pitch falls with a quick envelope
+  call adsr(name={name}_kp, gate={name}_k_gate, attack=0.3, decay=0.0006, sustain=0, release=0.0006)
+  node {name}_k_step signed
+  relate {name}_k_bend: {name}_k_step = 0.0000833333333 * {name}_k_tune + 0.000333333333 * {name}_k_tune * {name}_kp_e
+  call lfo(name={name}_k_osc, step={name}_k_step, shape=0)
+  call adsr(name={name}_tp, gate={name}_t_gate, attack=0.3, decay=0.0004, sustain=0, release=0.0004)
+  node {name}_t_step signed
+  relate {name}_t_bend: {name}_t_step = 0.0000833333333 * {name}_t_tune + 0.0000833333333 * {name}_t_tune * {name}_tp_e
+  call lfo(name={name}_t_osc, step={name}_t_step, shape=0)
+  # the snare: a tone and noise
+  node {name}_s_step signed
+  relate {name}_s_speed: {name}_s_step = 0.0000833333333 * {name}_s_tune
+  call lfo(name={name}_s_osc, step={name}_s_step, shape=0)
+  # the hi-hat: noise without its low part (the noise less what a slow follower of it keeps)
+  var {name}_h_lp = 0
+  set {name}_h_lp = {name}_h_lp + 0.25 * {name}_nz_out - 0.25 * {name}_h_lp
+  node {name}_h_hp signed
+  relate {name}_h_high: {name}_h_hp = {name}_nz_out - {name}_h_lp
+  node {name}_out signed
+  relate {name}_sum: {name}_out = {name}_k_level * {name}_k_e_e * {name}_k_osc_out + 0.4 * {name}_s_level * {name}_s_e_e * {name}_s_osc_out + 0.8 * {name}_s_level * {name}_s_e_e * {name}_nz_out + {name}_h_level * {name}_h_e_e * {name}_h_hp + {name}_t_level * {name}_t_e_e * {name}_t_osc_out
+  hand kick when {name}_k_hers: {name}_k_pad
+  hand snare when {name}_s_hers: {name}_s_pad
+  hand hat when {name}_h_hers: {name}_h_pad
+  hand tom when {name}_t_hers: {name}_t_pad
+end

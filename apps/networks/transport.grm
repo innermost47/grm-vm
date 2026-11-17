@@ -1,0 +1,23 @@
+# The transport: one clock for the whole studio. {step}: how far it goes at each sample (sixteenths a second /
+# 48 000); {run}: 1 while it plays, 0 stopped. {name}_f goes from 0 to 1 within each sixteenth, {name}_i counts the
+# sixteenths of the bar (0 .. 15), {name}_bar the bars. Every instrument reads it: they are in time together.
+# {name}_click is the metronome: a click on each beat, the first of the bar louder.
+network transport(name, step, run)
+  var {name}_f = 0
+  set {name}_f = {name}_f + {step} * {run} when {name}_f in -1 .. 1
+  set {name}_f = {name}_f + {step} * {run} - 1 when {name}_f in 1 .. 3
+  var {name}_i = 0
+  set {name}_i = {name}_i + 1 when {name}_f in 1 .. 3 and {name}_i in -1 .. 14.5
+  set {name}_i = 0 when {name}_f in 1 .. 3 and {name}_i in 14.5 .. 99
+  var {name}_bar = 0
+  set {name}_bar = {name}_bar + 1 when {name}_f in 1 .. 3 and {name}_i in 14.5 .. 99
+  var {name}_e = 0
+  set {name}_e = 1 when {name}_f in 1 .. 3 and {name}_i in 14.5 .. 99
+  set {name}_e = 0.55 when {name}_f in 1 .. 3 and {name}_i in 2.5 .. 3.5
+  set {name}_e = 0.55 when {name}_f in 1 .. 3 and {name}_i in 6.5 .. 7.5
+  set {name}_e = 0.55 when {name}_f in 1 .. 3 and {name}_i in 10.5 .. 11.5
+  set {name}_e = 0.9985 * {name}_e when {name}_f in -1 .. 1
+  call lfo(name={name}_tone, step=0.125, shape=0)
+  node {name}_click signed
+  relate {name}_clicking: {name}_click = {name}_e * {name}_tone_out
+end

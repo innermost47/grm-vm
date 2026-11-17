@@ -1,0 +1,164 @@
+# A synthesiser of four voices as one network, for the studio: every knob is {name}_..., its sound {name}_out (mono:
+# the mixer places it). Its sequencer reads the transport ({clock_i}: the sixteenth of the bar, {clock_f}: where
+# in it), eight steps of an eighth, each on or off. Its four voices: the first plays the keys or the sequencer, the
+# second the melody, the third and fourth chords. {name}_glide: how long a voice takes to slide to a new pitch
+# (portamento; a note held while the pitch changes is legato: its envelope goes on).
+# {her_pitch}, {her_gate}: what she plays on it when it is hers (her network's choice).
+# Needs: arpeggiator, saw, square, lfo, ladder, adsr, noise, voice.
+network synth(name, clock_i, clock_f, hers, her_pitch, her_gate)
+  input {name}_poly = 4
+  input {name}_hers = {hers}
+  input {name}_pitch = 220 positive
+  input {name}_hold = 0
+  input {name}_lead_pitch = 440 positive
+  input {name}_lead_gate = 0
+  input {name}_c1_pitch = 330 positive
+  input {name}_c1_gate = 0
+  input {name}_c2_pitch = 392 positive
+  input {name}_c2_gate = 0
+  input {name}_seq_on = 0
+  input {name}_seq_exact = 1
+  input {name}_arp_on = 0
+  input {name}_arp_latch = 0
+  input {name}_arp_mode = 0
+  input {name}_arp_oct = 1 positive
+  input {name}_arp_rate = 1 positive
+  input {name}_s_n1 = 110 positive
+  input {name}_s_on1 = 1
+  input {name}_s_n2 = 165 positive
+  input {name}_s_on2 = 1
+  input {name}_s_n3 = 220 positive
+  input {name}_s_on3 = 1
+  input {name}_s_n4 = 110 positive
+  input {name}_s_on4 = 1
+  input {name}_s_n5 = 147 positive
+  input {name}_s_on5 = 1
+  input {name}_s_n6 = 220 positive
+  input {name}_s_on6 = 1
+  input {name}_s_n7 = 196 positive
+  input {name}_s_on7 = 1
+  input {name}_s_n8 = 131 positive
+  input {name}_s_on8 = 1
+  var {name}_sp = 220
+  var {name}_sg = 0
+  set {name}_sp = {name}_s_n1 when {clock_i} in -0.5 .. 1.5
+  set {name}_sg = {name}_s_on1 when {clock_i} in -0.5 .. 0.5
+  set {name}_sg = 0 when {clock_i} in 0.5 .. 1.5
+  set {name}_sp = {name}_s_n2 when {clock_i} in 1.5 .. 3.5
+  set {name}_sg = {name}_s_on2 when {clock_i} in 1.5 .. 2.5
+  set {name}_sg = 0 when {clock_i} in 2.5 .. 3.5
+  set {name}_sp = {name}_s_n3 when {clock_i} in 3.5 .. 5.5
+  set {name}_sg = {name}_s_on3 when {clock_i} in 3.5 .. 4.5
+  set {name}_sg = 0 when {clock_i} in 4.5 .. 5.5
+  set {name}_sp = {name}_s_n4 when {clock_i} in 5.5 .. 7.5
+  set {name}_sg = {name}_s_on4 when {clock_i} in 5.5 .. 6.5
+  set {name}_sg = 0 when {clock_i} in 6.5 .. 7.5
+  set {name}_sp = {name}_s_n5 when {clock_i} in 7.5 .. 9.5
+  set {name}_sg = {name}_s_on5 when {clock_i} in 7.5 .. 8.5
+  set {name}_sg = 0 when {clock_i} in 8.5 .. 9.5
+  set {name}_sp = {name}_s_n6 when {clock_i} in 9.5 .. 11.5
+  set {name}_sg = {name}_s_on6 when {clock_i} in 9.5 .. 10.5
+  set {name}_sg = 0 when {clock_i} in 10.5 .. 11.5
+  set {name}_sp = {name}_s_n7 when {clock_i} in 11.5 .. 13.5
+  set {name}_sg = {name}_s_on7 when {clock_i} in 11.5 .. 12.5
+  set {name}_sg = 0 when {clock_i} in 12.5 .. 13.5
+  set {name}_sp = {name}_s_n8 when {clock_i} in 13.5 .. 15.5
+  set {name}_sg = {name}_s_on8 when {clock_i} in 13.5 .. 14.5
+  set {name}_sg = 0 when {clock_i} in 14.5 .. 15.5
+  var {name}_at = 0
+  set {name}_at = 0 when {clock_i} in -0.5 .. 1.5
+  set {name}_at = 1 when {clock_i} in 1.5 .. 3.5
+  set {name}_at = 2 when {clock_i} in 3.5 .. 5.5
+  set {name}_at = 3 when {clock_i} in 5.5 .. 7.5
+  set {name}_at = 4 when {clock_i} in 7.5 .. 9.5
+  set {name}_at = 5 when {clock_i} in 9.5 .. 11.5
+  set {name}_at = 6 when {clock_i} in 11.5 .. 13.5
+  set {name}_at = 7 when {clock_i} in 13.5 .. 15.5
+  node {name}_note signed
+  # the arpeggiator (a network apart): the keys held, one after another; when it is on, the first voice plays it and
+  # the others are still (her voice excepted)
+  call arpeggiator(name={name}_arp, clock_i={clock_i}, clock_f={clock_f}, on={name}_arp_on, latch={name}_arp_latch, mode={name}_arp_mode, oct={name}_arp_oct, rate={name}_arp_rate, p1={name}_pitch, g1={name}_hold, p2={name}_lead_pitch, g2={name}_lead_gate, p3={name}_c1_pitch, g3={name}_c1_gate, p4={name}_c2_pitch, g4={name}_c2_gate)
+  node {name}_note0 signed
+  relate {name}_choose: {name}_note0 = {name}_pitch + {name}_seq_on * {name}_sp - {name}_seq_on * {name}_pitch
+  node {name}_note signed
+  relate {name}_arp_note: {name}_note = {name}_note0 + {name}_arp_on * {name}_arp_pitch - {name}_arp_on * {name}_note0
+  # her hand: when the synthesiser is hers, its second voice plays what she chooses ({her_pitch}, {her_gate}):
+  # a relation, not a write (she never touches the tool, the tool reads her)
+  node {name}_lp signed
+  relate {name}_her_note: {name}_lp = {name}_lead_pitch + {name}_hers * {her_pitch} - {name}_hers * {name}_lead_pitch
+  node {name}_lg signed
+  relate {name}_her_gate: {name}_lg = {name}_lead_gate - {name}_arp_on * {name}_lead_gate + {name}_hers * {her_gate}
+  node {name}_gate signed
+  node {name}_gate0 signed
+  relate {name}_open: {name}_gate0 = {name}_hold + {name}_seq_on * {name}_sg
+  relate {name}_arp_open: {name}_gate = {name}_gate0 + {name}_arp_on * {name}_arp_gate - {name}_arp_on * {name}_gate0
+  node {name}_c1g signed
+  relate {name}_c1_open: {name}_c1g = {name}_c1_gate - {name}_arp_on * {name}_c1_gate
+  node {name}_c2g signed
+  relate {name}_c2_open: {name}_c2g = {name}_c2_gate - {name}_arp_on * {name}_c2_gate
+  input {name}_glide = 0.001 positive
+  node {name}_gr
+  relate {name}_glide_rate: {name}_gr * {name}_glide = 0.0000208333333
+  var {name}_g1 = 220
+  set {name}_g1 = {name}_g1 + {name}_gr * {name}_note - {name}_gr * {name}_g1
+  var {name}_g2 = 440
+  set {name}_g2 = {name}_g2 + {name}_gr * {name}_lp - {name}_gr * {name}_g2
+  var {name}_g3 = 330
+  set {name}_g3 = {name}_g3 + {name}_gr * {name}_c1_pitch - {name}_gr * {name}_g3
+  var {name}_g4 = 392
+  set {name}_g4 = {name}_g4 + {name}_gr * {name}_c2_pitch - {name}_gr * {name}_g4
+  input {name}_lfo_rate = 4 positive
+  input {name}_lfo_shape = 0
+  input {name}_lfo_cut = 0
+  input {name}_lfo_pitch = 0
+  input {name}_lfo_amp = 0
+  node {name}_lfo_step signed
+  relate {name}_lfo_speed: {name}_lfo_step = 0.0000833333333 * {name}_lfo_rate
+  call lfo(name={name}_lfo, step={name}_lfo_step, shape={name}_lfo_shape)
+  node {name}_trem signed
+  relate {name}_tremolo: {name}_trem = 1 - 0.5 * {name}_lfo_amp - 0.5 * {name}_lfo_amp * {name}_lfo_out
+  node {name}_vib signed
+  relate {name}_vibrato: {name}_vib = 1 + {name}_lfo_pitch * {name}_lfo_out
+  input {name}_shape = 0
+  input {name}_o1_level = 1
+  input {name}_o2_level = 0
+  input {name}_o2_ratio = 1.005 positive
+  input {name}_o3_level = 0
+  input {name}_o3_ratio = 2 positive
+  input {name}_fm = 0
+  input {name}_noise = 0
+  input {name}_pitch_env = 0
+  input {name}_fa_time = 0.01 positive
+  input {name}_fd_time = 0.3 positive
+  input {name}_f_sustain = 0.3
+  input {name}_fr_time = 0.2 positive
+  input {name}_aa_time = 0.005 positive
+  input {name}_ad_time = 0.4 positive
+  input {name}_a_sustain = 0.7
+  input {name}_ar_time = 0.3 positive
+  node {name}_f_attack
+  relate {name}_f_attack_rate: {name}_f_attack * {name}_fa_time = 0.0000208333333
+  node {name}_f_decay
+  relate {name}_f_decay_rate: {name}_f_decay * {name}_fd_time = 0.0000208333333
+  node {name}_f_release
+  relate {name}_f_release_rate: {name}_f_release * {name}_fr_time = 0.0000208333333
+  node {name}_a_attack
+  relate {name}_a_attack_rate: {name}_a_attack * {name}_aa_time = 0.0000208333333
+  node {name}_a_decay
+  relate {name}_a_decay_rate: {name}_a_decay * {name}_ad_time = 0.0000208333333
+  node {name}_a_release
+  relate {name}_a_release_rate: {name}_a_release * {name}_ar_time = 0.0000208333333
+  input {name}_cutoff = 0.06 positive
+  input {name}_env_amount = 0.2
+  input {name}_resonance = 1
+  node {name}_cut_now signed
+  relate {name}_cut_lfo: {name}_cut_now = {name}_cutoff + {name}_lfo_cut * {name}_cutoff * {name}_lfo_out
+  call voice(name={name}_v1, pitch={name}_g1, gate={name}_gate, vib={name}_vib, shape={name}_shape, l1={name}_o1_level, l2={name}_o2_level, r2={name}_o2_ratio, l3={name}_o3_level, r3={name}_o3_ratio, fm={name}_fm, cut={name}_cut_now, env={name}_env_amount, res={name}_resonance, fa={name}_f_attack, fd={name}_f_decay, fs={name}_f_sustain, fr={name}_f_release, aa={name}_a_attack, ad={name}_a_decay, as={name}_a_sustain, ar={name}_a_release, amp={name}_trem, noise={name}_noise, penv={name}_pitch_env, seed=0.31)
+  call voice(name={name}_v2, pitch={name}_g2, gate={name}_lg, vib={name}_vib, shape={name}_shape, l1={name}_o1_level, l2={name}_o2_level, r2={name}_o2_ratio, l3={name}_o3_level, r3={name}_o3_ratio, fm={name}_fm, cut={name}_cut_now, env={name}_env_amount, res={name}_resonance, fa={name}_f_attack, fd={name}_f_decay, fs={name}_f_sustain, fr={name}_f_release, aa={name}_a_attack, ad={name}_a_decay, as={name}_a_sustain, ar={name}_a_release, amp={name}_trem, noise={name}_noise, penv={name}_pitch_env, seed=0.37)
+  call voice(name={name}_v3, pitch={name}_g3, gate={name}_c1g, vib={name}_vib, shape={name}_shape, l1={name}_o1_level, l2={name}_o2_level, r2={name}_o2_ratio, l3={name}_o3_level, r3={name}_o3_ratio, fm={name}_fm, cut={name}_cut_now, env={name}_env_amount, res={name}_resonance, fa={name}_f_attack, fd={name}_f_decay, fs={name}_f_sustain, fr={name}_f_release, aa={name}_a_attack, ad={name}_a_decay, as={name}_a_sustain, ar={name}_a_release, amp={name}_trem, noise={name}_noise, penv={name}_pitch_env, seed=0.41)
+  call voice(name={name}_v4, pitch={name}_g4, gate={name}_c2g, vib={name}_vib, shape={name}_shape, l1={name}_o1_level, l2={name}_o2_level, r2={name}_o2_ratio, l3={name}_o3_level, r3={name}_o3_ratio, fm={name}_fm, cut={name}_cut_now, env={name}_env_amount, res={name}_resonance, fa={name}_f_attack, fd={name}_f_decay, fs={name}_f_sustain, fr={name}_f_release, aa={name}_a_attack, ad={name}_a_decay, as={name}_a_sustain, ar={name}_a_release, amp={name}_trem, noise={name}_noise, penv={name}_pitch_env, seed=0.43)
+  node {name}_out signed
+  relate {name}_sum: {name}_out = {name}_v1_out + {name}_v2_out + {name}_v3_out + {name}_v4_out
+  # what she may take in hand, when this synthesiser is hers: its notes and its knobs (never its switch)
+  hand synth when {name}_hers: {name}_pitch {name}_hold {name}_lead_pitch {name}_lead_gate {name}_c1_pitch {name}_c1_gate {name}_c2_pitch {name}_c2_gate {name}_seq_on {name}_arp_on {name}_arp_latch {name}_s_n1 {name}_s_on1 {name}_s_n2 {name}_s_on2 {name}_s_n3 {name}_s_on3 {name}_s_n4 {name}_s_on4 {name}_s_n5 {name}_s_on5 {name}_s_n6 {name}_s_on6 {name}_s_n7 {name}_s_on7 {name}_s_n8 {name}_s_on8 {name}_shape {name}_o1_level {name}_o2_level {name}_o2_ratio {name}_o3_level {name}_o3_ratio {name}_fm {name}_noise {name}_pitch_env {name}_fa_time {name}_fd_time {name}_f_sustain {name}_fr_time {name}_aa_time {name}_ad_time {name}_a_sustain {name}_ar_time {name}_cutoff {name}_env_amount {name}_resonance {name}_glide {name}_lfo_rate {name}_lfo_shape {name}_lfo_cut {name}_lfo_pitch {name}_lfo_amp {name}_arp_mode {name}_arp_oct {name}_arp_rate
+end

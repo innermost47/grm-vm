@@ -72,6 +72,10 @@ pub struct Reflex {
     sets: Vec<Step>,
     follow: Vec<Step>,
     delays: Vec<Delay>,
+    /// What it keeps when it starts again from nothing (its `memory` nodes: what it learned).
+    kept: Vec<bool>,
+    /// Where a sample's writes wait (kept between samples: nothing is allocated while it sounds).
+    scratch: Vec<(usize, f64)>,
     pub samples: u64,
 }
 
@@ -84,17 +88,31 @@ impl Reflex {
             .nodes
             .keys()
             .map(|n| {
-                // a set's target is what was last written to it
+                // a set's target is what was last written to it; an input or a variable, what was said of it (exactly: not as
+                // the machine has settled it so far, a hair away, which would move a tempo by a few samples)
                 net.measured
                     .get(n)
-                    .filter(|_| net.sets.iter().any(|s| s.target == *n))
+                    .filter(|_| {
+                        net.nodes.get(n).is_some_and(|s| s.input || s.var) || net.sets.iter().any(|s| s.target == *n)
+                    })
                     .map(|m| m.0)
                     .unwrap_or_else(|| machine.value_si(n))
             })
             // a value that ran away (not a number, or beyond any sound) starts again from nothing
             .map(|v| if v.is_finite() && v.abs() < 1e6 { v } else { 0.0 })
             .collect();
-        let mut r = Reflex { clock, names, values, sets: vec![], follow: vec![], delays: vec![], samples: 0 };
+        let kept: Vec<bool> = net.nodes.values().map(|n| n.memory).collect();
+        let mut r = Reflex {
+            clock,
+            names,
+            values,
+            sets: vec![],
+            follow: vec![],
+            delays: vec![],
+            kept,
+            scratch: vec![],
+            samples: 0,
+        };
         for st in &net.sets {
             // a delay: a line of so many samples (one at a slower clock)
             if let Some(by) = st.text.starts_with("delay ").then(|| st.text.rsplit_once(" by ")).flatten() {
@@ -207,7 +225,9 @@ impl Reflex {
         let written = self.written();
         for (n, v) in values {
             if let Some(&i) = self.names.get(n) {
-                if !written.contains(&i) && v.is_finite() {
+                // what is only the machine settling a hair further is not a change (the same sound twice)
+                let old = self.values[i];
+                if !written.contains(&i) && v.is_finite() && (v - old).abs() > 1e-7 * old.abs().max(1e-9) {
                     self.values[i] = *v;
                 }
             }
@@ -263,11 +283,17 @@ impl Reflex {
         for d in &self.delays {
             self.values[d.target] = d.line[d.at];
         }
-        let writes: Vec<(usize, f64)> =
-            self.sets.iter().filter(|s| self.holds(&s.when)).map(|s| (s.target, self.eval(&s.expr))).collect();
-        for (i, v) in writes {
+        let mut writes = std::mem::take(&mut self.scratch);
+        writes.clear();
+        for s in &self.sets {
+            if self.holds(&s.when) {
+                writes.push((s.target, self.eval(&s.expr)));
+            }
+        }
+        for &(i, v) in &writes {
             self.values[i] = v;
         }
+        self.scratch = writes;
         for k in 0..self.follow.len() {
             if self.holds(&self.follow[k].when) {
                 let v = self.eval(&self.follow[k].expr);
@@ -282,11 +308,29 @@ impl Reflex {
         self.samples += 1;
     }
 
+    /// What follows from the sets computed once from where they start (before the first sample reads it: not left
+    /// where the machine had settled it so far, which differs a hair from one moment to the next).
+    pub fn prime(&mut self) {
+        for k in 0..self.follow.len() {
+            if self.holds(&self.follow[k].when) {
+                let v = self.eval(&self.follow[k].expr);
+                self.values[self.follow[k].target] = v;
+            }
+        }
+    }
+
+    /// Its memories (the `memory` nodes) as they are now: what it learned while it ran.
+    pub fn memories(&self) -> IndexMap<String, f64> {
+        self.names.iter().filter(|(_, &i)| self.kept[i]).map(|(n, &i)| (n.clone(), self.values[i])).collect()
+    }
+
     /// Everything it writes itself starts again from nothing (what its sets write, what its delays hold, what
     /// follows from them): when it ran away, or when asked. Its parameters stay as they are.
     pub fn reset(&mut self) {
         for s in &self.sets {
-            self.values[s.target] = 0.0;
+            if !self.kept[s.target] {
+                self.values[s.target] = 0.0;
+            }
         }
         for d in &mut self.delays {
             d.line.iter_mut().for_each(|x| *x = 0.0);

@@ -1,0 +1,36 @@
+# One voice of the synthesiser: three oscillators, a filter, two envelopes, its amplifier. Called once per voice
+# (a synthesiser of four voices is four calls), every voice shares the knobs it is given.
+# Oscillators 1 and 2: a saw and its square ({shape} from one to the other); oscillator 2 tuned by a ratio {r2} of
+# the pitch (1: unison, 2: an octave up, 1.5: a fifth, 1.01: a little apart, as two strings). Oscillator 3: a sine
+# at {r3} times the pitch, heard ({l3}) and modulating the frequency of the first two by {fm} (frequency modulation:
+# the sine moves their pitch as fast as it sounds, and new partials come, as on the FM synthesisers).
+# {vib}: the pitch's vibrato (1 when there is none); {amp}: what the loudness is multiplied by (the volume, the
+# tremolo). {noise}: how much noise is heard (for drums: a snare, a hi-hat); {penv}: how much the filter's envelope
+# raises the pitch as each note begins, falling with it (for drums: a kick is a sine whose pitch falls fast). Its
+# sound: {name}_out. {seed}: where its noise starts (each voice its own).
+# Needs: saw.grm, square.grm, lfo.grm, ladder.grm, adsr.grm, noise.grm.
+network voice(name, pitch, gate, vib, shape, l1, l2, r2, l3, r3, fm, cut, env, res, fa, fd, fs, fr, aa, ad, as, ar, amp, noise, penv, seed)
+  call adsr(name={name}_fe, gate={gate}, attack={fa}, decay={fd}, sustain={fs}, release={fr})
+  node {name}_bend signed
+  relate {name}_bending: {name}_bend = {vib} + {penv} * {vib} * {name}_fe_e
+  node {name}_ms signed
+  relate {name}_mrate: {name}_ms = 0.0000833333333 * {r3} * {pitch} * {name}_bend
+  call lfo(name={name}_m, step={name}_ms, shape=0)
+  node {name}_s1 signed
+  relate {name}_rate1: {name}_s1 = 0.0000416666667 * {pitch} * {name}_bend + 0.0000416666667 * {fm} * {pitch} * {name}_bend * {name}_m_out
+  node {name}_s2 signed
+  relate {name}_rate2: {name}_s2 = 0.0000416666667 * {r2} * {pitch} * {name}_bend + 0.0000416666667 * {fm} * {r2} * {pitch} * {name}_bend * {name}_m_out
+  call noise(name={name}_n, seed={seed})
+  call saw(name={name}_o1, step={name}_s1)
+  call square(name={name}_q1, saw={name}_o1_p, width=0)
+  call saw(name={name}_o2, step={name}_s2)
+  call square(name={name}_q2, saw={name}_o2_p, width=0)
+  node {name}_mix signed
+  relate {name}_mixing: {name}_mix = {l1} * {name}_o1_p + {l1} * {shape} * {name}_q1_q - {l1} * {shape} * {name}_o1_p + {l2} * {name}_o2_p + {l2} * {shape} * {name}_q2_q - {l2} * {shape} * {name}_o2_p + {l3} * {name}_m_out + {noise} * {name}_n_out
+  call adsr(name={name}_ae, gate={gate}, attack={aa}, decay={ad}, sustain={as}, release={ar})
+  node {name}_cut signed
+  relate {name}_opening: {name}_cut = {cut} + {env} * {name}_fe_e
+  call ladder(name={name}_f, input={name}_mix, cut={name}_cut, res={res})
+  node {name}_out signed
+  relate {name}_level: {name}_out = {amp} * {name}_ae_e * {name}_f_y4
+end

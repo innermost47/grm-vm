@@ -1,24 +1,323 @@
-# ELLE: her own network. Not an instrument, not a tool: what she feels, what she pays attention to, what weighs on
-# her. The window writes what she lives into it (with the provenance "elle"); the tools (the synthesisers, the drum
-# machines, any app) only ever see what she does through their hands, never this. Another activity than music can
-# read and write it the same way: it is hers, not the studio's.
+# ELLE: her own network, the same in every app that calls it. Not an instrument: she hears ({ear}), she sees what
+# the human plays ({other_pitch}, {other_gate}: the tool's own keys), she knows where she is ({ctx_song}, the song;
+# {ctx_human}, who plays with her), she keeps the time of the place ({clock_i}: the sixteenth of the bar, {clock_f}:
+# where in it). What she chooses comes out as {name}_pitch and {name}_gate: a tool plays it through its hand.
 #
-# Her mood, as lived (written by the window from what she hears).
-node elle_pleasure signed
-observe elle_pleasure = 0 ± 0.2
-node elle_surprise signed
-observe elle_surprise = 0 ± 0.2
-node elle_curiosity signed
-observe elle_curiosity = 0 ± 0.2
-node elle_boredom signed
-observe elle_boredom = 0 ± 0.2
-node elle_pressure signed
-observe elle_pressure = 0 ± 0.2
-# Her attention: drawn by what surprises her and what she is curious about, let go by boredom (a sum, read like
-# any other relation: `why elle_focus`).
-node elle_focus signed
-relate elle_attention: elle_focus = 0.5 + 0.4 * elle_curiosity + 0.3 * elle_surprise - 0.5 * elle_boredom
-# Her wish to change: boredom and the weight of what she lived, against the pleasure of what is (high: she explores;
-# low: she stays where it is good).
-node elle_explore signed
-relate elle_wish: elle_explore = 0.5 * elle_boredom + 0.3 * elle_pressure - 0.4 * elle_pleasure + 0.2
+# Nothing is drawn by chance: she is the same network in the same state, so she does the same thing; what she hears
+# and what she lived change her state, so she never quite does the same thing again. Only her first weights are
+# made by a formula (her birth).
+#
+# {lessons} on: she learns little by little, as a child does (one note, then a tone, then steps...): her lessons.
+#
+# Its parts, from the ear to the hand:
+#   the ear       a cochlea: 36 resonators, one a semitone from 110 Hz; how clear what is heard is (its energy in
+#                 few places: tones that agree share their harmonics)
+#   expectation   what usually follows what (intervals counted, the human's and her own): how uncertain the next
+#                 is, how surprising what came was (Pearce's IDyOM, simply)
+#   pleasure      a surprise when it was certain, or a certainty when it was not (Cheung et al., 2019), and the
+#                 sound growing clearer; the gap from what she expected (Schultz's reward prediction error)
+#   state         six nodes turning in pairs at their own speeds (Churchland et al., 2012), pushed by what she lives
+#   wants         each choice a direction in the state (Georgopoulos, 1986), plus her tastes, plus what she learned
+#                 in this song and with this human (context-dependent gating: Masse et al., 2018), minus fatigue
+#   choosing      a sweep across the wants, the strongest taken, the one held kept unless another beats it by a
+#                 margin (the basal ganglia's selection: Redgrave, Prescott, Gurney, 1999)
+#   learning      after each note, what made it is moved by the gap of pleasure
+#   drums         on a drum the human gives her, she strikes it at a sixteenth when she wants to (her state, her
+#                 taste for that place in the bar), and learns it by the same gap of pleasure
+#   lessons       a lesson opens some choices and closes the others; she stays while she progresses, goes on when
+#                 it is mastered and bores her, steps back when it is too hard and bores her (her curiosity follows
+#                 her progress: Oudeyer; what is neither too easy nor too hard: Vygotsky); each lesson a context
+#
+# Needs nothing else. Costs about 500 sets a sample.
+network elle(name, ear, clock_i, clock_f, other_pitch, other_gate, ctx_song, ctx_human, lessons)
+  # named first (other parts read them before their own part)
+  var {name}_bore = 0.2
+  var {name}_semi = 24
+  var {name}_choice = 16
+  node {name}_delta signed
+  # ---- time: an eighth begins (one sample long)
+  var {name}_li = -1
+  set {name}_li = {clock_i}
+  node {name}_di signed
+  relate {name}_tick: {name}_di = {clock_i} - {name}_li
+  var {name}_ev = 0
+  set {name}_ev = 0
+  repeat e in 0 .. 7: set {name}_ev = 1 when {name}_di in 0.5 .. 99 and {clock_i} in {2*e - 0.5} .. {2*e + 0.5}
+  set {name}_ev = 1 when {name}_di in -99 .. -0.5 and {clock_i} in -0.5 .. 0.5
+
+  # ---- the ear: a cochlea of resonators (a state-variable filter each: Chamberlin), the energy of each band
+  repeat b in 1 .. 36: var {name}_lo{b} = 0
+  repeat b in 1 .. 36: var {name}_bp{b} = 0
+  repeat b in 1 .. 36: var {name}_e{b} = 0
+  repeat b in 1 .. 36: set {name}_lo{b} = {name}_lo{b} + {2*sin(pi*110*2^((b-1)/12)/48000)} * {name}_bp{b}
+  repeat b in 1 .. 36: set {name}_bp{b} = {1 - (2*sin(pi*110*2^((b-1)/12)/48000))^2 - 0.06*2*sin(pi*110*2^((b-1)/12)/48000)} * {name}_bp{b} + {2*sin(pi*110*2^((b-1)/12)/48000)} * {ear} - {2*sin(pi*110*2^((b-1)/12)/48000)} * {name}_lo{b}
+  repeat b in 1 .. 36: set {name}_e{b} = {name}_e{b} + 0.0007 * {name}_bp{b} * {name}_bp{b} - 0.0007 * {name}_e{b}
+  # how clear: the energy in few places (the sum of squares over the square of the sum)
+  node {name}_tot
+  relate {name}_all: {name}_tot = sum(b in 1 .. 36: {name}_e{b}) + 0.000000001
+  node {name}_sq
+  relate {name}_squares: {name}_sq = sum(b in 1 .. 36: {name}_e{b} * {name}_e{b}) + 0.000000000000000001
+  node {name}_clar
+  relate {name}_clarity: {name}_clar * {name}_tot^2 = {name}_sq
+  var {name}_ca = 0.1
+  set {name}_ca = {name}_ca + 0.00002 * {name}_clar - 0.00002 * {name}_ca
+  node {name}_cons signed
+  relate {name}_clearer: {name}_cons = {name}_clar - {name}_ca
+
+  # ---- what the human plays: each new key, its interval from the one before (a ratio of their pitches)
+  var {name}_lg = 0
+  set {name}_lg = {other_gate}
+  node {name}_dg signed
+  relate {name}_key: {name}_dg = {other_gate} - {name}_lg
+  var {name}_hon = 0
+  set {name}_hon = 0
+  set {name}_hon = 1 when {name}_dg in 0.5 .. 9
+  var {name}_hp = 220 positive
+  set {name}_hp = {other_pitch} when {name}_hon in 0.5 .. 1.5
+  node {name}_hr
+  relate {name}_human_step: {name}_hr * {name}_hp = {other_pitch}
+  var {name}_hint = 0
+  repeat k in 1 .. 15: set {name}_hint = {k - 8} when {name}_hon in 0.5 .. 1.5 and {name}_hr in {2^((k - 8.5)/12)} .. {2^((k - 7.5)/12)}
+
+  # ---- expectation: how often each interval came (kept: she learns it), what that makes of the next
+  repeat k in 1 .. 15: memory {name}_cnt{k} = 1 positive
+  repeat k in 1 .. 15: set {name}_cnt{k} = 0.998 * {name}_cnt{k} when {name}_ev in 0.5 .. 1.5
+  repeat k in 1 .. 15: set {name}_cnt{k} = 0.998 * {name}_cnt{k} + 1 when {name}_ev in 0.5 .. 1.5 and {name}_choice in {k - 0.5} .. {k + 0.5}
+  repeat k in 1 .. 15: set {name}_cnt{k} = {name}_cnt{k} + 1 when {name}_hon in 0.5 .. 1.5 and {name}_hr in {2^((k - 8.5)/12)} .. {2^((k - 7.5)/12)}
+  node {name}_ctot
+  relate {name}_counted: {name}_ctot = sum(k in 1 .. 15: {name}_cnt{k})
+  repeat k in 1 .. 15: node {name}_p{k}
+  repeat k in 1 .. 15: relate {name}_likely{k}: {name}_p{k} * {name}_ctot = {name}_cnt{k}
+  # uncertainty: 1 when every interval is as likely, 0 when one always comes (one minus the sum of squares, scaled)
+  node {name}_unc signed
+  relate {name}_uncertain: {name}_unc = 1.0714286 - 1.0714286 * sum(k in 1 .. 15: {name}_p{k} * {name}_p{k})
+  # surprise: of the interval she just played, by how likely it was (a half when as likely as any)
+  var {name}_pc = 0.0667 positive
+  repeat k in 1 .. 15: set {name}_pc = {name}_p{k} when {name}_ev in 0.5 .. 1.5 and {name}_choice in {k - 0.5} .. {k + 0.5}
+  node {name}_pq
+  relate {name}_pq_of: {name}_pq = 1 + 15 * {name}_pc
+  node {name}_sur
+  relate {name}_surprising: {name}_sur * {name}_pq = 1
+
+  # ---- pleasure, and the gap from what she expected
+  node {name}_pm signed
+  relate {name}_cheung: {name}_pm = {name}_sur + {name}_unc - 2 * {name}_sur * {name}_unc
+  node {name}_pleasure signed
+  relate {name}_pleased: {name}_pleasure = 0.6 * {name}_pm + 4 * {name}_cons - 0.3 * {name}_bore
+  var {name}_pav = 0
+  set {name}_pav = {name}_pav + 0.0003 * {name}_pleasure - 0.0003 * {name}_pav
+  memory {name}_pexp = 0.3
+  set {name}_pexp = {name}_pexp + 0.05 * {name}_delta when {name}_ev in 0.5 .. 1.5
+  relate {name}_gap: {name}_delta = {name}_pav - {name}_pexp
+
+  # ---- her mood: boredom (what comes was expected), curiosity (her errors shrinking: she learns), the weight of
+  # what she lived
+  set {name}_bore = {name}_bore + 0.03 - 0.03 * {name}_sur - 0.03 * {name}_bore when {name}_ev in 0.5 .. 1.5
+  var {name}_aerr = 0
+  set {name}_aerr = {name}_delta when {name}_delta in 0 .. 99
+  set {name}_aerr = -1 * {name}_delta when {name}_delta in -99 .. 0
+  var {name}_errf = 0
+  set {name}_errf = {name}_errf + 0.1 * {name}_aerr - 0.1 * {name}_errf when {name}_ev in 0.5 .. 1.5
+  var {name}_errs = 0
+  set {name}_errs = {name}_errs + 0.01 * {name}_aerr - 0.01 * {name}_errs when {name}_ev in 0.5 .. 1.5
+  node {name}_curious signed
+  relate {name}_progress: {name}_curious = 3 * {name}_errs - 3 * {name}_errf
+  memory {name}_lived = 0
+  set {name}_lived = {name}_lived + 0.0005 when {name}_ev in 0.5 .. 1.5
+
+  # ---- her state: three pairs turning at their own speeds (0.07, 0.19, 0.43 turns a second), fading slowly,
+  # drawn at each eighth towards what she lives (the gap of pleasure, where her voice is, the surprise, the
+  # uncertainty, the human's last step, boredom: each between -1 and 1); a pair's slope is its other node
+  var {name}_s1 = 0.5
+  var {name}_s2 = 0
+  var {name}_s3 = 0.3
+  var {name}_s4 = 0.2
+  var {name}_s5 = 0
+  var {name}_s6 = 0.4
+  set {name}_s1 = {name}_s1 + 0.00000917 * {name}_s2 - 0.00000104 * {name}_s1
+  set {name}_s2 = {name}_s2 - 0.00000917 * {name}_s1 - 0.00000104 * {name}_s2
+  set {name}_s3 = {name}_s3 + 0.0000248 * {name}_s4 - 0.00000104 * {name}_s3
+  set {name}_s4 = {name}_s4 - 0.0000248 * {name}_s3 - 0.00000104 * {name}_s4
+  set {name}_s5 = {name}_s5 + 0.0000563 * {name}_s6 - 0.00000104 * {name}_s5
+  set {name}_s6 = {name}_s6 - 0.0000563 * {name}_s5 - 0.00000104 * {name}_s6
+  set {name}_s1 = 0.8 * {name}_s1 + 0.6 * {name}_delta when {name}_ev in 0.5 .. 1.5
+  set {name}_s2 = 0.8 * {name}_s2 + 0.0166667 * {name}_semi - 0.4 when {name}_ev in 0.5 .. 1.5
+  set {name}_s3 = 0.8 * {name}_s3 + 0.4 * {name}_sur - 0.2 when {name}_ev in 0.5 .. 1.5
+  set {name}_s4 = 0.8 * {name}_s4 + 0.4 * {name}_unc - 0.2 when {name}_ev in 0.5 .. 1.5
+  set {name}_s5 = 0.8 * {name}_s5 + 0.0285714 * {name}_hint when {name}_ev in 0.5 .. 1.5
+  set {name}_s6 = 0.8 * {name}_s6 + 0.4 * {name}_bore - 0.2 when {name}_ev in 0.5 .. 1.5
+
+  # ---- where she is: this song, this human (one of four each), as switches
+  repeat c in 1 .. 4: var {name}_xs{c} = 0
+  repeat c in 1 .. 4: set {name}_xs{c} = 0
+  repeat c in 1 .. 4: set {name}_xs{c} = 1 when {ctx_song} in {c - 0.5} .. {c + 0.5}
+  repeat h in 1 .. 4: var {name}_xh{h} = 0
+  repeat h in 1 .. 4: set {name}_xh{h} = 0
+  repeat h in 1 .. 4: set {name}_xh{h} = 1 when {ctx_human} in {h - 0.5} .. {h + 0.5}
+
+  # ---- what she remembers: a direction in her state for each choice (15 intervals from -7 to +7 semitones, and
+  # the 16th, a rest), her tastes, and what she learned in each song and with each human. Born from a formula.
+  repeat k in 1 .. 16: repeat j in 1 .. 6: memory {name}_w{k}_{j} = {0.25 * sin(k * 2.39 + j * 1.17)}
+  repeat k in 1 .. 16: repeat c in 1 .. 4: memory {name}_ts{k}_{c} = 0
+  repeat k in 1 .. 16: repeat h in 1 .. 4: memory {name}_th{k}_{h} = 0
+  # her first tastes, from what she was born knowing (knowledge/music.grm): a unison bores, small steps and the
+  # simple ratios please, the tritone strains
+  memory {name}_taste1 = -0.1
+  memory {name}_taste2 = 0
+  memory {name}_taste3 = 0.1
+  memory {name}_taste4 = 0.1
+  memory {name}_taste5 = 0.1
+  memory {name}_taste6 = 0.15
+  memory {name}_taste7 = 0.1
+  memory {name}_taste8 = -0.3
+  memory {name}_taste9 = 0.1
+  memory {name}_taste10 = 0.15
+  memory {name}_taste11 = 0.1
+  memory {name}_taste12 = 0.1
+  memory {name}_taste13 = 0.1
+  memory {name}_taste14 = -0.2
+  memory {name}_taste15 = 0.1
+  memory {name}_taste16 = -0.1
+
+  # ---- what holds her back: a choice that would leave her voice's range (A3 to A5), the fatigue of what she just
+  # chose, and the margin of the one she holds
+  repeat k in 1 .. 15: var {name}_bnd{k} = 0
+  repeat k in 1 .. 15: set {name}_bnd{k} = 0
+  repeat k in 1 .. 15: set {name}_bnd{k} = -3 when {name}_semi in -99 .. {11.5 - (k - 8)}
+  repeat k in 1 .. 15: set {name}_bnd{k} = -3 when {name}_semi in {36.5 - (k - 8)} .. 999
+  var {name}_bnd16 = 0
+  repeat k in 1 .. 16: var {name}_fat{k} = 0
+  repeat k in 1 .. 16: set {name}_fat{k} = 0.8 * {name}_fat{k} when {name}_ev in 0.5 .. 1.5
+  repeat k in 1 .. 16: set {name}_fat{k} = 0.8 * {name}_fat{k} + 1 when {name}_ev in 0.5 .. 1.5 and {name}_choice in {k - 0.5} .. {k + 0.5}
+  repeat k in 1 .. 16: var {name}_stay{k} = 0
+  repeat k in 1 .. 16: set {name}_stay{k} = 0
+  repeat k in 1 .. 16: set {name}_stay{k} = 1 when {name}_choice in {k - 0.5} .. {k + 0.5}
+
+
+  # ---- her lessons: each choice has its difficulty; a lesson opens what is not harder than it. One note (and the
+  # rest), then a tone up or down, then the semitones, then thirds, then fourths and fifths, then the tritone too.
+  # In the first two, the eighths between the beats are rests (one note a beat).
+  memory {name}_lesson = 1
+  memory {name}_ltime = 0
+  repeat k in 1 .. 16: node {name}_dd{k} signed
+  relate {name}_ready1: {name}_dd1 = {name}_lesson - 5
+  relate {name}_ready2: {name}_dd2 = {name}_lesson - 6
+  relate {name}_ready3: {name}_dd3 = {name}_lesson - 5
+  relate {name}_ready4: {name}_dd4 = {name}_lesson - 4
+  relate {name}_ready5: {name}_dd5 = {name}_lesson - 4
+  relate {name}_ready6: {name}_dd6 = {name}_lesson - 2
+  relate {name}_ready7: {name}_dd7 = {name}_lesson - 3
+  relate {name}_ready8: {name}_dd8 = {name}_lesson - 1
+  relate {name}_ready9: {name}_dd9 = {name}_lesson - 3
+  relate {name}_ready10: {name}_dd10 = {name}_lesson - 2
+  relate {name}_ready11: {name}_dd11 = {name}_lesson - 4
+  relate {name}_ready12: {name}_dd12 = {name}_lesson - 4
+  relate {name}_ready13: {name}_dd13 = {name}_lesson - 5
+  relate {name}_ready14: {name}_dd14 = {name}_lesson - 6
+  relate {name}_ready15: {name}_dd15 = {name}_lesson - 5
+  relate {name}_ready16: {name}_dd16 = {name}_lesson - 1
+  repeat k in 1 .. 16: var {name}_open{k} = 1
+  repeat k in 1 .. 16: set {name}_open{k} = 0
+  repeat k in 1 .. 16: set {name}_open{k} = 1 when {name}_dd{k} in -0.5 .. 99
+  repeat k in 1 .. 16: set {name}_open{k} = 1 when {lessons} in -9 .. 0.5
+  var {name}_offb = 0
+  set {name}_offb = 0
+  repeat e in 0 .. 3: set {name}_offb = 1 when {clock_i} in {4*e + 1.5} .. {4*e + 2.5} and {name}_lesson in -9 .. 2.5 and {lessons} in 0.5 .. 9
+  # each lesson a context: what she learns in it is kept apart
+  repeat l in 1 .. 6: var {name}_xl{l} = 0
+  repeat l in 1 .. 6: set {name}_xl{l} = 0
+  repeat l in 1 .. 6: set {name}_xl{l} = 1 when {name}_lesson in {l - 0.5} .. {l + 0.5} and {lessons} in 0.5 .. 9
+  repeat k in 1 .. 16: repeat l in 1 .. 6: memory {name}_tl{k}_{l} = 0
+  repeat k in 1 .. 16: repeat l in 1 .. 6: set {name}_tl{k}_{l} = {name}_tl{k}_{l} + 0.1 * {name}_delta * {name}_xl{l} when {name}_ev in 0.5 .. 1.5 and {name}_last in {k - 0.5} .. {k + 0.5}
+  # her pace: the eighths lived in this lesson; after sixteen seconds or so, if it bores her and she no longer
+  # progresses, on to the next when she makes few errors, back to the one before when she makes many
+  set {name}_ltime = {name}_ltime + 1 when {name}_ev in 0.5 .. 1.5 and {lessons} in 0.5 .. 9
+  set {name}_lesson = {name}_lesson + 1 when {name}_ev in 0.5 .. 1.5 and {lessons} in 0.5 .. 9 and {name}_ltime in 64 .. 1000000000 and {name}_bore in 0.55 .. 9 and {name}_curious in -9 .. 0.02 and {name}_errs in -9 .. 0.2 and {name}_lesson in -9 .. 5.5
+  set {name}_lesson = {name}_lesson - 1 when {name}_ev in 0.5 .. 1.5 and {lessons} in 0.5 .. 9 and {name}_ltime in 64 .. 1000000000 and {name}_bore in 0.55 .. 9 and {name}_curious in -9 .. 0.02 and {name}_errs in 0.2 .. 9 and {name}_lesson in 1.5 .. 9
+  set {name}_ltime = 0 when {name}_ev in 0.5 .. 1.5 and {lessons} in 0.5 .. 9 and {name}_ltime in 64 .. 1000000000 and {name}_bore in 0.55 .. 9 and {name}_curious in -9 .. 0.02
+  set {name}_bore = 0.5 * {name}_bore when {name}_ev in 0.5 .. 1.5 and {lessons} in 0.5 .. 9 and {name}_ltime in 64 .. 1000000000 and {name}_bore in 0.55 .. 9 and {name}_curious in -9 .. 0.02
+
+  # ---- her wants: read in her state, her tastes and where she is
+  repeat k in 1 .. 16: node {name}_want{k} signed
+  # a voice is easiest in the middle of its range (its tessitura): the further she is from it, the more a step back
+  # towards it is wanted
+  repeat k in 1 .. 15: relate {name}_wanting{k}: {name}_want{k} = sum(j in 1 .. 6: {name}_w{k}_{j} * {name}_s{j}) + {name}_taste{k} + sum(c in 1 .. 4: {name}_ts{k}_{c} * {name}_xs{c}) + sum(h in 1 .. 4: {name}_th{k}_{h} * {name}_xh{h}) - 0.6 * {name}_fat{k} + {name}_bnd{k} + 0.3 * {name}_stay{k} - {0.012 * (k - 8)} * {name}_semi + {0.288 * (k - 8)} + 6 * {name}_open{k} - 6 - 6 * {name}_offb + sum(l in 1 .. 6: {name}_tl{k}_{l} * {name}_xl{l})
+  relate {name}_wanting16: {name}_want16 = sum(j in 1 .. 6: {name}_w16_{j} * {name}_s{j}) + {name}_taste16 + sum(c in 1 .. 4: {name}_ts16_{c} * {name}_xs{c}) + sum(h in 1 .. 4: {name}_th16_{h} * {name}_xh{h}) - 0.6 * {name}_fat16 + {name}_bnd16 + 0.3 * {name}_stay16 + 6 * {name}_open16 - 6 + sum(l in 1 .. 6: {name}_tl16_{l} * {name}_xl{l})
+
+  # ---- choosing: a sweep, one want a sample; the strongest of a whole sweep becomes her choice
+  var {name}_scan = 1
+  set {name}_scan = {name}_scan + 1 when {name}_scan in 0.5 .. 15.5
+  set {name}_scan = 1 when {name}_scan in 15.5 .. 99
+  var {name}_cur = 0
+  var {name}_curk = 1
+  repeat k in 1 .. 16: set {name}_cur = {name}_want{k} when {name}_scan in {k - 0.5} .. {k + 0.5}
+  repeat k in 1 .. 16: set {name}_curk = {k} when {name}_scan in {k - 0.5} .. {k + 0.5}
+  var {name}_best = 0
+  var {name}_pick = 16
+  node {name}_d signed
+  relate {name}_against: {name}_d = {name}_cur - {name}_best
+  set {name}_best = {name}_cur when {name}_d in 0 .. 1000000000
+  set {name}_pick = {name}_curk when {name}_d in 0 .. 1000000000
+  set {name}_best = {name}_cur when {name}_curk in 0.5 .. 1.5
+  set {name}_pick = 1 when {name}_curk in 0.5 .. 1.5
+  set {name}_choice = {name}_pick when {name}_curk in 0.5 .. 1.5
+
+  # ---- playing: at each eighth, her choice; the note held most of the eighth, let go before the next
+  var {name}_pitch = 440 positive
+  repeat k in 1 .. 15: set {name}_pitch = {2^((k - 8)/12)} * {name}_pitch when {name}_ev in 0.5 .. 1.5 and {name}_choice in {k - 0.5} .. {k + 0.5}
+  repeat k in 1 .. 15: set {name}_semi = {name}_semi + {k - 8} when {name}_ev in 0.5 .. 1.5 and {name}_choice in {k - 0.5} .. {k + 0.5}
+  var {name}_gate = 0
+  # a note let go before the next eighth, unless the next is the same held on (her unison is a tie: longer notes)
+  repeat o in 0 .. 7: set {name}_gate = 0 when {clock_i} in {2*o + 0.5} .. {2*o + 1.5} and {clock_f} in 0.75 .. 1.5 and {name}_choice in -9 .. 7.5
+  repeat o in 0 .. 7: set {name}_gate = 0 when {clock_i} in {2*o + 0.5} .. {2*o + 1.5} and {clock_f} in 0.75 .. 1.5 and {name}_choice in 8.5 .. 99
+  set {name}_gate = 1 when {name}_ev in 0.5 .. 1.5 and {name}_choice in 0.5 .. 15.5
+  set {name}_gate = 0 when {name}_ev in 0.5 .. 1.5 and {name}_choice in 15.5 .. 16.5
+
+  # ---- learning: after each eighth, what made the last choice is moved by the gap of pleasure
+  var {name}_last = 16
+  set {name}_last = {name}_choice when {name}_ev in 0.5 .. 1.5
+  repeat j in 1 .. 6: var {name}_sd{j} = 0
+  repeat j in 1 .. 6: set {name}_sd{j} = {name}_s{j} when {name}_ev in 0.5 .. 1.5
+  repeat k in 1 .. 16: repeat j in 1 .. 6: set {name}_w{k}_{j} = {name}_w{k}_{j} + 0.1 * {name}_delta * {name}_sd{j} when {name}_ev in 0.5 .. 1.5 and {name}_last in {k - 0.5} .. {k + 0.5}
+  repeat k in 1 .. 16: set {name}_taste{k} = {name}_taste{k} + 0.05 * {name}_delta when {name}_ev in 0.5 .. 1.5 and {name}_last in {k - 0.5} .. {k + 0.5}
+  repeat k in 1 .. 16: repeat c in 1 .. 4: set {name}_ts{k}_{c} = {name}_ts{k}_{c} + 0.1 * {name}_delta * {name}_xs{c} when {name}_ev in 0.5 .. 1.5 and {name}_last in {k - 0.5} .. {k + 0.5}
+  repeat k in 1 .. 16: repeat h in 1 .. 4: set {name}_th{k}_{h} = {name}_th{k}_{h} + 0.1 * {name}_delta * {name}_xh{h} when {name}_ev in 0.5 .. 1.5 and {name}_last in {k - 0.5} .. {k + 0.5}
+
+
+  # ---- her hand on the drums (kick, snare, hat, tom: 1 .. 4), played when the human gives her a drum: at each
+  # sixteenth, for each, she strikes it when she wants to (her state read, and her taste for that place in the bar).
+  # Born knowing where a groove usually puts them (the kick on the beats, the snare on two and four, the hat on the
+  # eighths); what pleases her moves it.
+  var {name}_dli = -1
+  set {name}_dli = {clock_i}
+  node {name}_ddi signed
+  relate {name}_dtick: {name}_ddi = {clock_i} - {name}_dli
+  var {name}_tk = 0
+  set {name}_tk = 0
+  set {name}_tk = 1 when {name}_ddi in 0.5 .. 99
+  set {name}_tk = 1 when {name}_ddi in -99 .. -0.5
+  repeat i in 0 .. 15: var {name}_xi{i} = 0
+  repeat i in 0 .. 15: set {name}_xi{i} = 0
+  repeat i in 0 .. 15: set {name}_xi{i} = 1 when {clock_i} in {i - 0.5} .. {i + 0.5}
+  repeat i in 0 .. 15: memory {name}_pt1_{i} = {0.6 * cos(pi * i / 8)^64 - 0.15}
+  repeat i in 0 .. 15: memory {name}_pt2_{i} = {0.6 * cos(pi * (i - 4) / 8)^64 - 0.15}
+  repeat i in 0 .. 15: memory {name}_pt3_{i} = {0.4 * cos(pi * i / 2)^2 - 0.15}
+  repeat i in 0 .. 15: memory {name}_pt4_{i} = {0.35 * cos(pi * (i - 14) / 8)^64 - 0.25}
+  repeat d in 1 .. 4: repeat j in 1 .. 6: memory {name}_wd{d}_{j} = {0.1 * sin(d * 1.3 + j * 2.1)}
+  repeat d in 1 .. 4: node {name}_dw{d} signed
+  repeat d in 1 .. 4: relate {name}_drum_want{d}: {name}_dw{d} = sum(j in 1 .. 6: {name}_wd{d}_{j} * {name}_s{j}) + sum(i in 0 .. 15: {name}_pt{d}_{i} * {name}_xi{i})
+  repeat d in 1 .. 4: var {name}_dl{d} = 0
+  repeat d in 1 .. 4: set {name}_dl{d} = 0 when {name}_tk in 0.5 .. 9
+  repeat d in 1 .. 4: set {name}_dl{d} = 1 when {name}_tk in 0.5 .. 9 and {name}_dw{d} in 0 .. 99
+  # the strike: a short pulse at the start of the sixteenth
+  repeat d in 1 .. 4: var {name}_dhit{d} = 0
+  repeat d in 1 .. 4: set {name}_dhit{d} = 0 when {clock_f} in 0.3 .. 9
+  repeat d in 1 .. 4: set {name}_dhit{d} = 1 when {name}_tk in 0.5 .. 9 and {name}_dw{d} in 0 .. 99
+  # what she struck at the sixteenth before, moved by the gap of pleasure
+  repeat d in 1 .. 4: repeat i in 0 .. 15: set {name}_pt{d}_{i} = {name}_pt{d}_{i} + 0.05 * {name}_delta when {name}_tk in 0.5 .. 9 and {name}_xi{i} in 0.5 .. 9 and {name}_dl{d} in 0.5 .. 9
+  repeat d in 1 .. 4: repeat j in 1 .. 6: set {name}_wd{d}_{j} = {name}_wd{d}_{j} + 0.05 * {name}_delta * {name}_s{j} when {name}_tk in 0.5 .. 9 and {name}_dl{d} in 0.5 .. 9
+
+  # ---- born: 0 until what she learned before is given back to her (the window does it when she wakes)
+  memory {name}_born = 0
+  set {name}_born = {name}_born
+end

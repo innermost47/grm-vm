@@ -107,7 +107,7 @@ pub const WORDS_HELP: &[(&str, &str, &str)] = &[
     ("cd", "cd [FOLDER | .. | ~ | -]", "cd ~/data"),
     ("new", "new NAME.ext: a new file, opened to write; new NAME: a program", "new prices.csv"),
     ("rm", "rm [-r] PATH...: deleted, once asked", "rm old.csv"),
-    ("app", "app new|open|close|undo|redo NAME", "app open oscillator"),
+    ("app", "app new|open|close|undo|redo NAME", "app open studio"),
     ("api", "api NAME: get|post|websocket URL ...", "api w: get https://... every 600"),
     (
         "widget",

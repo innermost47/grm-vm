@@ -571,6 +571,20 @@ fn unfold(
                 Err(e) => p.errors.push((line_no, e)),
             },
             "look" | "style" if outer.is_none() => p.looks.push((line_no, text.to_string())),
+            // a line said for each k (widgets, hands and calls too: unfolded as the lines it makes)
+            "repeat" => match grm_engine::lang::repeat(rest) {
+                Ok(lines) => match &outer {
+                    Some(o) => unfold(&lines, base, templates, p, Some((line_no, o.1.clone())), depth + 1),
+                    None => {
+                        // at the top, what it makes is the app's own (its widgets too), all from this line
+                        let (errors, flat) = (p.errors.len(), p.flat.len());
+                        unfold(&lines, base, templates, p, None, depth + 1);
+                        p.errors[errors..].iter_mut().for_each(|e| e.0 = line_no);
+                        p.flat[flat..].iter_mut().for_each(|f| f.line = line_no);
+                    }
+                },
+                Err(e) => p.errors.push((line_no, e.message)),
+            },
             "hand" => match parse_hand(rest, line_no) {
                 Ok(h) => p.hands.push(h),
                 Err(e) => p.errors.push((line_no, e)),
@@ -621,7 +635,7 @@ pub fn defined(flat: &[Flat]) -> Vec<String> {
         // a delay is a node too: two copies sharing one would pour the sound of one into the other's echo
         if matches!(
             word.as_str(),
-            "node" | "var" | "learn" | "input" | "output" | "relate" | "keep" | "rel" | "kp" | "delay"
+            "node" | "var" | "learn" | "input" | "output" | "memory" | "relate" | "keep" | "rel" | "kp" | "delay"
         ) {
             if let Some(name) = words.find(|w| !w.is_empty()) {
                 if is_name(name) && !out.iter().any(|o| o == name) {

@@ -44,6 +44,10 @@ pub trait Source: Send {
         0
     }
     /// A node's value as it is now, at the speed of sound (what the machine above only sees slowly).
+    /// What it learned while it played (its network's `memory` nodes).
+    fn memories(&self) -> IndexMap<String, f64> {
+        IndexMap::new()
+    }
     fn value(&self, _node: &str) -> Option<f64> {
         None
     }
@@ -103,6 +107,9 @@ impl Source for ReflexSource {
     }
     fn value(&self, node: &str) -> Option<f64> {
         self.reflex.value(node)
+    }
+    fn memories(&self) -> IndexMap<String, f64> {
+        self.reflex.memories()
     }
     fn set_state(&mut self, state: &IndexMap<String, f64>) {
         // what it writes itself goes on from where it was (its parameters come from the machine)
@@ -223,6 +230,18 @@ impl Mixer {
     /// A node's value in a channel that plays, as its reflex has it now (a sequencer's step, say).
     pub fn value(&self, channel: &str, node: &str) -> Option<f64> {
         self.channels.get(channel).and_then(|c| c.source.value(node))
+    }
+
+    /// What a channel learned while it played (its `memory` nodes), to be kept.
+    pub fn memories(&self, channel: &str) -> IndexMap<String, f64> {
+        self.channels.get(channel).map(|c| c.source.memories()).unwrap_or_default()
+    }
+
+    /// Gives a channel back what it had learned (its `memory` nodes, and anything else it writes itself).
+    pub fn restore(&mut self, channel: &str, values: &IndexMap<String, f64>) {
+        if let Some(c) = self.channels.get_mut(channel) {
+            c.source.set_state(values);
+        }
     }
 
     /// The names of the channels that play.

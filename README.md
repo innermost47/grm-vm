@@ -364,8 +364,8 @@ widget kb: keys pitch hold at 0 5 size 12 2
   and what it was living through, for when it opens again.
 - **`clock S`**: the world ticks every S seconds while the app runs (the shortest asked wins).
 - Apps are the `.grm` files of `apps/` beside the world's memory (or `$GRM_APPS`); `+` in the tabs opens one or
-  makes a new one; `apps`, `app open|new|close|undo|redo NAME` at the prompt. Three come with it: an oscillator
-  bench (sliders, keys, a scope, sound), the weather of Lyon (an API every ten minutes, a relation to Fahrenheit,
+  makes a new one; `apps`, `app open|new|close|undo|redo NAME` at the prompt. Three come with it: the studio (see
+  below), the weather of Lyon (an API every ten minutes, a relation to Fahrenheit,
   a plot), a swing in time (a clock, a node tracked: its memory, its forecast, why).
 
 ![An app's surface: sliders, play, a scope of what it sounds, keys](docs/app-surface.png)
@@ -518,6 +518,9 @@ for her to find (and to let into the main network through the airlock). The tabl
 memory, and read from there offline.
 
 ### An analogue synthesiser, every module a network
+
+*The apps Analog synth, Her synth and Oscillator of before are gone: the studio holds all of it (its synthesiser
+is the same, as one network). What follows tells how it was built, module by module.*
 
 The *Analog synth* app is written in GRML from end to end, nothing ready-made: a saw and a square
 (`networks/saw.grm`, `square.grm`), a filter of four poles with its resonance (`ladder.grm`), an envelope
@@ -747,22 +750,98 @@ hand kick when t3_k_hers: t3_k_s1 t3_k_s2 ... t3_k_level t3_k_tune t3_k_decay
 ```
 
 Every instrument carries its hands (a synthesiser one, each drum of a machine its own), and every app can: what
-learns is a word of the language, not a feature of one module. She writes only through a hand she holds; what she
-holds the human sees move and cannot touch (until they take it back with its switch). On a drum she holds, at a bar
-now and then she moves one step, and keeps it when what she heard after pleased her more: clearer, and the groove
-nearer its sweet spot (Witek et al., 2014, found the wish to move and the pleasure highest at a middle amount of
-syncopation). With two synthesisers she plays a duet: she is not silenced by the human playing, and answers their
-phrases only now and then.
+learns is a word of the language, not a feature of one module. What she holds the human sees move and cannot touch
+(until they take it back with its switch). In the studio her synthesiser reads her through a relation: its second
+voice plays what her network chooses (below). Her hand on the drums comes back as GRML in the next step.
 
-![The studio: the transport, a drum machine (the hat hers), a synthesiser, the mixer](docs/studio.png)
+![The studio: the transport, her network (what she feels, her wants), a drum machine, her notes on the roll, the mixer](docs/studio.png)
 
-### Her own network, and what she starts knowing
+### Her own network: she is GRML now
 
-Her mood is no longer only inside the window: **ELLE** (`mind/elle.grm`) is a network of her own, with her
-provenance, like any other: her pleasure, surprise, curiosity, boredom and the weight of what she lived, written
-into it once a second; her **attention** (`elle_focus`) and her **wish to explore** (`elle_explore`) as relations
-of them, that `why` explains. The tools never see it: they see only what she does through their hands. Any other
-activity than music can read and write it the same way. Her mood now moves out of her lessons too.
+In the studio she is no longer code of the window: **ELLE** (`mind/elle.grm`) is a network of GRML, called by the
+app like any other (`call elle(name=elle, ear=..., clock_i=..., ...)`), the same in every app that calls it. The
+window only shows her and carries what she learned from one session to the next. Nothing in her is drawn by
+chance: the same network in the same state does the same thing (a test plays her twice and finds the same notes);
+what she hears and what she lived change her state, so she never quite does the same thing again. Only her first
+weights are made by a formula (her birth). Its parts, from the ear to the hand:
+
+- **The ear**: a cochlea of 36 resonators (state-variable filters), one a semitone from 110 Hz; how clear what she
+  hears is (its energy in few places: tones that agree share their harmonics).
+- **Expectation**: what usually follows what (intervals counted, the human's and her own, slowly forgotten): how
+  uncertain the next is, how surprising what came was (the idea of Pearce's IDyOM).
+- **Pleasure**: a surprise when it was certain, or a certainty when it was not (Cheung et al., 2019), and the sound
+  growing clearer; the gap from what she expected is what she learns from (Schultz, Dayan and Montague, 1997).
+- **A state** of six nodes turning in pairs at their own speeds (as a population of neurons does: Churchland et
+  al., 2012), drawn at each eighth towards what she lives; a pair's slope is its other node.
+- **Wants**: each choice (fifteen intervals, and a rest) a direction in that state (Georgopoulos, 1986), plus her
+  tastes, plus what she learned **in this song and with this human** (each song, each human who plays with her, a
+  context of its own: Masse et al., 2018), minus the fatigue of what she just chose, plus the pull of the middle of
+  her range.
+- **Choosing**: a sweep across her wants, one a sample; the strongest of a sweep is her choice, the one she holds
+  kept unless another beats it by a margin (the selection of the basal ganglia: Redgrave, Prescott and Gurney,
+  1999).
+- **Learning**: after each eighth, what made her last choice moves by the gap of pleasure.
+
+The studio shows her: her pleasure, surprise, uncertainty, boredom, curiosity, the clarity she hears, and her
+sixteen wants, the one she holds lit; her notes on the roll. Her synthesiser reads her through a relation (its
+second voice is hers when its switch is on): she never writes into the tool.
+
+Three words came into GRML for her, useful everywhere: `repeat k in 1 .. 16: LINE` (a line said for each k, each
+`{EXPRESSION}` in it computed: `memory w{k} = {0.25 * sin(k * 2.39)}`), `sum(j in 1 .. 6: w{j} * s{j})` (a sum
+written once), and `memory NAME = VALUE` (a variable that keeps what it learned: said again it is not set back,
+the fuse of the sound does not clear it).
+
+### The arpeggiator in GRML, the keys that say whose notes they are
+
+The studio's arpeggiator is a network of its own (`networks/arpeggiator.grm`), on the transport's time: the keys
+held one after another, up or down, over one to three octaves, a quarter to a thirty-second each; **latch** holds
+them when the keys are let go, until a new chord is pressed. Nothing by chance (its random mode is gone). Each
+keyboard of the studio shows only its own instrument, read from the sound: the human's notes in the accent, hers in
+her colour (a soft lavender, on the roll too), the notes the latch holds framed while they go on by turns.
+
+### The triangle: the container and the content
+
+The triangle is the container in which the content is reflected, and the content reflecting the container: two,
+and their relation, three. It is no centre and no self (that is why she speaks of herself as "she"): it stays at the
+top of the view, in the middle, drawn over everything. From each node a faint
+thread to it; on each a grain goes in, and later another comes back out, of another colour and slower: what was
+received, given back changed. It changes no belief and keeps no memory. An app closed, the network is shown whole
+again.
+
+**Calm.** When the window changes, the network goes to its new places slowly (a few seconds, never a jump); near the
+pointer the nodes stay still, so that one can be taken, or stopped, without a fight.
+
+### Her lessons, little by little
+
+Her lessons are part of her network (`mind/elle.grm`), as a child learns: each of her choices has its difficulty,
+and a lesson opens what is not harder than it. First **one note**, one a beat (the eighths between the beats are
+rests); then **a tone** up or down; then **the steps**, semitones too, in eighths; then **thirds**; then **fourths
+and fifths**; then **everything**, the tritone too. A lesson closes the other choices strongly (she cannot take
+them), and what she learns in each is kept apart (each lesson a context). She stays in a lesson while she
+progresses; after sixteen seconds or so, when it bores her and she no longer progresses, she goes on if she makes few
+errors, and back if she makes many (her curiosity follows her progress: Oudeyer; neither too easy nor too hard:
+Vygotsky). The studio shows her lesson; the human can turn her lessons off (then everything is open).
+
+**Knobs.** A knob follows the hand, not the machine's last word: its whole course in 200 points, four times finer
+with Shift. A knob of choices (`up · down`) lights the one chosen.
+
+### Her hand on the drums, held notes, instruments turned off
+
+**Drums.** A drum the human gives her (its switch *hers*) she strikes herself, at a sixteenth, when she wants to:
+her state read, plus her taste for that place in the bar. She is born knowing where a groove usually puts them (the
+kick on the beats, the snare on two and four, the hat on the eighths, the tom at the end); what pleases her moves
+it, by the same gap of pleasure. The steps stay the human's; she plays as the human strikes a pad.
+
+**Held notes.** Her unison is a tie: choosing the same note again, she holds it on (longer notes, and a first
+lesson of long notes on the beats).
+
+**Power.** Each instrument of the studio has its power button (on its strip): off, it is not in the song's
+network at all, and costs nothing.
+
+**No more improviser in Rust.** The window's old improviser and its lessons (and their chance) are gone: she is her
+network alone. The window keeps only what was played (the roll, the takes) and what she learned between sessions.
+
+### What she starts knowing
 
 At the first launch she starts from a blank network and a few things known, each file its own provenance, each
 number with how sure it is (`mind/knowledge/`): **physics** (the speed of light, Planck's and Boltzmann's

@@ -1,0 +1,73 @@
+# An arpeggiator: the notes held ({p1} .. {p4}, their keys {g1} .. {g4}) one after another, on the transport's time
+# ({clock_i}: the sixteenth of the bar, {clock_f}: where in it), over {oct} octaves, up ({mode} 0) or down (1).
+# {rate}: notes an eighth (0.5: a quarter, 1: an eighth, 2: a sixteenth, 4: a thirty-second).
+# {latch} on: the notes stay held when the keys are let go, until a new chord is pressed.
+# Nothing by chance. Its sound: {name}_pitch and {name}_gate; what it holds: {name}_lat1 .. 4, {name}_lp1 .. 4.
+network arpeggiator(name, clock_i, clock_f, on, latch, mode, oct, rate, p1, g1, p2, g2, p3, g3, p4, g4)
+  # ---- what it holds: each key's note, kept while latched
+  node {name}_any signed
+  relate {name}_held: {name}_any = {g1} + {g2} + {g3} + {g4}
+  var {name}_was = 0
+  set {name}_was = {name}_any
+  repeat i in 1 .. 4: var {name}_lat{i} = 0
+  repeat i in 1 .. 4: var {name}_lp{i} = 220 positive
+  set {name}_lat1 = 0 when {latch} in 0.5 .. 9 and {name}_any in 0.5 .. 99 and {name}_was in -99 .. 0.5
+  set {name}_lat2 = 0 when {latch} in 0.5 .. 9 and {name}_any in 0.5 .. 99 and {name}_was in -99 .. 0.5
+  set {name}_lat3 = 0 when {latch} in 0.5 .. 9 and {name}_any in 0.5 .. 99 and {name}_was in -99 .. 0.5
+  set {name}_lat4 = 0 when {latch} in 0.5 .. 9 and {name}_any in 0.5 .. 99 and {name}_was in -99 .. 0.5
+  set {name}_lat1 = 1 when {g1} in 0.5 .. 9
+  set {name}_lat2 = 1 when {g2} in 0.5 .. 9
+  set {name}_lat3 = 1 when {g3} in 0.5 .. 9
+  set {name}_lat4 = 1 when {g4} in 0.5 .. 9
+  set {name}_lat1 = {g1} when {latch} in -9 .. 0.5
+  set {name}_lat2 = {g2} when {latch} in -9 .. 0.5
+  set {name}_lat3 = {g3} when {latch} in -9 .. 0.5
+  set {name}_lat4 = {g4} when {latch} in -9 .. 0.5
+  set {name}_lp1 = {p1} when {g1} in 0.5 .. 9
+  set {name}_lp2 = {p2} when {g2} in 0.5 .. 9
+  set {name}_lp3 = {p3} when {g3} in 0.5 .. 9
+  set {name}_lp4 = {p4} when {g4} in 0.5 .. 9
+
+  # ---- its time: a sixteenth begins; a note at each one its rate asks for
+  var {name}_li = -1
+  set {name}_li = {clock_i}
+  node {name}_di signed
+  relate {name}_tick_of: {name}_di = {clock_i} - {name}_li
+  var {name}_tk = 0
+  set {name}_tk = 0
+  set {name}_tk = 1 when {name}_di in 0.5 .. 99
+  set {name}_tk = 1 when {name}_di in -99 .. -0.5
+  var {name}_lf = 0
+  set {name}_lf = {clock_f}
+  var {name}_ev = 0
+  set {name}_ev = 0
+  set {name}_ev = 1 when {name}_tk in 0.5 .. 9 and {rate} in 1.5 .. 99 and {on} in 0.5 .. 9
+  repeat e in 0 .. 7: set {name}_ev = 1 when {name}_tk in 0.5 .. 9 and {clock_i} in {2*e - 0.5} .. {2*e + 0.5} and {rate} in 0.75 .. 1.5 and {on} in 0.5 .. 9
+  repeat e in 0 .. 3: set {name}_ev = 1 when {name}_tk in 0.5 .. 9 and {clock_i} in {4*e - 0.5} .. {4*e + 0.5} and {rate} in -9 .. 0.75 and {on} in 0.5 .. 9
+  set {name}_ev = 1 when {name}_lf in -9 .. 0.5 and {clock_f} in 0.5 .. 9 and {rate} in 3 .. 99 and {on} in 0.5 .. 9
+
+  # ---- the next note held after the one it played (up: the next key; down: the one before), an octave higher
+  # each time it comes round, back to the first octave after {oct}
+  var {name}_ai = 0
+  var {name}_oc = 0
+  # (q: the candidates from the farthest to the nearest, the nearest written last: it wins)
+  repeat a in 0 .. 4: repeat q in 1 .. 4: set {name}_ai = {(a + 4 - q) - 4*floor((a + 4 - q)/4) + 1} when {name}_ev in 0.5 .. 9 and {mode} in -9 .. 0.5 and {name}_ai in {a - 0.5} .. {a + 0.5} and {name}_lat{(a + 4 - q) - 4*floor((a + 4 - q)/4) + 1} in 0.5 .. 9
+  repeat a in 0 .. 4: repeat q in 1 .. 4: set {name}_oc = {name}_oc + {floor((a + 4 - q)/4)} when {name}_ev in 0.5 .. 9 and {mode} in -9 .. 0.5 and {name}_ai in {a - 0.5} .. {a + 0.5} and {name}_lat{(a + 4 - q) - 4*floor((a + 4 - q)/4) + 1} in 0.5 .. 9
+  repeat a in 0 .. 4: repeat q in 1 .. 4: set {name}_ai = {(a + 5*floor((4 - a)/4) + 2 + q) - 4*floor((a + 5*floor((4 - a)/4) + 2 + q)/4) + 1} when {name}_ev in 0.5 .. 9 and {mode} in 0.5 .. 9 and {name}_ai in {a - 0.5} .. {a + 0.5} and {name}_lat{(a + 5*floor((4 - a)/4) + 2 + q) - 4*floor((a + 5*floor((4 - a)/4) + 2 + q)/4) + 1} in 0.5 .. 9
+  repeat a in 0 .. 4: repeat q in 1 .. 4: set {name}_oc = {name}_oc + {floor((9 - q - a - 5*floor((4 - a)/4))/4)} when {name}_ev in 0.5 .. 9 and {mode} in 0.5 .. 9 and {name}_ai in {a - 0.5} .. {a + 0.5} and {name}_lat{(a + 5*floor((4 - a)/4) + 2 + q) - 4*floor((a + 5*floor((4 - a)/4) + 2 + q)/4) + 1} in 0.5 .. 9
+  node {name}_over signed
+  relate {name}_octaves: {name}_over = {name}_oc - {oct}
+  set {name}_oc = 0 when {name}_over in -0.5 .. 99 and {name}_ev in -9 .. 0.5
+  # ---- the note: at the sample after its time, the note it chose, so many octaves up; let go at seven tenths of
+  # a sixteenth
+  var {name}_pl1 = 0
+  set {name}_pl1 = {name}_ev
+  var {name}_play = 0
+  set {name}_play = {name}_pl1
+  var {name}_pitch = 220 positive
+  var {name}_gate = 0
+  repeat i in 1 .. 4: repeat o in 0 .. 2: set {name}_pitch = {2^o} * {name}_lp{i} when {name}_play in 0.5 .. 9 and {name}_ai in {i - 0.5} .. {i + 0.5} and {name}_oc in {o - 0.5} .. {o + 0.5}
+  set {name}_gate = 0 when {clock_f} in 0.7 .. 9
+  set {name}_gate = 0 when {on} in -9 .. 0.5
+  repeat i in 1 .. 4: set {name}_gate = 1 when {name}_play in 0.5 .. 9 and {name}_ai in {i - 0.5} .. {i + 0.5} and {name}_lat{i} in 0.5 .. 9 and {on} in 0.5 .. 9
+end

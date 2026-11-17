@@ -65,6 +65,7 @@ pattern!(re_role, format!(r"^({NAME})\s*(?:=\s*(\S+))?(\s+positive)?$"));
 pattern!(re_set, format!(r"^({NAME})\s*=\s*(.+)$"));
 pattern!(re_side_split, r"\s*([*/])\s*".to_string());
 pattern!(re_tight, r"([*/^(])\s+".to_string());
+pattern!(re_sum_factor, format!(r"(?:([+-])\s*)?(?:({NUMBER})\s*\*\s*)?$"));
 pattern!(re_arith, r"^[0-9eE.+\-*/() ]+$".to_string());
 
 pub fn is_name(s: &str) -> bool {
@@ -614,6 +615,9 @@ pub fn statement(
     if !net.aliases.is_empty() {
         line = with_aliases(net, &line);
     }
+    if line.contains("sum(") && !line.trim_start().to_lowercase().starts_with("repeat") {
+        line = sums(&line)?;
+    }
     let (word, rest) = line.split_once(' ').unwrap_or((&line, ""));
     let word = word.to_lowercase();
     let rest = rest.trim();
@@ -631,7 +635,16 @@ pub fn statement(
         return Ok(Some(format!("{} ({} components)", said.first().cloned().unwrap_or_default(), lines.len())));
     }
     let said = match word.as_str() {
-        "var" | "learn" | "input" | "output" => role(net, &word, rest, origin)?,
+        "var" | "learn" | "input" | "output" | "memory" => role(net, &word, rest, origin)?,
+        "repeat" => {
+            let mut said = 0;
+            for l in repeat(rest)? {
+                if statement(net, &l, base, origin)?.is_some_and(|s| !s.is_empty()) {
+                    said += 1;
+                }
+            }
+            format!("repeated: {said} statements")
+        }
         "set" => set(net, rest, origin)?,
         "delay" => delay(net, rest, origin)?,
         "carry" => carry(net, rest, origin)?,
@@ -679,7 +692,7 @@ fn vector_declaration(
     base: Option<&std::path::Path>,
     origin: &Provenance,
 ) -> Option<Result<String>> {
-    if !matches!(word, "node" | "var" | "learn" | "input" | "output") {
+    if !matches!(word, "node" | "var" | "learn" | "input" | "output" | "memory") {
         return None;
     }
     let m = re_vector_decl().captures(rest)?;
@@ -923,8 +936,13 @@ fn use_file(net: &mut Network, rest: &str, base: Option<&std::path::Path>, origi
     Ok(format!("used {file}: {count} statements"))
 }
 
-const ROLES: [(&str, &str); 4] =
-    [("var", "a variable"), ("learn", "a weight it learns"), ("input", "an input"), ("output", "an output")];
+const ROLES: [(&str, &str); 5] = [
+    ("var", "a variable"),
+    ("learn", "a weight it learns"),
+    ("input", "an input"),
+    ("output", "an output"),
+    ("memory", "a memory"),
+];
 
 /// var / learn / input / output NAME [= value] [positive] [dim]: a signed node with a role.
 fn role(net: &mut Network, word: &str, rest: &str, origin: &Provenance) -> Result<String> {
@@ -950,6 +968,10 @@ fn role(net: &mut Network, word: &str, rest: &str, origin: &Provenance) -> Resul
     spec.signed = !positive;
     match word {
         "var" => spec.var = true,
+        "memory" => {
+            spec.var = true;
+            spec.memory = true;
+        }
         "learn" => spec.learn = true,
         "input" => spec.input = true,
         _ => spec.output = true,
@@ -958,6 +980,10 @@ fn role(net: &mut Network, word: &str, rest: &str, origin: &Provenance) -> Resul
         spec.dim = dim;
     }
     net.nodes.insert(name.clone(), spec);
+    // a memory said again keeps what it holds (its value is only where it starts, the first time)
+    if word == "memory" && !net.measured.contains_key(&name) {
+        net.measured.insert(name.clone(), (guess, VAR_SIGMA));
+    }
     if (word == "var" || word == "input") && (m.get(2).is_some() || !net.measured.contains_key(&name)) {
         net.measured.insert(name.clone(), (guess, if positive { 1e-6 } else { VAR_SIGMA }));
     }
@@ -966,6 +992,259 @@ fn role(net: &mut Network, word: &str, rest: &str, origin: &Provenance) -> Resul
     }
     let label = ROLES.iter().find(|(w, _)| *w == word).map(|(_, l)| *l).unwrap_or(word);
     Ok(format!("{label}: {name} = {}", g(guess)))
+}
+
+/// `repeat k in A .. B: LINE`: the line said once for each whole k from A to B, each `{EXPRESSION}` in it computed
+/// (with k, numbers, + - * / ^, parentheses, sin, cos, sqrt, ln, exp, abs, floor, round). Repeats can be nested:
+/// `repeat k in 1 .. 4: repeat j in 1 .. 3: var w{k}_{j} = {0.1 * j}`. An expression it cannot compute (a
+/// parameter of a network, `{name}`) is left as it is.
+pub fn repeat(rest: &str) -> Result<Vec<String>> {
+    repeat_in(rest, &[])
+}
+
+fn repeat_in(rest: &str, outer: &[(String, f64)]) -> Result<Vec<String>> {
+    let Some((head, line)) = rest.split_once(':') else { bail!("repeat NAME in A .. B: LINE") };
+    let Some(m) = re_condition().captures(head.trim()) else { bail!("repeat NAME in A .. B: LINE") };
+    let var = m[1].to_string();
+    let (a, b) = (number(&m[2])?, number(&m[3])?);
+    if (b - a).abs() > 4096.0 {
+        bail!("repeat: at most 4096 times");
+    }
+    let mut out = vec![];
+    let mut k = a.round() as i64;
+    while k as f64 <= b + 1e-9 {
+        let mut env = outer.to_vec();
+        env.push((var.clone(), k as f64));
+        let line = line.trim();
+        match line.split_once(char::is_whitespace) {
+            Some((w, r)) if w.eq_ignore_ascii_case("repeat") => out.extend(repeat_in(r, &env)?),
+            _ => out.push(substitute(line, &env).trim().to_string()),
+        }
+        k += 1;
+    }
+    Ok(out)
+}
+
+/// `sum(j in A .. B: TERM)`: TERM written for each whole j, joined by +, each `{...}` computed with j (a sum of
+/// terms in one line: `relate r: y = sum(j in 1 .. 6: w{j} * s{j})`).
+pub fn sums(line: &str) -> Result<String> {
+    let mut line = line.to_string();
+    while let Some(start) = line.find("sum(") {
+        // its closing parenthesis (parentheses inside it counted)
+        let mut depth = 0;
+        let mut end = None;
+        for (i, c) in line[start + 3..].char_indices() {
+            match c {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = Some(start + 3 + i);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let Some(end) = end else { bail!("sum(j in A .. B: TERM): no closing parenthesis") };
+        let inner = &line[start + 4..end];
+        let Some((head, term)) = inner.split_once(':') else { bail!("sum(j in A .. B: TERM)") };
+        let Some(m) = re_condition().captures(head.trim()) else { bail!("sum(j in A .. B: TERM)") };
+        let var = m[1].to_string();
+        let (a, b) = (number(&m[2])?.round() as i64, number(&m[3])?.round() as i64);
+        if b < a || b - a > 4096 {
+            bail!("sum: from A to B, at most 4096 terms");
+        }
+        // what stands before it (a sign, a factor) goes to each of its terms
+        let before = &line[..start];
+        let (head, sign, factor) = match re_sum_factor().captures(before) {
+            Some(m) => (
+                &before[..m.get(0).unwrap().start()],
+                m.get(1).map(|s| s.as_str()).unwrap_or(""),
+                m.get(2).map(|f| format!("{} * ", f.as_str())).unwrap_or_default(),
+            ),
+            None => (before, "", String::new()),
+        };
+        let join = if sign == "-" { " - " } else { " + " };
+        let terms: Vec<String> =
+            (a..=b).map(|k| format!("{factor}{}", substitute(term.trim(), &[(var.clone(), k as f64)]))).collect();
+        let lead = if sign.is_empty() { String::new() } else { format!("{sign} ") };
+        line = format!("{head}{lead}{}{}", terms.join(join), &line[end + 1..]);
+    }
+    Ok(line)
+}
+
+/// Each `{...}` that names only these (and numbers) computed with them.
+fn substitute(line: &str, env: &[(String, f64)]) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut rest = line;
+    while let Some(open) = rest.find('{') {
+        out.push_str(&rest[..open]);
+        let Some(close) = rest[open..].find('}') else {
+            out.push_str(&rest[open..]);
+            return out;
+        };
+        let inner = &rest[open + 1..open + close];
+        match arithmetic(inner, env) {
+            // a negative value after a sign: the sign turns (`- {x}` with x = -2 is `+ 2`)
+            Some(v) if v < 0.0 && (out.trim_end().ends_with('+') || out.trim_end().ends_with('-')) => {
+                let t = out.trim_end().len();
+                let turned = if out[..t].ends_with('+') { '-' } else { '+' };
+                out.replace_range(t - 1..t, &turned.to_string());
+                out.push_str(&fmt_number(-v));
+            }
+            Some(v) => out.push_str(&fmt_number(v)),
+            None => out.push_str(&rest[open..=open + close]),
+        }
+        rest = &rest[open + close + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+fn fmt_number(v: f64) -> String {
+    if v == v.round() && v.abs() < 1e15 {
+        format!("{}", v as i64)
+    } else {
+        format!("{v}")
+    }
+}
+
+/// A small expression: numbers, one variable, + - * / ^, parentheses, a few functions. None when it names anything
+/// else (it is not this repeat's to compute).
+pub fn arithmetic(text: &str, env: &[(String, f64)]) -> Option<f64> {
+    struct P<'a> {
+        s: &'a [u8],
+        at: usize,
+        env: &'a [(String, f64)],
+    }
+    impl P<'_> {
+        fn ws(&mut self) {
+            while self.at < self.s.len() && self.s[self.at] == b' ' {
+                self.at += 1;
+            }
+        }
+        fn sum(&mut self) -> Option<f64> {
+            let mut v = self.product()?;
+            loop {
+                self.ws();
+                match self.s.get(self.at) {
+                    Some(b'+') => {
+                        self.at += 1;
+                        v += self.product()?;
+                    }
+                    Some(b'-') => {
+                        self.at += 1;
+                        v -= self.product()?;
+                    }
+                    _ => return Some(v),
+                }
+            }
+        }
+        fn product(&mut self) -> Option<f64> {
+            let mut v = self.power()?;
+            loop {
+                self.ws();
+                match self.s.get(self.at) {
+                    Some(b'*') => {
+                        self.at += 1;
+                        v *= self.power()?;
+                    }
+                    Some(b'/') => {
+                        self.at += 1;
+                        v /= self.power()?;
+                    }
+                    _ => return Some(v),
+                }
+            }
+        }
+        fn power(&mut self) -> Option<f64> {
+            let base = self.unary()?;
+            self.ws();
+            if self.s.get(self.at) == Some(&b'^') {
+                self.at += 1;
+                let e = self.power()?;
+                return Some(base.powf(e));
+            }
+            Some(base)
+        }
+        fn unary(&mut self) -> Option<f64> {
+            self.ws();
+            match self.s.get(self.at) {
+                Some(b'-') => {
+                    self.at += 1;
+                    Some(-self.unary()?)
+                }
+                Some(b'(') => {
+                    self.at += 1;
+                    let v = self.sum()?;
+                    self.ws();
+                    if self.s.get(self.at) != Some(&b')') {
+                        return None;
+                    }
+                    self.at += 1;
+                    Some(v)
+                }
+                Some(c) if c.is_ascii_digit() || *c == b'.' => {
+                    let start = self.at;
+                    while self.at < self.s.len()
+                        && (self.s[self.at].is_ascii_digit()
+                            || self.s[self.at] == b'.'
+                            || ((self.s[self.at] == b'e' || self.s[self.at] == b'E')
+                                && self.s.get(self.at + 1).is_some_and(|c| c.is_ascii_digit() || *c == b'-')))
+                    {
+                        if self.s[self.at] == b'e' || self.s[self.at] == b'E' {
+                            self.at += 1;
+                        }
+                        self.at += 1;
+                    }
+                    std::str::from_utf8(&self.s[start..self.at]).ok()?.parse().ok()
+                }
+                Some(c) if c.is_ascii_alphabetic() || *c == b'_' => {
+                    let start = self.at;
+                    while self.at < self.s.len() && (self.s[self.at].is_ascii_alphanumeric() || self.s[self.at] == b'_')
+                    {
+                        self.at += 1;
+                    }
+                    let word = std::str::from_utf8(&self.s[start..self.at]).ok()?;
+                    if let Some((_, v)) = self.env.iter().rev().find(|(n, _)| n == word) {
+                        return Some(*v);
+                    }
+                    if word == "pi" {
+                        return Some(std::f64::consts::PI);
+                    }
+                    let f: fn(f64) -> f64 = match word {
+                        "sin" => f64::sin,
+                        "cos" => f64::cos,
+                        "sqrt" => f64::sqrt,
+                        "ln" => f64::ln,
+                        "exp" => f64::exp,
+                        "abs" => f64::abs,
+                        "floor" => f64::floor,
+                        "round" => f64::round,
+                        _ => return None,
+                    };
+                    self.ws();
+                    if self.s.get(self.at) != Some(&b'(') {
+                        return None;
+                    }
+                    self.at += 1;
+                    let v = self.sum()?;
+                    self.ws();
+                    if self.s.get(self.at) != Some(&b')') {
+                        return None;
+                    }
+                    self.at += 1;
+                    Some(f(v))
+                }
+                _ => None,
+            }
+        }
+    }
+    let mut p = P { s: text.as_bytes(), at: 0, env };
+    let v = p.sum()?;
+    p.ws();
+    (p.at == p.s.len() && v.is_finite()).then_some(v)
 }
 
 /// set x = EXPR [when ...]: at each tick x takes the value of EXPR (computed by the network).
@@ -1356,6 +1635,42 @@ mod tests {
         let s = split_sum("x0 + v * dt - 3e-5 * y^-2");
         assert_eq!(s, vec![(1.0, "x0".into()), (1.0, "v *dt".into()), (-1.0, "3e-5 *y^-2".into())]);
         assert_eq!(split_sum("-x + 2"), vec![(-1.0, "x".into()), (1.0, "2".into())]);
+    }
+
+    #[test]
+    fn a_repeat_says_its_line_for_each_k_with_its_arithmetic() {
+        assert_eq!(
+            sums("relate r: y = sum(j in 1 .. 3: w{j} * s{j}) + 1").unwrap(),
+            "relate r: y = w1 * s1 + w2 * s2 + w3 * s3 + 1"
+        );
+        assert_eq!(
+            sums("relate r: y = 1 - 2 * sum(j in 1 .. 2: p{j} * p{j})").unwrap(),
+            "relate r: y = 1 - 2 * p1 * p1 - 2 * p2 * p2"
+        );
+        assert_eq!(
+            repeat("k in 1 .. 1: relate r: y = x - {k - 3} * z + {k - 2}").unwrap()[0],
+            "relate r: y = x + 2 * z - 1"
+        );
+        let lines = repeat("k in 1 .. 3: repeat j in 0 .. 1: var w{k}_{j} = {k * 10 + j / 2}").unwrap();
+        assert_eq!(lines.len(), 6);
+        assert_eq!(lines[0], "var w1_0 = 10");
+        assert_eq!(lines[5], "var w3_1 = 30.5");
+        // what it cannot compute (a network's parameter) stays as it is
+        assert_eq!(repeat("k in 1 .. 1: set {name}_x{k} = {name}_y").unwrap()[0], "set {name}_x1 = {name}_y");
+        assert_eq!(arithmetic("2^(1/12) * 110", &[]).map(|v| (v * 1000.0).round()), Some(116541.0));
+        let mut net = Network::default();
+        say(&mut net, "repeat k in 1 .. 4: var v{k} = {k}");
+        assert!(net.nodes.contains_key("v4"));
+    }
+
+    #[test]
+    fn a_memory_said_again_keeps_what_it_holds() {
+        let mut net = Network::default();
+        say(&mut net, "memory w = 0.5");
+        assert!(net.nodes["w"].memory);
+        net.measured.insert("w".into(), (0.9, VAR_SIGMA));
+        say(&mut net, "memory w = 0.5");
+        assert_eq!(net.measured["w"].0, 0.9);
     }
 
     #[test]

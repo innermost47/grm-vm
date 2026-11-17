@@ -1,0 +1,9 @@
+# Noise, made of nothing but a calculation: the logistic map x -> 3.9999 x (1 - x), chaotic (each value follows from
+# the one before, and yet what comes is unforeseeable, and spread over every frequency as white noise nearly is).
+# {seed}: where it starts (two seeds, two noises). {name}_out goes from -1 to 1.
+network noise(name, seed)
+  var {name}_x = {seed}
+  set {name}_x = 3.9999 * {name}_x - 3.9999 * {name}_x ^ 2
+  node {name}_out signed
+  relate {name}_centre: {name}_out = 2 * {name}_x - 1
+end

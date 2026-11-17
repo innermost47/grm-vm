@@ -965,6 +965,7 @@ impl Shell {
                         break;
                     }
                 }
+                r.prime();
                 if !known.contains(&node) {
                     r.follow(&w.machine, &node).map_err(|e| {
                         GrmError::new(format!(
@@ -1250,6 +1251,154 @@ mod tests {
         assert_eq!(path_words("a  b"), vec!["a".to_string(), "b".into()]);
         assert_eq!(quoted("a b"), "\"a b\"");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Her network (mind/elle.grm) played with a tone of her own: what she chooses, eighth after eighth.
+    fn her_notes(seconds: usize, tag: &str, lessons: u8) -> Vec<(f64, f64, f64, f64)> {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let dir = std::env::temp_dir().join(format!("grm-elle-{tag}-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let app = format!(
+            "app Her\ninput bpm = 120 positive\ninput playing = 1\nnode tr_step\nrelate s: tr_step = 0.00000138888889 * bpm\n\
+             use {r}/apps/networks/lfo.grm\nuse {r}/apps/networks/transport.grm\ncall transport(name=tr, step=tr_step, run=playing)\n\
+             input hp = 220 positive\ninput hg = 0\ninput cs = 1\ninput ch = 1\ninput lz = {lessons}\nnode ear signed\nvar elle_pitch = 440 positive\nvar elle_gate = 0\n\
+             node vstep\nrelate vs: vstep * 48000 = elle_pitch\ncall lfo(name=v, step=vstep, shape=0)\n\
+             relate hearing: ear = 0.3 * elle_gate * v_out\n\
+             use {r}/mind/elle.grm\ncall elle(name=elle, ear=ear, clock_i=tr_i, clock_f=tr_f, other_pitch=hp, other_gate=hg, ctx_song=cs, ctx_human=ch, lessons=lz)\n",
+            r = root.display(),
+            lessons = lessons
+        );
+        let file = dir.join("her.grm");
+        std::fs::write(&file, app).unwrap();
+        let engine = Engine::start(World::new(), Duration::from_millis(4));
+        let mixer = Arc::new(Mutex::new(Mixer::new(48000)));
+        let mut sh = Shell::new(dir.join("w.world"), mixer.clone());
+        let (out, _) = sh.run(&engine, &format!("app open {}", file.display()));
+        assert!(out.iter().all(|l| l.kind != Kind::Error && l.kind != Kind::Warning), "{out:?}");
+        // the app said whole before she plays (its last node known)
+        for _ in 0..200 {
+            let (out, _) = sh.run(&engine, "show elle_born");
+            if out.iter().any(|l| l.text.contains("elle_born =")) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        // nothing drawn by chance: two of her, made from the same network, play the same, sample after sample
+        if tag == "twins" {
+            let mut one = Shell::reflex_of(&engine, "ear", 48000).unwrap();
+            let mut two = Shell::reflex_of(&engine, "ear", 48000).unwrap();
+            let differ: Vec<String> = one
+                .names
+                .iter()
+                .filter(|(n, &i)| !n.contains("__next") && one.values[i] != two.values[i])
+                .map(|(n, &i)| format!("{n}: {} {}", one.values[i], two.values[i]))
+                .take(12)
+                .collect();
+            assert!(differ.is_empty(), "they start apart: {differ:?}");
+            for k in 0..(48000 * 6) {
+                one.step();
+                two.step();
+                if k % 240 == 0 {
+                    assert_eq!(one.value("elle_choice"), two.value("elle_choice"), "at sample {k}");
+                    assert_eq!(one.value("elle_dhit1"), two.value("elle_dhit1"), "at sample {k}");
+                }
+            }
+        }
+        let (out, _) = sh.run(&engine, "play ear");
+        assert!(out[0].text.contains("plays"), "{out:?}");
+        let mut notes = vec![];
+        let mut buf = vec![0.0f32; 2 * 240];
+        for _ in 0..(seconds * 200) {
+            mixer.lock().unwrap().render(&mut buf);
+            let m = mixer.lock().unwrap();
+            let v = |n: &str| m.value("ear", n).unwrap_or(f64::NAN);
+            let kick = if v("elle_dhit1") > 0.5 { v("tr_i") } else { -1.0 };
+            notes.push((v("elle_semi"), v("elle_choice"), v("elle_gate"), kick));
+        }
+        engine.stop();
+        let _ = std::fs::remove_dir_all(&dir);
+        notes
+    }
+
+    #[test]
+    fn the_arpeggiator_goes_round_the_keys_and_its_latch_holds_them() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let dir = std::env::temp_dir().join(format!("grm-arp-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let app = format!(
+            "app Arp\ninput bpm = 120 positive\ninput playing = 1\nnode tr_step\nrelate s: tr_step = 0.00000138888889 * bpm\n\
+             use {r}/apps/networks/lfo.grm\nuse {r}/apps/networks/transport.grm\nuse {r}/apps/networks/arpeggiator.grm\n\
+             call transport(name=tr, step=tr_step, run=playing)\n\
+             input on = 1\ninput latch = 1\ninput mode = 0\ninput oct = 1 positive\ninput rate = 2 positive\n\
+             input p1 = 220 positive\ninput g1 = 1\ninput p2 = 330 positive\ninput g2 = 1\ninput p3 = 440 positive\ninput g3 = 0\ninput p4 = 550 positive\ninput g4 = 0\n\
+             call arpeggiator(name=a, clock_i=tr_i, clock_f=tr_f, on=on, latch=latch, mode=mode, oct=oct, rate=rate, p1=p1, g1=g1, p2=p2, g2=g2, p3=p3, g3=g3, p4=p4, g4=g4)\n\
+             node heard signed\nrelate h: heard = 0.1 * a_gate * tr_click\n",
+            r = root.display()
+        );
+        let file = dir.join("arp.grm");
+        std::fs::write(&file, app).unwrap();
+        let engine = Engine::start(World::new(), Duration::from_millis(4));
+        let mixer = Arc::new(Mutex::new(Mixer::new(48000)));
+        let mut sh = Shell::new(dir.join("w.world"), mixer.clone());
+        let (out, _) = sh.run(&engine, &format!("app open {}", file.display()));
+        assert!(out.iter().all(|l| l.kind != Kind::Error && l.kind != Kind::Warning), "{out:?}");
+        sh.run(&engine, "play heard");
+        let mut buf = vec![0.0f32; 2 * 600];
+        let mut listen = |mixer: &Arc<Mutex<Mixer>>, blocks: usize| {
+            let mut seen = vec![];
+            for _ in 0..blocks {
+                mixer.lock().unwrap().render(&mut buf);
+                let m = mixer.lock().unwrap();
+                if m.value("heard", "a_gate").unwrap_or(0.0) > 0.5 {
+                    seen.push(m.value("heard", "a_pitch").unwrap_or(0.0).round() as i64);
+                }
+            }
+            seen.dedup();
+            seen
+        };
+        // two keys held: one after the other
+        let held = listen(&mixer, 160);
+        assert!(held.contains(&220) && held.contains(&330) && !held.contains(&440), "{held:?}");
+        // let go, latched: they go on
+        for n in ["g1", "g2"] {
+            mixer.lock().unwrap().set_now(n, 0.0);
+            sh.run(&engine, &format!("observe {n} = 0 ± 0.000001"));
+        }
+        let latched = listen(&mixer, 160);
+        assert!(latched.contains(&220) && latched.contains(&330), "{latched:?}");
+        // not latched: silence
+        mixer.lock().unwrap().set_now("latch", 0.0);
+        sh.run(&engine, "observe latch = 0 ± 0.000001");
+        listen(&mixer, 20);
+        assert!(listen(&mixer, 160).is_empty());
+        engine.stop();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn her_first_lesson_is_one_note_a_beat() {
+        let a = her_notes(6, "l", 1);
+        let semis: Vec<i64> = a.iter().map(|n| n.0.round() as i64).collect();
+        assert!(semis.iter().all(|s| *s == 24), "one note only: {semis:?}");
+        assert!(a.iter().any(|n| n.2 > 0.5), "she plays it");
+        // her hand on the kick starts where a groove puts it: on the beats of the bar (0 and 8)
+        let mut kicks: Vec<i64> = a.iter().filter(|n| n.3 >= 0.0).map(|n| n.3.round() as i64).collect();
+        kicks.sort();
+        kicks.dedup();
+        assert!(!kicks.is_empty() && kicks.iter().all(|k| *k == 0 || *k == 8), "{kicks:?}");
+    }
+
+    #[test]
+    fn her_network_plays_by_itself_and_the_same_way_twice() {
+        let a = her_notes(12, "a", 0);
+        let semis: Vec<i64> = a.iter().map(|n| n.0.round() as i64).collect();
+        assert!(semis.iter().all(|s| (12..=36).contains(s)), "out of her range: {semis:?}");
+        let mut seen = semis.clone();
+        seen.dedup();
+        assert!(seen.len() > 8, "she hardly moves: {seen:?}");
+        assert!(a.iter().any(|n| n.2 > 0.5) && a.iter().any(|n| n.2 < 0.5), "no notes");
+        // nothing drawn by chance (the twins inside it agree)
+        her_notes(1, "twins", 0);
     }
 
     #[test]

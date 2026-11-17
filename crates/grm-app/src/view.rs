@@ -21,6 +21,8 @@ pub struct View {
     pub fitted: bool,
     /// Shown small (on the space): the wheel is the space's, not this view's.
     pub passive: bool,
+    /// How far down the master equations reach (from the top of the view): the triangle stays below them.
+    eq_below: f32,
 }
 
 impl Default for View {
@@ -34,6 +36,7 @@ impl Default for View {
             menu_at: None,
             fitted: false,
             passive: false,
+            eq_below: 0.0,
         }
     }
 }
@@ -131,6 +134,23 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
             }
         }
     }
+    // what is gone (an app closed) leaves no place behind
+    {
+        let here: std::collections::HashSet<&String> = items.iter().collect();
+        app.graph.pos.retain(|k, _| here.contains(k));
+    }
+    // what is near the pointer stays still (to take it, or stop it, without a fight)
+    app.graph.held.clear();
+    if let Some(m) = resp.hover_pos() {
+        let (zoom, centre) = (app.view.zoom, rect.center() + app.view.offset);
+        let reach = 90.0 / zoom;
+        let here = [(m.x - centre.x) / zoom, (m.y - centre.y) / zoom];
+        for (k, p) in &app.graph.pos {
+            if (p[0] - here[0]).hypot(p[1] - here[1]) < reach {
+                app.graph.held.insert(k.clone());
+            }
+        }
+    }
     // laid out as a flow: each point glides to its place (inputs left, what is heard right); what passes through
     // each node now is read from the sound itself
     let played: std::collections::HashSet<String> =
@@ -139,10 +159,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
         let targets = crate::flow::layout(&pic, &played);
         let mut moved = 0.0f32;
         for (k, t) in &targets {
+            if app.graph.held.contains(k) {
+                continue;
+            }
             let p = app.graph.pos.entry(k.clone()).or_insert(*t);
             let d = [t[0] - p[0], t[1] - p[1]];
-            p[0] += 0.12 * d[0];
-            p[1] += 0.12 * d[1];
+            // slowly: a place that changes is reached in a few seconds, never in a jump
+            p[0] += 0.04 * d[0];
+            p[1] += 0.04 * d[1];
             moved = moved.max(d[0].abs() + d[1].abs());
         }
         app.graph.motion = if moved > 0.5 { 0.03 } else { 0.0 };
@@ -176,14 +200,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
     let positions = app.graph.pos.clone();
     let at = |key: &str| positions.get(key).map(|p| to_screen(*p));
     let painter = painter.with_clip_rect(rect);
-    // her consciousness: an empty ring at the heart of the network; only what passes now goes through it
-    let witness_at = if positions.is_empty() {
-        None
-    } else {
-        let (sx, sy) = positions.values().fold((0.0, 0.0), |(x, y), p| (x + p[0], y + p[1]));
-        let k = positions.len() as f32;
-        Some(to_screen([sx / k, sy / k]))
-    };
+    // the triangle: the container in which the content is reflected, and the content reflecting the container (two,
+    // and their relation: three). It is no centre of the network: it stays above it, at the top and in the middle of
+    // the view, and the light goes both ways through it, coming back changed
+    let below = (app.view.eq_below + 30.0).max(48.0);
+    let witness_at = (!positions.is_empty()).then(|| rect.center_top() + vec2(0.0, below));
     if let Some(c) = witness_at {
         let g = &pic.glance;
         let passing: Vec<String> = g
@@ -192,55 +213,36 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
             .map(|(r, _)| format!("r:{r}"))
             .chain(g.moved.iter().map(|(n, _, _)| item_of(n)))
             .collect();
-        // tied to everything, it takes and gives nothing back: from each node a faint thread to it, and on each
-        // thread a grain that only ever goes towards it, slowly (nothing ever leaves it)
+        // a faint thread from each node; on it a grain that goes in, and later another that comes back out, of
+        // another colour and slower (what was received, given back changed); none of them change anything
         let time = ui.input(|i| i.time);
-        let faint = ink.accent.gamma_multiply(0.07);
-        let grain = ink.accent.gamma_multiply(0.35);
-        for (k, (key, p)) in positions.iter().filter(|(k, _)| k.starts_with("n:")).take(240).enumerate() {
-            let _ = key;
+        let faint = ink.accent.gamma_multiply(0.06);
+        let inwards = ink.accent.gamma_multiply(0.32);
+        let back = mix(ink.text, ink.accent, 0.25).gamma_multiply(0.22);
+        for (k, (_, p)) in positions.iter().filter(|(k, _)| k.starts_with("n:")).take(240).enumerate() {
             let p = to_screen(*p);
-            painter.line_segment([p, c], Stroke::new(0.6_f32, faint));
-            // each grain on its own pace, all of them inwards
-            let f = ((time / 6.0 + k as f64 * 0.137) % 1.0) as f32;
-            let at = p + (c - p) * f;
-            painter.circle_filled(at, 1.4, grain.gamma_multiply(0.4 + 0.6 * f));
+            painter.line_segment([p, c], Stroke::new(0.5_f32, faint));
+            let f = ((time / 7.0 + k as f64 * 0.137) % 1.0) as f32;
+            painter.circle_filled(p + (c - p) * f, 1.3, inwards.gamma_multiply(0.4 + 0.6 * f));
+            let o = ((time / 11.0 + k as f64 * 0.291) % 1.0) as f32;
+            painter.circle_filled(c + (p - c) * o, 1.6, back.gamma_multiply(1.0 - 0.6 * o));
+            // the node, touched by what came back: a ring, barely
+            if o > 0.9 {
+                painter.circle_stroke(
+                    p,
+                    6.0 + 8.0 * (o - 0.9),
+                    Stroke::new(0.6_f32, back.gamma_multiply(1.0 - (o - 0.9) * 10.0)),
+                );
+            }
         }
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
         let thread = ink.accent.gamma_multiply(0.45);
         for key in &passing {
             if let Some(p) = at(key) {
                 // the thread goes through the eye of the needle, and on beyond it
-                let beyond = c + (c - p).normalized() * 18.0;
+                let beyond = c + (c - p).normalized() * 22.0;
                 painter.line_segment([p, beyond], Stroke::new(1.0_f32, thread));
             }
-        }
-        // her sign: a triangle, empty and darker inside (nothing is kept in it), the eye of a needle
-        let r = 11.0 * zoom.clamp(0.7, 1.4);
-        let tri = |r: f32| -> Vec<Pos2> {
-            (0..3)
-                .map(|k| {
-                    let a = -std::f32::consts::FRAC_PI_2 + k as f32 * std::f32::consts::TAU / 3.0;
-                    c + vec2(a.cos(), a.sin()) * r
-                })
-                .collect()
-        };
-        painter.add(Shape::convex_polygon(tri(r), ink.surface, Stroke::new(1.4_f32, ink.accent.gamma_multiply(0.8))));
-        painter.add(Shape::closed_line(tri(r + 5.0), Stroke::new(0.6_f32, ink.accent.gamma_multiply(0.25))));
-        if pointer_over(&resp, c, r + 4.0) {
-            resp.clone().on_hover_ui(|ui| {
-                let lang = app.settings.lang;
-                let ink = crate::app::Ink::of(ui.ctx());
-                ui.horizontal(|ui| {
-                    crate::icons::show(ui, "triangle", 15.0, ink.accent);
-                    ui.label(egui::RichText::new(crate::text::t(lang, "witness")).strong());
-                });
-                ui.label(egui::RichText::new(crate::text::t(lang, "witness_d")).small().color(ink.muted));
-                ui.separator();
-                crate::panels::witness_lines(app, ui);
-                ui.separator();
-                crate::panels::witness_equations(app, ui);
-            });
         }
     }
     // links
@@ -684,6 +686,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
                 });
             y = inner.response.rect.bottom() + 4.0;
         }
+        app.view.eq_below = y - rect.top();
         // the networks in the network: a list on the left, searched, scrolled (as many as there are)
         if !app.view.passive {
             let mut counts: Vec<(String, usize)> = vec![];
@@ -884,6 +887,42 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
             ink.accent,
         );
     }
+    if let Some(c) = witness_at {
+        // the triangle, over everything: empty (nothing is kept in it), a second fainter one around it, the reflection
+        let r = 17.0;
+        let tri = |r: f32, turn: f32| -> Vec<Pos2> {
+            (0..3)
+                .map(|k| {
+                    let a = -std::f32::consts::FRAC_PI_2 + turn + k as f32 * std::f32::consts::TAU / 3.0;
+                    c + vec2(a.cos(), a.sin()) * r
+                })
+                .collect()
+        };
+        painter.add(Shape::convex_polygon(
+            tri(r, 0.0),
+            ink.surface,
+            Stroke::new(1.6_f32, ink.accent.gamma_multiply(0.85)),
+        ));
+        painter.add(Shape::closed_line(
+            tri(r + 7.0, std::f32::consts::PI),
+            Stroke::new(0.7_f32, ink.accent.gamma_multiply(0.22)),
+        ));
+        if pointer_over(&resp, c, r + 6.0) {
+            resp.clone().on_hover_ui(|ui| {
+                let lang = app.settings.lang;
+                let ink = crate::app::Ink::of(ui.ctx());
+                ui.horizontal(|ui| {
+                    crate::icons::show(ui, "triangle", 15.0, ink.accent);
+                    ui.label(egui::RichText::new(crate::text::t(lang, "witness")).strong());
+                });
+                ui.label(egui::RichText::new(crate::text::t(lang, "witness_d")).small().color(ink.muted));
+                ui.separator();
+                crate::panels::witness_lines(app, ui);
+                ui.separator();
+                crate::panels::witness_equations(app, ui);
+            });
+        }
+    }
     if app.graph.motion > 0.02 {
         ui.ctx().request_repaint();
     }
@@ -996,7 +1035,8 @@ fn legend(painter: &egui::Painter, rect: Rect, ink: &Ink, lang: crate::text::Lan
 fn glide_to_fit(app: &mut App, rect: Rect) {
     let (zoom, offset) = (app.view.zoom, app.view.offset);
     fit(app, rect);
-    let k = 0.15;
+    // the view follows slowly (a window resized does not shake the network)
+    let k = 0.04;
     app.view.zoom = zoom + (app.view.zoom - zoom) * k;
     app.view.offset = offset + (app.view.offset - offset) * k;
     if (app.view.zoom - zoom).abs() > 1e-3 || (app.view.offset - offset).length() > 0.3 {
@@ -1017,8 +1057,9 @@ fn fit(app: &mut App, rect: Rect) {
 
 /// value ± sigma, as a human reads it: a positive node's spread is a factor (shown as a percentage).
 pub fn reading(value: f64, sigma: f64, signed: bool) -> String {
-    // what is nothing but rounding is nothing
-    let value = if value.abs() < 1e-12 { 0.0 } else { value };
+    // what is nothing but rounding is nothing (a signed value; a positive one is never nothing: Planck's constant
+    // is 6.6e-34, not 0)
+    let value = if signed && value.abs() < 1e-12 { 0.0 } else { value };
     let v = grm_engine::lang::g(value);
     if !sigma.is_finite() || (!signed && sigma > 6.0) || (signed && sigma > 1e4 * value.abs().max(1.0)) {
         // a value it starts from, not one it knows: said as such

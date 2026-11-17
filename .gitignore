@@ -5,22 +5,12 @@
 
 # The human's own programs stay theirs: only the official apps are shared.
 /apps/*
-!/apps/oscillator.grm
+!/apps/studio.grm
 !/apps/swing.grm
 !/apps/weather.grm
-!/apps/analog.grm
-!/apps/her_synth.grm
 !/apps/networks/
 /apps/networks/*
-!/apps/networks/osc.grm
-!/apps/networks/saw.grm
-!/apps/networks/square.grm
-!/apps/networks/ladder.grm
-!/apps/networks/envelope.grm
-!/apps/networks/echo.grm
-!/apps/networks/reverb.grm
-!/apps/networks/sequencer.grm
-!/apps/networks/adsr.grm
+!/apps/networks/*.grm
 /apps/.trash/
 /*.grm
 /*.csv
@@ -32,3 +22,4 @@ space.grm
 *.simulations/
 *.music.json
 *.takes/
+*.studio.json

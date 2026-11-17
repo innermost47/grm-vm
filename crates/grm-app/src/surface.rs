@@ -17,6 +17,9 @@ use grm_shell::runtime::AppView;
 
 use crate::app::{App, Ink};
 use crate::text::t;
+
+/// Her colour: her notes, on the keys and on the roll (a soft lavender, calm in both themes).
+pub const HERS: Color32 = Color32::from_rgb(0xB4, 0xA7, 0xE6);
 use crate::view::reading;
 
 /// Rows of the grid are this high (points).
@@ -62,6 +65,9 @@ pub struct State {
     /// The keys held on a polyphonic instrument (MIDI numbers, the octave counted), and its prefix: the window
     /// gives each a voice.
     pub keys_held: std::collections::BTreeSet<i32>,
+    /// The knob being turned and where the hand has it now (the machine's answer comes later: the hand does not
+    /// wait for it, or most of its gesture would be lost).
+    pub turning: Option<(String, f64)>,
     pub poly: Option<String>,
     pub add_kind: Option<WidgetKind>,
     pub add_nodes: [String; 2],
@@ -409,7 +415,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
             }
             WidgetKind::Rec => {
                 // recording what is played and turned: its light, and how long it has been going
-                let recording = app.band.recording.is_some();
+                let recording = app.played.recording.is_some();
                 let colour = if recording { ui.visuals().selection.stroke.color } else { lk.text };
                 let sign = crate::icons::image(if recording { "square" } else { "circle-dot" }, 15.0 * lk.size, colour);
                 let words = match app.recording_for() {
@@ -577,10 +583,22 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                     // down (the value shows while it moves, and on the pointer)
                     let r = ui.interact(rect, id, Sense::click_and_drag());
                     let mut v = n.value;
+                    if r.drag_stopped() {
+                        app.surface.turning = None;
+                    }
                     if r.dragged() && !app.locked(&n.name) {
                         let dy = -r.drag_delta().y as f64;
+                        // from where the hand has it, not from the machine's last word
+                        if let Some((name, held)) = &app.surface.turning {
+                            if *name == n.name {
+                                v = *held;
+                            }
+                        }
                         let from = v;
-                        v = value_of(w.lo, w.hi, turn_of(w.lo, w.hi, v) + dy / 150.0);
+                        // its whole course in 200 points; with Shift, four times finer
+                        let fine = if ui.input(|i| i.modifiers.shift) { 4.0 } else { 1.0 };
+                        v = value_of(w.lo, w.hi, (turn_of(w.lo, w.hi, v) + dy / (200.0 * fine)).clamp(0.0, 1.0));
+                        app.surface.turning = Some((n.name.clone(), v));
                         observe(app, &n.name, v);
                         // she watches the human turn it
                         let part = |x: f64| (x - w.lo) / (w.hi - w.lo);
@@ -635,7 +653,29 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                             ink.muted,
                         );
                     }
-                    if !small {
+                    // a knob of choices ("up · down"): the one chosen lit, the others quiet
+                    let choices: Vec<&str> = label.split(" · ").collect();
+                    let steps = w.hi - w.lo;
+                    if !small && choices.len() > 1 && (steps - (choices.len() - 1) as f64).abs() < 1e-9 {
+                        let chosen = ((v - w.lo).round() as usize).min(choices.len() - 1);
+                        let font = egui::FontId::proportional(10.0);
+                        let parts: Vec<_> = choices
+                            .iter()
+                            .enumerate()
+                            .map(|(k, word)| {
+                                let colour = if k == chosen { ink.accent } else { ink.muted.gamma_multiply(0.7) };
+                                painter.layout_no_wrap(word.to_uppercase(), font.clone(), colour)
+                            })
+                            .collect();
+                        let gap = 8.0;
+                        let total: f32 = parts.iter().map(|g| g.size().x).sum::<f32>() + gap * (parts.len() - 1) as f32;
+                        let mut x = c.x - total / 2.0;
+                        for g in parts {
+                            let (w, h) = (g.size().x, g.size().y);
+                            painter.galley(pos2(x, rect.bottom() - h), g, ink.text);
+                            x += w + gap;
+                        }
+                    } else if !small {
                         caption(ui, &painter, pos2(c.x, rect.bottom()), &label, w.icon.as_deref(), &ink);
                     }
                     if r.dragged() || r.hovered() {
@@ -856,7 +896,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                     }
                 }
                 let h = (inner.height() / 48.0).max(2.0);
-                for (at, len, note, voice) in app.band.roll.iter() {
+                for (at, len, note, voice) in app.played.roll.iter() {
                     let (x0, x1) = (x_of(*at), x_of(at + len));
                     if x1 < inner.left() || x0 > inner.right() {
                         continue;
@@ -866,6 +906,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                         pos2(x1.min(inner.right()), y_of(*note) + h * 0.2),
                     );
                     let colour = match voice {
+                        4 => HERS,
                         1 => ink.accent,
                         2 => ink.amber,
                         3 => ink.accent.gamma_multiply(0.45),
@@ -892,7 +933,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                     egui::FontId::proportional(10.0),
                     ink.muted,
                 );
-                if !app.band.roll.is_empty() {
+                if !app.played.roll.is_empty() {
                     ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
                 }
             }
@@ -1157,16 +1198,51 @@ fn keys(app: &mut App, ui: &mut egui::Ui, painter: &egui::Painter, rect: Rect, i
     if app.locked(&w.nodes[0]) {
         held.clear();
     }
-    // the notes sounding now (hers, the sequence's, the human's), lit softly on their keys
+    // the notes sounding now, lit softly on their keys. In the studio each keyboard shows its own instrument only,
+    // read from the sound: its voices, the one she plays in her colour, and the notes its arpeggiator holds latched
+    // (framed); elsewhere, what the roll says sounds
     let now = app.ear_now();
-    let sounding: std::collections::BTreeSet<i32> = app
-        .band
-        .roll
-        .iter()
-        .filter(|(at, len, _, _)| *at <= now && now < at + len)
-        .map(|(_, _, n, _)| n + 33 - shift)
-        .collect();
-    if !sounding.is_empty() {
+    let pre = w.nodes[0].strip_suffix("pitch").unwrap_or("").to_string();
+    let read = |n: &str| app.mixer.lock().ok().and_then(|m| m.value("out", &format!("{pre}{n}")));
+    let key_of = |hz: f64| (12.0 * (hz.max(1.0) / 55.0).log2()).round() as i32 + 33 - shift;
+    let (sounding, hers_now, latched): (
+        std::collections::BTreeSet<i32>,
+        std::collections::BTreeSet<i32>,
+        std::collections::BTreeSet<i32>,
+    ) = if !pre.is_empty() && read("g1").is_some() {
+        let hers = read("hers").unwrap_or(0.0) > 0.5;
+        let mut mine = std::collections::BTreeSet::new();
+        let mut her = std::collections::BTreeSet::new();
+        for (k, (p, g)) in [("g1", "gate"), ("g2", "lg"), ("g3", "c1g"), ("g4", "c2g")].iter().enumerate() {
+            if read(g).unwrap_or(0.0) > 0.5 {
+                let key = key_of(read(p).unwrap_or(0.0));
+                if hers && k == 1 {
+                    her.insert(key)
+                } else {
+                    mine.insert(key)
+                };
+            }
+        }
+        let mut held = std::collections::BTreeSet::new();
+        if read("arp_on").unwrap_or(0.0) > 0.5 {
+            for i in 1..=4 {
+                if read(&format!("arp_lat{i}")).unwrap_or(0.0) > 0.5 {
+                    held.insert(key_of(read(&format!("arp_lp{i}")).unwrap_or(0.0)));
+                }
+            }
+        }
+        (mine, her, held)
+    } else {
+        let s = app
+            .played
+            .roll
+            .iter()
+            .filter(|(at, len, _, _)| *at <= now && now < at + len)
+            .map(|(_, _, n, _)| n + 33 - shift)
+            .collect();
+        (s, Default::default(), Default::default())
+    };
+    if !sounding.is_empty() || !hers_now.is_empty() || !latched.is_empty() {
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(40));
     }
     for (m, b, black) in &boxes {
@@ -1174,6 +1250,8 @@ fn keys(app: &mut App, ui: &mut egui::Ui, painter: &egui::Painter, rect: Rect, i
         // a keyboard looks like one, whatever the theme
         let fill = if on {
             ink.accent
+        } else if hers_now.contains(m) {
+            HERS
         } else if sounding.contains(m) {
             ink.accent.gamma_multiply(0.55)
         } else if *black {
@@ -1183,6 +1261,10 @@ fn keys(app: &mut App, ui: &mut egui::Ui, painter: &egui::Painter, rect: Rect, i
         };
         painter.rect_filled(*b, 2.0, fill);
         painter.rect_stroke(*b, 2.0, Stroke::new(1.0_f32, ink.muted), egui::StrokeKind::Inside);
+        // held by the latch: framed (it goes on sounding, by turns)
+        if latched.contains(m) {
+            painter.rect_stroke(b.shrink(2.0), 2.0, Stroke::new(2.0_f32, ink.accent), egui::StrokeKind::Inside);
+        }
     }
     // a polyphonic instrument (a `poly` node beside its pitch): each key held takes a voice (the window shares them
     // out); otherwise the last key held plays, alone

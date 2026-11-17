@@ -1,0 +1,19 @@
+# A metronome: a click at each beat, the first of each bar of four louder. {step}: how far its phase goes at each
+# sample (beats a second / 48 000); {name}_p goes from 0 to 1 within each beat (where the beat is: what follows it
+# can be told), {name}_b counts the beats of the bar (0 .. 3). {name}_out is the click: a short sine at 1.5 kHz that
+# fades within a few hundredths of a second.
+network metronome(name, step)
+  var {name}_p = 0
+  set {name}_p = {name}_p + {step} when {name}_p in -1 .. 1
+  set {name}_p = {name}_p + {step} - 1 when {name}_p in 1 .. 3
+  var {name}_b = 0
+  set {name}_b = {name}_b + 1 when {name}_p in 1 .. 3 and {name}_b in -1 .. 2.5
+  set {name}_b = 0 when {name}_p in 1 .. 3 and {name}_b in 2.5 .. 9
+  var {name}_e = 0
+  set {name}_e = 1 when {name}_p in 1 .. 3 and {name}_b in 2.5 .. 9
+  set {name}_e = 0.55 when {name}_p in 1 .. 3 and {name}_b in -1 .. 2.5
+  set {name}_e = 0.9985 * {name}_e when {name}_p in -1 .. 1
+  call lfo(name={name}_tone, step=0.125, shape=0)
+  node {name}_out signed
+  relate {name}_click: {name}_out = {name}_e * {name}_tone_out
+end

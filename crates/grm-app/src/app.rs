@@ -93,7 +93,7 @@ pub type Tape = (f64, Vec<(f64, String, f64)>);
 /// (when, which), what was turned and played (seconds from the start, node, value) and the next.
 pub struct Replay {
     pub start: Instant,
-    pub notes: Vec<crate::music::Note>,
+    pub notes: Vec<crate::notes::Note>,
     pub next: usize,
     pub offs: Vec<(f64, String)>,
     pub events: Vec<(f64, String, f64)>,
@@ -135,31 +135,19 @@ pub struct App {
     pub ws_selected: Option<(String, String)>,
     /// What is looked for in the list of networks.
     pub net_search: String,
-    /// The ear it improvises by (what it learned of the intervals, by what it heard).
-    pub ear: crate::improvise::Ear,
-    /// The melody she plays over it, and the bass when the sequencer is off.
-    pub band: crate::improvise::Band,
+    /// What was played lately (the roll, the keys), and the take being recorded.
+    pub played: crate::notes::Played,
     /// The network laid out as a flow (inputs left, outputs right), and what passes through it now.
     pub flow: crate::flow::Flow,
-    /// Her lessons: what binds her, how tight, what she lived in each, her mood.
-    pub teacher: crate::music::Teacher,
     music_saved_at: Instant,
     /// What is recorded (when it began, and every node written by hand or by her, in time), while recording.
     pub tape: std::sync::Mutex<Option<Tape>>,
     /// Where the beat is: (when it was read, the phase in the beat 0 .. 1, seconds a beat, the beat in the bar 0 .. 3).
     pub beat_clock: Option<(f64, f64, f64, f64)>,
-    /// The arpeggiator: when its next note comes, which it is, when the one sounding is let go.
-    arps: HashMap<String, (f64, usize, Option<f64>)>,
     /// The synthesiser whose voices the human's hands hold.
     hands_view: Option<String>,
-    /// The switch the lesson turned on (the sequencer, the arpeggiator).
-    lesson_switch: Option<String>,
     /// The gates kept open in the memory were let go, at the start.
     gates_closed: bool,
-    /// She was playing (by ear): when she stops, her notes are let go.
-    her_playing: bool,
-    /// The voice each synthesiser's arpeggiator plays (what she would play there waits meanwhile).
-    arp_voices: HashMap<String, usize>,
     /// Which voice the human holds, and since when: (the key, when).
     human_hands: [Option<(i32, f64)>; 4],
     /// How many times the sound ran away, as last said.
@@ -167,10 +155,12 @@ pub struct App {
     /// The studio's song (its tracks), and each strip's meter.
     pub song: crate::studio::Song,
     pub studio_vu: HashMap<String, f32>,
-    /// Her hand on the drum machines.
-    pub drum_hand: crate::studio::DrumHand,
+    /// What her network learned (its `memory` nodes), as last taken from the sound: given back when she wakes.
+    pub elle_memory: indexmap::IndexMap<String, f64>,
     /// When her own network was last written (what she feels, in it).
     elle_at: f64,
+    /// Her note sounding now (when it began, which), drawn on the roll when it ends.
+    elle_note: Option<(f64, i32)>,
     /// A take played again: (when it began, its notes, the next to play, the notes to let go: when, which voice).
     pub replay: Option<Replay>,
     started: Instant,
@@ -444,19 +434,21 @@ impl App {
         };
         apply_look(&cc.egui_ctx, &settings);
         // her music, as she left it (her ear, her tastes, her lessons, her mood)
-        let kept = if args.fresh { None } else { crate::music::Kept::load(&memory) }.unwrap_or_default();
+        let kept = if args.fresh { None } else { crate::notes::Kept::load(&memory) }.unwrap_or_default();
         let memory_for_song = memory.clone();
         // the studio's file, written from its song (so it is there to open, as it was left)
         {
-            let song = crate::studio::Song::load(&memory);
+            let mut song = crate::studio::Song::load(&memory);
+            let human = song.human(&settings.human);
+            song.save(&memory);
             let dir = grm_shell::runtime::apps_dir(&memory);
             let path = dir.join(format!("{}.grm", crate::studio::APP));
-            let text = song.grm();
+            let text = song.grm(human);
             if std::fs::read_to_string(&path).ok().as_deref() != Some(text.as_str()) {
                 let _ = std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&path, text));
             }
         }
-        let kept_drums = kept.drums.clone();
+        let kept_elle = kept.elle.clone();
         App {
             engine,
             worker,
@@ -489,25 +481,20 @@ impl App {
             world_off: vec![],
             ws_selected: None,
             net_search: String::new(),
-            ear: kept.ear,
-            band: kept.band,
+            played: Default::default(),
             flow: Default::default(),
-            teacher: kept.teacher,
             music_saved_at: Instant::now(),
             tape: std::sync::Mutex::new(None),
             human_hands: [None; 4],
-            arps: HashMap::new(),
             hands_view: None,
             beat_clock: None,
-            arp_voices: HashMap::new(),
-            her_playing: false,
             gates_closed: false,
-            lesson_switch: None,
             fused_seen: 0,
             song: crate::studio::Song::load(&memory_for_song),
             studio_vu: HashMap::new(),
-            drum_hand: kept_drums,
+            elle_memory: kept_elle,
             elle_at: 0.0,
+            elle_note: None,
             replay: None,
             started: Instant::now(),
             hand_range: Default::default(),
@@ -806,10 +793,11 @@ impl App {
 
     /// The studio's file written again from its song, and opened again (its sound goes on).
     pub fn studio_rewrite(&mut self) {
+        let human = self.song.human(&self.settings.human.clone());
         self.song.save(&self.memory);
         let dir = grm_shell::runtime::apps_dir(&self.memory);
         let path = dir.join(format!("{}.grm", crate::studio::APP));
-        if let Err(e) = std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&path, self.song.grm())) {
+        if let Err(e) = std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&path, self.song.grm(human))) {
             self.toast(format!("{}: {e}", path.display()));
             return;
         }
@@ -831,12 +819,7 @@ impl App {
 
     /// Her music, kept beside the memory (what she learned stays between sessions).
     pub fn keep_music(&self) {
-        let kept = crate::music::Kept {
-            ear: self.ear.clone(),
-            band: self.band.clone(),
-            teacher: self.teacher.clone(),
-            drums: self.drum_hand.clone(),
-        };
+        let kept = crate::notes::Kept { elle: self.elle_memory.clone() };
         if let Err(e) = kept.save(&self.memory) {
             eprintln!("{e}");
         }
@@ -860,9 +843,9 @@ impl App {
     /// Recording starts, or stops and is written: a MIDI file of the notes, and the take itself (every note and
     /// every knob turned, by hand or by her, in time) to play again.
     pub fn record(&mut self) {
-        match self.band.recording.take() {
+        match self.played.recording.take() {
             None => {
-                self.band.recording = Some(vec![]);
+                self.played.recording = Some(vec![]);
                 if let Ok(mut t) = self.tape.lock() {
                     *t = Some((self.ear_now(), vec![]));
                 }
@@ -883,8 +866,8 @@ impl App {
                 let n = self.takes().len() + 1;
                 let bpm = 60.0 / self.beat().max(1e-3);
                 let base = dir.join(format!("take-{n:03}"));
-                let mid = crate::music::midi(&notes, bpm);
-                let take = crate::music::Take { notes, events };
+                let mid = crate::notes::midi(&notes, bpm);
+                let take = crate::notes::Take { notes, events };
                 let ok = std::fs::write(base.with_extension("mid"), mid).is_ok()
                     && std::fs::write(base.with_extension("json"), serde_json::to_string(&take).unwrap_or_default())
                         .is_ok();
@@ -921,10 +904,10 @@ impl App {
     /// A take played again: what was turned and played, in time (a take of before, its notes alone).
     pub fn play_take(&mut self, path: &std::path::Path) {
         let text = std::fs::read_to_string(path).unwrap_or_default();
-        let take: crate::music::Take = serde_json::from_str(&text)
+        let take: crate::notes::Take = serde_json::from_str(&text)
             .or_else(|_| {
-                serde_json::from_str::<Vec<crate::music::Note>>(&text)
-                    .map(|notes| crate::music::Take { notes, events: vec![] })
+                serde_json::from_str::<Vec<crate::notes::Note>>(&text)
+                    .map(|notes| crate::notes::Take { notes, events: vec![] })
             })
             .unwrap_or_default();
         let notes = if take.events.is_empty() {
@@ -1020,11 +1003,6 @@ impl App {
         all.iter().find(|a| self.shown(a)).cloned().or_else(|| all.first().cloned())
     }
 
-    /// Each their instrument: she has her own, and the human has theirs beside it.
-    pub fn two_synths(&self) -> bool {
-        self.hers().is_some() && self.human_synth().is_some()
-    }
-
     /// The parts of every app she holds now: the nodes of each `hand` whose switch is on.
     pub fn her_hands(&self) -> std::collections::HashSet<String> {
         let mut out = std::collections::HashSet::new();
@@ -1036,15 +1014,6 @@ impl App {
             }
         }
         out
-    }
-
-    /// A node she may write: one of a part she holds (an app with hands); in an app without, what she plays.
-    pub fn may_write(&self, node: &str) -> bool {
-        let with_hands = self.apps.iter().any(|a| {
-            !a.hands.is_empty()
-                && a.prefix.values().chain(a.hands.iter().flat_map(|h| h.nodes.iter())).any(|n| n == node)
-        });
-        !with_hands || self.her_hands().contains(node)
     }
 
     /// A node the human may not write: one of a part she holds (they see it move); on her own synthesiser of
@@ -1061,13 +1030,6 @@ impl App {
         let src = format!("app:{app}");
         let mine = self.picture.node(node).is_some_and(|n| n.source == src);
         mine && !["volume", "auto_on"].iter().any(|s| self.named_in(&hers, s) == node)
-    }
-
-    /// What she writes: only through a part she holds (she plays the instruments, she is not one).
-    fn her_write(&self, node: &str, v: f64) {
-        if self.may_write(node) {
-            self.by_ear(node, v);
-        }
     }
 
     /// The voices of a polyphonic synthesiser (pitch, gate): the first the keys' (or the sequencer's), the second
@@ -1095,15 +1057,6 @@ impl App {
         Some((pre.to_string(), keys))
     }
 
-    /// The voices of a polyphonic instrument (pitch, gate): the first the keys' (or the sequencer's), the second
-    /// her melody's, the third and fourth her chords'.
-    fn voice_nodes(&self) -> [(String, String); 4] {
-        match self.her_synth() {
-            Some(v) => self.voices_in(&v),
-            None => self.voices_in(""),
-        }
-    }
-
     /// A node of the instrument she plays, by the name its file gives it (the window may have renamed it, when
     /// another app holds a node of that name: `pitch` becomes `analog__pitch`).
     pub fn named(&self, short: &str) -> String {
@@ -1128,7 +1081,9 @@ impl App {
             a.widgets.iter().any(|w| {
                 w.kind == grm_shell::apps::WidgetKind::Keys && w.nodes.first().is_some_and(|n| map(n) == pitch)
             }) && self.picture.node(&map("poly")).is_some()
-        })
+        }) || pitch
+            .strip_suffix("pitch")
+            .is_some_and(|pre| !pre.is_empty() && self.picture.node(&format!("{pre}poly")).is_some())
     }
 
     /// The human's hands on a polyphonic instrument: each key held takes a voice, a free one first (one she is not
@@ -1161,7 +1116,7 @@ impl App {
                 if !held.contains(&m) {
                     self.by_ear(&voice.1, 0.0);
                     self.human_hands[k] = None;
-                    self.band.played(at, (now - at).max(0.05), m - 33, 2);
+                    self.played.played(at, (now - at).max(0.05), m - 33, 2);
                 }
             }
         }
@@ -1199,41 +1154,60 @@ impl App {
                 Err(_) => (None, None),
             };
             let beat = 60.0 / self.value_in(&view, "bpm").unwrap_or(120.0).max(10.0);
-            self.beat_clock = match (i, f) {
+            let now = self.ear_now();
+            let read = match (i, f) {
                 (Some(i), Some(f)) => {
                     let i = i.round().clamp(0.0, 15.0);
-                    Some((self.ear_now(), ((i % 4.0) + f.clamp(0.0, 1.0)) / 4.0, beat, (i / 4.0).floor()))
+                    Some((now, ((i % 4.0) + f.clamp(0.0, 1.0)) / 4.0, beat, (i / 4.0).floor()))
                 }
                 _ => None,
             };
+            // the sound is read by blocks: what is read jumps a little ahead, a little behind. The clock goes on by
+            // itself, steadily, and takes a new reading only when it has drifted (the grid does not tremble)
+            self.beat_clock = match (self.beat_clock, read) {
+                (Some((at, p, b, bar)), Some((_, p2, b2, _))) if (b - b2).abs() < 1e-6 => {
+                    let predicted = (p + (now - at) / b.max(1e-3)).fract();
+                    let gap = (p2 - predicted + 1.5).fract() - 0.5;
+                    if gap.abs() < 0.04 {
+                        Some((at, p, b, bar))
+                    } else {
+                        read
+                    }
+                }
+                _ => read,
+            };
             return;
         }
-        if let (Some(hers), true) = (self.hers(), self.two_synths()) {
-            if let (Some(his), Some(her)) = (self.value_in(&view, "bpm"), self.value_in(&hers, "bpm")) {
-                if (his - her).abs() > 0.01 {
-                    let n = self.named_in(&hers, "bpm");
-                    self.by_ear(&n, his);
-                }
-            }
-        }
-        let out = self.named_in(&view, "out");
-        let (pn, bn) = (self.named_in(&view, "mt_p"), self.named_in(&view, "mt_b"));
-        let (phase, bar) = match self.mixer.lock() {
-            Ok(m) => {
-                let playing = m.playing();
-                match playing.iter().find(|p| **p == out).or(playing.first()) {
-                    Some(ch) => (m.value(ch, &pn), m.value(ch, &bn)),
-                    None => (None, None),
-                }
-            }
-            Err(_) => (None, None),
-        };
-        let beat = 60.0 / self.value_in(&view, "bpm").unwrap_or(104.0).max(10.0);
-        self.beat_clock = phase.map(|p| (self.ear_now(), p, beat, bar.unwrap_or(0.0)));
+        // no transport: no beat
+        self.beat_clock = None;
     }
 
-    /// Her own network (ELLE): what she feels written into it, once a second, with her provenance. The first time,
-    /// it is made, with what she starts knowing (physics, acoustics, music, mathematics, GRML), each with its own.
+    /// What her network plays, drawn on the piano roll (read from the sound: the window only shows it).
+    fn elle_roll(&mut self) {
+        let (gate, semi) = match self.mixer.lock() {
+            Ok(m) => (m.value("out", "elle_gate"), m.value("out", "elle_semi")),
+            Err(_) => return,
+        };
+        let (Some(gate), Some(semi)) = (gate, semi) else { return };
+        let now = self.ear_now();
+        let note = semi.round() as i32 + 12;
+        match self.elle_note {
+            Some((t0, n)) if gate < 0.5 || n != note => {
+                self.played.roll.push_back((t0, now - t0, n, 4));
+                while self.played.roll.front().is_some_and(|r| r.0 + r.1 < now - 20.0) {
+                    self.played.roll.pop_front();
+                }
+                self.elle_note = (gate >= 0.5).then_some((now, note));
+            }
+            None if gate >= 0.5 => self.elle_note = Some((now, note)),
+            _ => {}
+        }
+    }
+
+    /// Her own network (ELLE) is GRML (`mind/elle.grm`, called by the apps); the window only carries what it
+    /// learned from one session to the next: taken from the sound now and then, given back when she wakes (her
+    /// `born` memory still 0). The first time, what she starts knowing is said to the machine, each file with its
+    /// own provenance.
     fn elle(&mut self) {
         let now = self.ear_now();
         if now - self.elle_at < 1.0 {
@@ -1243,164 +1217,50 @@ impl App {
         self.elle_at = now;
         if first {
             let dirs = [self.memory.parent().map(|p| p.join("mind")), Some(std::path::PathBuf::from("mind"))];
-            let Some(dir) = dirs.into_iter().flatten().find(|d| d.join("elle.grm").exists()) else { return };
+            let Some(dir) = dirs.into_iter().flatten().find(|d| d.join("knowledge").exists()) else { return };
             let dir = std::fs::canonicalize(&dir).unwrap_or(dir);
             self.engine.send(move |w| {
-                if w.node_sources().contains_key("elle_pleasure") {
-                    return Ok(String::new());
+                // her first network was a few nodes of mood written by the window: she is a network of her own now
+                if w.sources().contains_key("elle") {
+                    let _ = w.trash_source("elle");
                 }
-                let mut files = vec![(dir.join("elle.grm"), "elle".to_string())];
                 for k in ["physics", "acoustics", "music", "maths", "grml"] {
-                    files.push((dir.join("knowledge").join(format!("{k}.grm")), format!("knowledge:{k}")));
-                }
-                for (f, origin) in files {
-                    if f.exists() {
-                        w.say(&format!("use {}", f.display()), &grm_engine::Provenance::of(origin))?;
+                    let origin = format!("knowledge:{k}");
+                    let f = dir.join("knowledge").join(format!("{k}.grm"));
+                    // said line by line (its measurements too: `use` inside the machine leaves them to the prompt), at
+                    // each launch: said again it stays the same, and a memory made before (when they were missing)
+                    // gets them
+                    if let Ok(text) = std::fs::read_to_string(&f) {
+                        let origin = grm_engine::Provenance::of(origin);
+                        for line in text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
+                            let _ = w.say(line, &origin);
+                        }
                     }
                 }
                 Ok(String::new())
             });
             return;
         }
-        if self.picture.node("elle_pleasure").is_none() {
-            return;
-        }
-        let m = self.teacher.mood;
-        let lines: Vec<String> = [
-            ("pleasure", m.pleasure),
-            ("surprise", m.surprise),
-            ("curiosity", m.curiosity),
-            ("boredom", m.boredom),
-            ("pressure", self.teacher.pressure),
-        ]
-        .iter()
-        .filter(|(n, v)| self.picture.node(&format!("elle_{n}")).is_none_or(|x| (x.value - v).abs() > 0.01))
-        .map(|(n, v)| format!("observe elle_{n} = {v:.4} ± 0.05"))
-        .collect();
-        if lines.is_empty() {
-            return;
-        }
-        self.engine.send(move |w| {
-            let origin = grm_engine::Provenance::of("elle");
-            for l in &lines {
-                w.say(l, &origin)?;
+        let Ok(mut m) = self.mixer.lock() else { return };
+        match m.value("out", "elle_born") {
+            Some(b) if b < 0.5 => {
+                // she wakes: what she learned before is given back to her network
+                let mut back = self.elle_memory.clone();
+                back.insert("elle_born".into(), 1.0);
+                m.restore("out", &back);
             }
-            Ok(String::new())
-        });
-    }
-
-    /// Her hand on the drum machines: each drum she holds (its switch, `X_hers`), a step moved at a bar now and
-    /// then, kept when what she heard after pleased her more.
-    fn drums_by_her(&mut self) {
-        let Some(view) = self.apps.iter().find(|a| a.name == crate::studio::APP) else { return };
-        let mut held = vec![];
-        for h in &view.hands {
-            if !self.picture.node(&h.switch).is_some_and(|n| n.value > 0.5) {
-                continue;
-            }
-            // a drum's hand: its switch is `tN_X_hers`
-            let Some(stem) = h.switch.strip_suffix("_hers") else { continue };
-            let Some((track, drum)) = stem.rsplit_once('_') else { continue };
-            if !crate::studio::DRUMS.iter().any(|(x, _)| *x == drum) {
-                continue;
-            }
-            let mut steps = [false; 16];
-            for (k, on) in steps.iter_mut().enumerate() {
-                *on = self.picture.node(&format!("{stem}_s{}", k + 1)).is_some_and(|n| n.value > 0.5);
-            }
-            held.push((format!("{track}_"), drum.to_string(), steps));
-        }
-        if held.is_empty() {
-            return;
-        }
-        let bar = self.mixer.lock().ok().and_then(|m| m.value("out", "tr_bar")).unwrap_or(0.0) as i64;
-        let clarity = self.ear.clarity;
-        for (node, v) in self.drum_hand.tick(bar, &held, clarity) {
-            self.her_write(&node, v);
-        }
-    }
-
-    /// The arpeggiator: the keys held (or, when she plays, her chord) one after another on the first voice, up,
-    /// down, up and down or at random, over one to three octaves, so many a step of the sequencer; each note let
-    /// go at seven tenths of its time.
-    fn arpeggiate(&mut self, ctx: &egui::Context) {
-        for view in self.synth_names() {
-            self.arpeggiate_on(&view, ctx);
-        }
-    }
-
-    fn arpeggiate_on(&mut self, view: &str, ctx: &egui::Context) {
-        // the first voice, or the third when the sequencer has the first
-        let k = if self.value_in(view, "seq_on").unwrap_or(0.0) > 0.5 { 2 } else { 0 };
-        let (pitch, gate) = self.voices_in(view)[k].clone();
-        if self.value_in(view, "arp_on").unwrap_or(0.0) <= 0.5 {
-            if self.arps.remove(view).is_some_and(|a| a.2.is_some()) {
-                self.by_ear(&gate, 0.0);
-            }
-            self.arp_voices.remove(view);
-            return;
-        }
-        if let Some(old) = self.arp_voices.get(view).copied().filter(|v| *v != k) {
-            let g = self.voices_in(view)[old].1.clone();
-            self.by_ear(&g, 0.0);
-        }
-        self.arp_voices.insert(view.to_string(), k);
-        ctx.request_repaint_after(Duration::from_millis(5));
-        let now = self.ear_now();
-        // so many notes a step of the sequencer (an eighth: two a beat)
-        let steps = self.value_in(view, "bpm").unwrap_or(104.0) / 30.0;
-        let step = 1.0 / (steps * self.value_in(view, "arp_rate").unwrap_or(1.0)).max(0.1);
-        // the keys held on this synthesiser's keyboard; on hers, her chord
-        let keys_here = self.surface.poly.as_ref().is_some_and(|p| *p == self.named_in(view, "pitch"));
-        let mut notes: Vec<i32> =
-            if keys_here { self.surface.keys_held.iter().map(|m| m - 33).collect() } else { vec![] };
-        if notes.is_empty()
-            && self.her_synth().as_deref() == Some(view)
-            && self.value_in(view, "auto_on").unwrap_or(0.0) > 0.5
-        {
-            notes = self.band.chord_notes.clone();
-        }
-        notes.sort();
-        notes.dedup();
-        let octaves = self.value_in(view, "arp_oct").unwrap_or(1.0).round().clamp(1.0, 3.0) as i32;
-        let mode = self.value_in(view, "arp_mode").unwrap_or(0.0).round() as i32;
-        let mut run: Vec<i32> = (0..octaves).flat_map(|o| notes.iter().map(move |n| n + 12 * o)).collect();
-        match mode {
-            1 => run.reverse(),
-            2 if run.len() > 2 => {
-                let down: Vec<i32> = run[1..run.len() - 1].iter().rev().copied().collect();
-                run.extend(down);
-            }
-            _ => {}
-        }
-        let (mut next_at, mut idx, mut off_at) = self.arps.get(view).copied().unwrap_or((now, 0, None));
-        if off_at.is_some_and(|t| now >= t) {
-            self.by_ear(&gate, 0.0);
-            off_at = None;
-        }
-        if now >= next_at {
-            next_at = if now - next_at > step { now + step } else { next_at + step };
-            if run.is_empty() {
-                if off_at.take().is_some() {
-                    self.by_ear(&gate, 0.0);
+            Some(_) => {
+                let learned = m.memories("out");
+                if !learned.is_empty() {
+                    self.elle_memory = learned;
                 }
-            } else {
-                let i = if mode == 3 {
-                    ((now * 7919.0).fract() * run.len() as f64) as usize % run.len()
-                } else {
-                    idx % run.len()
-                };
-                idx = idx.wrapping_add(1);
-                let n = run[i];
-                let hz = 55.0 * 2f64.powf(n as f64 / 12.0);
-                self.by_ear(&pitch, (hz * 100.0).round() / 100.0);
-                self.by_ear(&gate, 1.0);
-                off_at = Some(now + 0.7 * step);
-                let voice = if keys_here { 2 } else { 0 };
-                self.band.played(now, 0.7 * step, n, voice);
+                drop(m);
+                if (now as u64).is_multiple_of(30) {
+                    self.keep_music();
+                }
             }
+            None => {}
         }
-        self.arps.insert(view.to_string(), (next_at, idx, off_at));
     }
 
     /// A take being played again: what was turned and played, when its time comes (a take of before: its notes, let
@@ -1426,7 +1286,7 @@ impl App {
                 self.by_ear(&pitch, (hz * 100.0).round() / 100.0);
                 self.by_ear(&gate, 1.0);
                 r.offs.push((r.notes[r.next].0 + len, gate));
-                self.band.roll.push_back((now, len, note, voice));
+                self.played.roll.push_back((now, len, note, voice));
                 r.next += 1;
             }
         }
@@ -1694,6 +1554,25 @@ impl App {
                     .filter(|x| !apps.iter().any(|v| v.name == x.name))
                     .map(|x| x.name.clone())
                     .collect();
+                // an app closed: the network it leaves is shown whole again
+                if !closed.is_empty() {
+                    self.view.fitted = false;
+                }
+                // an app the human just opened is what they see (not the space)
+                let opened: Vec<String> = apps
+                    .iter()
+                    .filter(|v| !self.apps.iter().any(|x| x.name == v.name))
+                    .map(|v| v.name.clone())
+                    .collect();
+                if self.apps_known {
+                    if let Some(n) = opened.last() {
+                        self.wanted_app = Some(n.clone());
+                        self.space_on = false;
+                        self.current_file = None;
+                        self.sandbox_shown = None;
+                        self.workshop_shown = None;
+                    }
+                }
                 self.apps = apps;
                 self.apps_known = true;
                 if let Some(c) = &self.current {
@@ -2405,6 +2284,8 @@ impl eframe::App for App {
             if let Some(name) = self.current.clone() {
                 self.launched_view(ctx, &name);
                 self.windows(ctx);
+                // what lives goes on in the app alone too (her, the keys, the clock, the toasts)
+                self.toasts(ctx);
                 ctx.request_repaint_after(Duration::from_millis(50));
                 return;
             }
@@ -3256,256 +3137,6 @@ impl App {
         ctx.request_repaint();
     }
 
-    /// Improvising by ear: an instrument whose `auto_on` and sequencer are on gets its next notes from what the
-    /// machine hears of itself.
-    fn improvise(&mut self, ctx: &egui::Context) {
-        // the instrument's own switch (another node named so, in a copy elsewhere, is not this instrument's)
-        let prefix = self.instrument().map(|i| i.0);
-        let on_switch =
-            prefix.as_ref().and_then(|_| self.picture.node(&self.named("auto_on"))).is_some_and(|n| n.value > 0.5);
-        let (Some(_), true) = (prefix.clone(), on_switch) else {
-            // not by ear: what the human played is not kept for her, and what she held is let go
-            self.surface.played.clear();
-            self.surface.turned.clear();
-            if std::mem::take(&mut self.her_playing) && prefix.is_some() {
-                {
-                    let her = self.her_synth();
-                    for (k, (_, gate)) in self.voice_nodes().iter().enumerate() {
-                        let held = self.hands_view.is_some() && self.hands_view == her && self.human_hands[k].is_some();
-                        if !held && her.as_ref().and_then(|p| self.arp_voices.get(p)) != Some(&k) {
-                            self.by_ear(gate, 0.0);
-                        }
-                    }
-                }
-            }
-            return;
-        };
-        self.her_playing = true;
-        // listening goes on even when nothing else moves in the window
-        ctx.request_repaint_after(std::time::Duration::from_millis(40));
-        // what the human plays on the keys meanwhile, she learns from: each interval played leans her towards it
-        let pitch = self
-            .picture
-            .nodes
-            .iter()
-            .find(|n| n.name.ends_with("pitch") && !n.name.contains("s_pitch") && n.source.starts_with("app:"))
-            .map(|n| n.value);
-        let held = self.picture.nodes.iter().find(|n| n.name.ends_with("hold")).map(|n| n.value > 0.5).unwrap_or(false);
-        if let (Some(p), true) = (pitch, held) {
-            self.ear.hear_human(p);
-        }
-        let now = self.started.elapsed().as_secs_f64();
-        // the human's notes, for her to answer; the knobs they turn, for her to learn from
-        for m in std::mem::take(&mut self.surface.played) {
-            let show = self.surface.poly.is_none();
-            self.band.human_played(now, m - 33, show);
-        }
-        for (node, from, to) in std::mem::take(&mut self.surface.turned) {
-            self.ear.human_turns(&node, from, to, now);
-        }
-        let seq_on = self.inst_value("seq_on").unwrap_or(0.0) > 0.5;
-        let s_i = self.inst_value("s_i");
-        let tempo = 60.0 / self.beat();
-        // in the studio, the sequencer's step comes from the transport (two sixteenths a step), its note from sp
-        let studio = self.her_synth().is_some_and(|k| !Self::split_key(&k).1.is_empty());
-        let (tr_i, sp) = (self.global("tr_i"), self.named("sp"));
-        // the step the sequencer is on and the note it plays, as the sound has them (the machine above sees them
-        // only slowly)
-        let her_out = self.global("out");
-        let (samples, rate, step, bass_hz) = match self.mixer.lock() {
-            Ok(m) => {
-                let playing = m.playing();
-                let name = playing.iter().find(|p| **p == her_out).or(playing.first()).cloned();
-                let read =
-                    |node: &str| name.as_ref().and_then(|n| m.value(n, &self.named(node)).or_else(|| m.value(n, node)));
-                let (step, bass) = if studio {
-                    let g = |n: &str| name.as_ref().and_then(|c| m.value(c, n));
-                    (g(&tr_i).map(|i| (i / 2.0).floor()), g(&sp))
-                } else {
-                    (read("s_i"), read("s_pitch"))
-                };
-                // what she hears: every synthesiser that sounds, together (hers and the human's)
-                let scopes: Vec<Vec<f32>> = playing.iter().filter_map(|p| m.scope(p)).collect();
-                let heard = scopes.iter().max_by_key(|s| s.len()).map(|longest| {
-                    let mut sum = vec![0.0f32; longest.len()];
-                    for sc in &scopes {
-                        let off = longest.len() - sc.len();
-                        for (i, x) in sc.iter().enumerate() {
-                            sum[off + i] += x;
-                        }
-                    }
-                    sum
-                });
-                (heard, m.rate as f64, step, bass)
-            }
-            Err(_) => (None, 48000.0, None, None),
-        };
-        // the beat: the one clock (the human's synthesiser's, when each has their own)
-        self.band.beat_phase = self.beat_clock.map(|(at, p, b, _)| (p + (self.ear_now() - at) / b.max(1e-3)).fract());
-        let Some(s) = samples else { return };
-        let tail = &s[s.len().saturating_sub(1024)..];
-        // the band: a melody over it, and the bass too when the sequencer is off; the sequencer on or off by her
-        // a beat: 60 / its beats a minute
-        let beat = 60.0 / tempo.max(10.0);
-        if !seq_on {
-            self.ear.feel(tail, rate);
-        }
-        if let Some(surprise) = self.ear.settle(now, beat) {
-            // what the human showed her surprised her (or not): it feeds her curiosity
-            let m = &mut self.teacher.mood;
-            m.surprise += 0.3 * (surprise.min(1.0) - m.surprise);
-            m.curiosity = (m.curiosity + 0.2 * surprise.min(1.0)).min(1.0);
-            m.boredom *= 0.8;
-        }
-        let clarity = self.ear.clarity;
-        let clock = self.human_synth().filter(|_| self.two_synths()).or_else(|| self.her_synth()).unwrap_or_default();
-        self.band.metro_heard = self.value_in(&clock, "metro_on").unwrap_or(0.0) > 0.5;
-        // each their instrument: she plays on while the human plays (not only answering)
-        self.band.duet = self.two_synths() || studio;
-        let parts = self.band.tick(&mut self.ear, now, beat, clarity, bass_hz, seq_on, &mut self.teacher);
-        // she asks to sleep, when what she lived weighs enough (hers to decide, not a clock's)
-        if self.teacher.on && self.teacher.wants_sleep() {
-            self.teacher.slept(now);
-            self.keep_music();
-            self.say("sleep");
-        }
-        if !parts.is_empty() {
-            let keys = self.instrument().and_then(|i| i.1);
-            use crate::improvise::Part;
-            for (part, v) in parts {
-                // a voice the human holds is theirs: what she would play on it waits
-                let voice = match part {
-                    Part::BassPitch | Part::BassGate => Some(0),
-                    Part::LeadPitch | Part::LeadGate => Some(1),
-                    Part::ChordPitch(k) | Part::ChordGate(k) => Some(2 + k as usize),
-                    Part::SeqOn | Part::Metro => None,
-                };
-                // the studio's click is the human's: she does not touch it
-                if studio && part == Part::Metro {
-                    continue;
-                }
-                let her = self.her_synth();
-                let held = |k: usize| {
-                    (self.hands_view.is_some() && self.hands_view == her && self.human_hands[k].is_some())
-                        || her.as_ref().and_then(|h| self.arp_voices.get(h)) == Some(&k)
-                };
-                if voice.is_some_and(held) {
-                    continue;
-                }
-                let node = match part {
-                    Part::ChordPitch(k) => self.named(&format!("c{}_pitch", k + 1)),
-                    Part::ChordGate(k) => self.named(&format!("c{}_gate", k + 1)),
-                    crate::improvise::Part::LeadPitch => self.named("lead_pitch"),
-                    crate::improvise::Part::LeadGate => self.named("lead_gate"),
-                    crate::improvise::Part::SeqOn => self.named("seq_on"),
-                    // the click is the one clock's: the human's, when each has their own synthesiser
-                    crate::improvise::Part::Metro => match (self.two_synths(), self.human_synth()) {
-                        (true, Some(h)) => self.named_in(&h, "metro_on"),
-                        _ => self.named("metro_on"),
-                    },
-                    crate::improvise::Part::BassPitch => match &keys {
-                        Some(k) => k.0.clone(),
-                        None => continue,
-                    },
-                    crate::improvise::Part::BassGate => match &keys {
-                        Some(k) => k.1.clone(),
-                        None => continue,
-                    },
-                };
-                self.her_write(&node, (v * 100.0).round() / 100.0);
-            }
-        }
-        // her hands on the knobs, with or without the sequencer (not its loudness nor its tempo)
-        let two = self.two_synths();
-        let owner = self.instrument_view();
-        let her_pre = self.named("");
-        let knobs: Vec<(String, f64, f64, f64)> = owner
-            .map(|a| {
-                a.widgets
-                    .iter()
-                    .filter(|w| w.kind == grm_shell::apps::WidgetKind::Knob)
-                    .filter_map(|w| {
-                        let n = w.nodes.first()?;
-                        let name = a.prefix.get(n).cloned().unwrap_or(n.clone());
-                        // her instrument's own knobs only, and only those she holds
-                        if !name.starts_with(&her_pre) || !self.may_write(&name) {
-                            return None;
-                        }
-                        // the loudness and the click stay the human's (their ears); everything else is hers to play with
-                        // and the tempo, when it is the human's synthesiser's (one clock for both)
-                        let theirs = two && name.ends_with("bpm");
-                        if theirs || ["volume", "lead_level", "metro_level"].iter().any(|x| name.ends_with(x)) {
-                            return None;
-                        }
-                        let v = self.picture.node(&name)?.value;
-                        Some((name, w.lo, w.hi, v))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        // a lesson that needs a switch (the sequencer, the arpeggiator) has it on while it lasts, and off after
-        let wanted = self.teacher.current().switch.filter(|_| self.teacher.on);
-        if wanted != self.lesson_switch {
-            if let Some(old) = self.lesson_switch.take() {
-                let n = self.named(&old);
-                self.her_write(&n, 0.0);
-            }
-            if let Some(new) = &wanted {
-                let n = self.named(new);
-                self.her_write(&n, 1.0);
-            }
-            self.lesson_switch = wanted;
-        }
-        // a lesson on the synthesiser: she studies its knobs (the lesson's), exploring, then looking for a sound
-        let studied = self.teacher.current().knobs.filter(|_| self.teacher.on);
-        let writes = if let Some(names) = studied {
-            let mine: Vec<_> =
-                knobs.iter().filter(|k| names.iter().any(|n| k.0.ends_with(n.as_str()))).cloned().collect();
-            let r = (now * 7.31).fract();
-            let want = self.teacher.seek(self.ear.features(), r);
-            let (writes, done) = self.ear.study(&mine, now, beat, want);
-            if let Some(name) = done {
-                if let Some(k) = self.ear.knows.get(&name) {
-                    let words = crate::music::knob_words(&name, k);
-                    self.teacher.say_out(words);
-                }
-            }
-            writes
-        } else {
-            if let Some(seconds) = self.band.long_note.take() {
-                self.ear.sweep(&knobs, now, seconds);
-            }
-            self.ear.play_knobs(&knobs, now, beat)
-        };
-        for (n, v) in writes {
-            // a moving knob is said quietly, at most every frame
-            self.her_write(&n, (v * 100000.0).round() / 100000.0);
-        }
-        let Some(step) = step.or(s_i).filter(|_| seq_on) else { return };
-        let step = step.round() as i64;
-        let teacher = &mut self.teacher;
-        let lesson_on = teacher.on;
-        let mut r = (now * 7919.0).fract();
-        let notes = self.ear.listen(tail, rate, step, &mut |n| {
-            r = (r * 9301.0 + 0.4927).fract();
-            if lesson_on {
-                teacher.bind(n, 12, r)
-            } else {
-                n
-            }
-        });
-        // the sequence's note, on the piano roll, at each step
-        if !notes.is_empty() {
-            if let Some(h) = bass_hz.filter(|h| *h > 20.0) {
-                self.band.played(now, beat / 2.0, crate::improvise::note_of(h), 0);
-            }
-        }
-        for (k, hz) in notes {
-            self.her_write(&self.named(&format!("s_n{}", k + 1)), (hz * 100.0).round() / 100.0);
-        }
-        ctx.request_repaint_after(std::time::Duration::from_millis(40));
-    }
-
     /// Seconds since the window opened (the clock she plays by).
     pub fn ear_now(&self) -> f64 {
         self.started.elapsed().as_secs_f64()
@@ -3523,12 +3154,10 @@ impl App {
         self.midi_in(ctx);
         self.replaying(ctx);
         self.hands();
-        self.arpeggiate(ctx);
         self.clock();
         self.fuses();
-        self.improvise(ctx);
-        self.drums_by_her();
         self.elle();
+        self.elle_roll();
         self.witness_speaks();
         const STAY: f32 = 8.0;
         self.toasts.retain(|(_, _, at)| at.elapsed().as_secs_f32() < STAY);
