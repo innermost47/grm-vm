@@ -558,7 +558,9 @@ the instrument's knobs (not its loudness nor its tempo) and keeps it if it sound
 the keys meanwhile, she learns from (each interval played leans her towards it). Over it she plays a **melody**, a
 second voice, choosing each note by her taste in time and by what she learned sounds well *with the bass at the same
 moment*, holding it for a length she chooses, resting now and then; the sequencer off, she plays the bass herself;
-every sixteen to thirty-two beats she may turn the sequencer on or off herself. (This first ear learns in the
+and with the sequencer or without is hers to decide: no clock tells her when. She keeps what she heard in each way of
+playing (how clear, and for how long), weighs both at the end of each of her notes (the way she knows less counting a
+little more: it might be better), and changes when the other weighs more. (This first ear learns in the
 window; moving its learning into nodes of the network is the next step.)
 
 ### Knobs, faders, lights

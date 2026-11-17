@@ -914,6 +914,23 @@ fn improvising(app: &App, ui: &mut egui::Ui) {
         );
         p.text(pos2(x, rect.bottom()), egui::Align2::CENTER_BOTTOM, NAMES[k], egui::FontId::monospace(8.5), ink.muted);
     }
+    // what she heard with the sequencer and without: what she decides from
+    ui.horizontal(|ui| {
+        crate::icons::show(ui, "scale", 13.0, ink.muted);
+        let [off, on] = app.band.ways;
+        ui.label(
+            RichText::new(format!(
+                "{} {:.2} ({:.0} s) · {} {:.2} ({:.0} s)",
+                t(lang, "impro_with_seq"),
+                on.0,
+                on.1,
+                t(lang, "impro_without_seq"),
+                off.0,
+                off.1
+            ))
+            .small(),
+        );
+    });
     for said in app.band.said.iter().take(2) {
         ui.horizontal(|ui| {
             crate::icons::show(ui, "shuffle", 11.0, ink.muted);

@@ -171,7 +171,7 @@
    how clear she hears herself; the learning in the window for now, to move into nodes).
    *Then done*: by ear, the step read from the sound itself (it was read from the machine, too slow: she heard but did
    not learn); knobs tried and kept or turned back; learning from what the human plays; a melody over the bass, what
-   sounds together learned, the bass played by her with the sequencer off, the sequencer turned on or off by her.
+   sounds together learned, the bass played by her with the sequencer off, the sequencer turned on or off by her, from what she heard with it and without (no clock decides).
    The Journal tab in sections that fold, each scrolled in its own height.
    Next: each with an instrument, playing together (the human one, she another), and the ear's learning in nodes.
    **To think through with Anthony**: every node and every relation as a potential input and output (a relation's

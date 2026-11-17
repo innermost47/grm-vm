@@ -286,8 +286,10 @@ pub struct Band {
     lead_with: Option<(i32, i32)>,
     bass: i32,
     bass_until: f64,
-    /// When she last decided about the sequencer.
-    turn_at: f64,
+    /// What she heard in each way of playing, with or without the sequencer: (how clear on average, how long she
+    /// played so). She decides from it, nothing else: no clock tells her when.
+    pub ways: [(f64, f64); 2],
+    last_now: f64,
     /// What she did lately, in words for the window.
     pub said: VecDeque<String>,
     seed: u64,
@@ -304,7 +306,8 @@ impl Default for Band {
             lead_with: None,
             bass: 24,
             bass_until: 0.0,
-            turn_at: 0.0,
+            ways: [(0.5, 0.0); 2],
+            last_now: 0.0,
             said: VecDeque::new(),
             seed: 0x2545_f491_4f6c_dd1d,
         }
@@ -367,6 +370,12 @@ impl Band {
         if self.lead_on {
             self.lead_heard.push(clarity);
         }
+        // what she hears, counted for the way she plays now
+        let dt = (now - self.last_now).clamp(0.0, 0.5);
+        self.last_now = now;
+        let way = &mut self.ways[seq_on as usize];
+        way.1 += dt;
+        way.0 += (clarity - way.0) * (dt / (way.1 + 1.0)).min(0.2);
         // the bass: the sequence's, or her own (the sequencer off), a long note at a time
         let bass = match bass_hz {
             Some(h) if seq_on && h > 20.0 => note_of(h),
@@ -382,7 +391,8 @@ impl Band {
             }
         };
         // the melody: when a note ends, it is judged, and the next chosen (or a rest)
-        if now >= self.lead_until {
+        let ended = now >= self.lead_until;
+        if ended {
             if let Some((with, step)) = self.lead_with.take() {
                 if !self.lead_heard.is_empty() {
                     let heard = self.lead_heard.iter().sum::<f64>() / self.lead_heard.len() as f64;
@@ -408,15 +418,22 @@ impl Band {
             }
             self.lead_until = now + beat * self.length();
         }
-        // now and then, she turns the sequencer on or off herself (every 16 to 32 beats)
-        if now - self.turn_at > beat * (16.0 + 16.0 * self.random()) {
-            self.turn_at = now;
-            if self.random() < 0.5 {
+        // with or without the sequencer: hers to decide. At the end of each of her notes she weighs both ways by
+        // what she heard in each, the one she knows less counting a little more (it might be better: she tries it);
+        // she changes only when the other way weighs more than this one
+        if ended && self.ways[0].1 + self.ways[1].1 > 2.0 {
+            let total = self.ways[0].1 + self.ways[1].1;
+            let weigh = |w: (f64, f64)| w.0 + 0.15 * (total.ln().max(0.0) / (w.1 + 1.0)).sqrt();
+            let (here, there) = (weigh(self.ways[seq_on as usize]), weigh(self.ways[!seq_on as usize]));
+            if there > here + 0.02 {
                 out.push((Part::SeqOn, if seq_on { 0.0 } else { 1.0 }));
                 self.said.push_front(if seq_on {
-                    "sequencer off: she plays the bass".into()
+                    format!(
+                        "sequencer off ({:.2} heard with it, {:.2} without): she plays the bass",
+                        self.ways[1].0, self.ways[0].0
+                    )
                 } else {
-                    "sequencer on".into()
+                    format!("sequencer on ({:.2} heard without it, {:.2} with)", self.ways[0].0, self.ways[1].0)
                 });
                 self.said.truncate(6);
             }
@@ -440,6 +457,30 @@ impl Ear {
 #[cfg(test)]
 mod band_tests {
     use super::*;
+
+    #[test]
+    fn she_chooses_the_way_that_sounded_clearer() {
+        // with the sequencer she hears clearer: she ends up playing with it most of the time, by herself
+        let (mut ear, mut band) = (Ear::default(), Band::default());
+        let mut seq = false;
+        let (mut with, mut without) = (0.0, 0.0);
+        let mut t = 0.0;
+        for _ in 0..60000 {
+            let clear = if seq { 0.9 } else { 0.3 };
+            for (part, v) in band.tick(&mut ear, t, 0.25, clear, Some(110.0), seq) {
+                if part == Part::SeqOn {
+                    seq = v > 0.5;
+                }
+            }
+            if seq {
+                with += 1.0
+            } else {
+                without += 1.0
+            }
+            t += 0.01;
+        }
+        assert!(with > 3.0 * without, "with {with}, without {without}");
+    }
 
     #[test]
     fn she_plays_a_melody_and_learns_what_sounds_together() {
