@@ -847,9 +847,27 @@ impl Shell {
     // ------------------------------------------------------------------ sound
     /// A reflex of a node of the world: its network's sets, played at the speed of sound.
     pub(crate) fn reflex_of(engine: &Engine, node: &str, rate: u32) -> grm_engine::Result<Reflex> {
+        Self::reflex_in(engine, None, node, rate)
+    }
+
+    /// A node's reflex, from the global network or from a workshop.
+    pub(crate) fn reflex_in(
+        engine: &Engine,
+        workshop: Option<&str>,
+        node: &str,
+        rate: u32,
+    ) -> grm_engine::Result<Reflex> {
         let node = node.to_string();
+        let workshop = workshop.map(String::from);
         engine
-            .query(move |w| -> grm_engine::Result<Reflex> {
+            .query(move |main| -> grm_engine::Result<Reflex> {
+                let w: &World = match &workshop {
+                    Some(n) => match main.workshops.get(n) {
+                        Some(ws) => ws,
+                        None => grm_engine::bail!("no workshop {n}"),
+                    },
+                    None => main,
+                };
                 if !w.machine.net.nodes.contains_key(&node) {
                     grm_engine::bail!("no node {node}");
                 }

@@ -59,6 +59,14 @@
    with the world.
    *Then done*: the space (a table: apps as widgets or windows, networks, files, plots, feelings, a clock; a
    tidy; written as `space.grm`); the voice on or off from anywhere.
+   *Then done*: workshops that teach the language (its words as buttons by level, forms field by field, lines
+   explained, paths step by step, kept when the machine sleeps); the airlock (what would come in and change, then
+   let in, refuse or later); every zone small, in place of the space, the whole screen or a window of its own; the
+   eye explained, several pictures at once, a carousel; a playing node seen as well as heard.
+   **Next for the eye** (to be agreed): a library of pictures made of nodes (folders as nodes, a tree the human
+   grows; pictures seen once and kept, gone through without being computed again, from the network by a double
+   click on an eye); an app that works pictures again through the GRM (cleaning scans, what changed between two
+   pictures, a webcam later).
    **Then, in this order**: the space further (no tabs at all, frames held by soft relations when asked, several
    spaces, the weather as an app with drawn signs); detachable windows; an app's surface, network and code together;
    outputs as small live screens (beside the network, in the inspector, on the node itself as in TouchDesigner);

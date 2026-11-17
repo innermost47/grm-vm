@@ -201,6 +201,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
     }
     // nodes
     let label_all = zoom > 0.7 && pic.nodes.len() < 120;
+    let mut over_eye: Option<String> = None;
     for (eye, (count, source)) in &groups {
         let Some(p) = at(&format!("g:{eye}")) else { continue };
         let k = app.colours.get(source).copied().unwrap_or(0);
@@ -216,8 +217,29 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
             ink.muted,
         );
         if pointer.is_some_and(|m| m.distance(p) < r + 4.0) {
-            hover_text = Some(format!("{eye}: {count} {}", t(lang, "glance_inputs")));
+            hover_text = Some(format!("{eye}: {count} {} · {}", t(lang, "glance_inputs"), t(lang, "eye_open_d")));
+            over_eye = Some(eye.clone());
         }
+    }
+    // the waves of what plays (a little of each: what is drawn around the node), a picture every frame
+    let scopes: std::collections::HashMap<String, Vec<f32>> = app
+        .mixer
+        .lock()
+        .map(|m| {
+            m.playing()
+                .into_iter()
+                .filter_map(|name| {
+                    m.scope(&name).map(|s| {
+                        let tail = &s[s.len().saturating_sub(480)..];
+                        let w: Vec<f32> = tail.iter().step_by(4).copied().collect();
+                        (name, w)
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    if !scopes.is_empty() {
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(33));
     }
     for n in pic.nodes.iter().filter(|n| !n.name.contains("_glance_")) {
         let Some(p) = at(&format!("n:{}", n.name)) else { continue };
@@ -241,6 +263,27 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
         }
         if n.tracked {
             painter.circle_stroke(p, r + 3.0, Stroke::new(1.0_f32, ink.muted));
+        }
+        // a node that plays is seen too: its wave around it, as it sounds, and what it touches lit by it
+        if let Some(wave) = scopes.get(&n.name) {
+            let m = wave.len().max(2);
+            let pts: Vec<Pos2> = wave
+                .iter()
+                .enumerate()
+                .map(|(i, v)| {
+                    let a = i as f32 / (m - 1) as f32 * std::f32::consts::TAU;
+                    let rad = r * 2.2 + v.clamp(-1.0, 1.0) * r * 1.2;
+                    p + vec2(a.cos(), a.sin()) * rad
+                })
+                .collect();
+            painter.add(Shape::closed_line(pts, Stroke::new(1.5_f32, colour)));
+            let loud = wave.iter().map(|v| v.abs()).fold(0.0, f32::max).min(1.0);
+            for rel in pic.relations.iter().filter(|rel| rel.nodes.contains(&n.name)) {
+                if let Some(rp) = at(&format!("r:{}", rel.name)) {
+                    painter
+                        .line_segment([p, rp], Stroke::new(1.0 + 2.5 * loud, colour.gamma_multiply(0.3 + 0.5 * loud)));
+                }
+            }
         }
         let selected = app.selected.contains(&n.name);
         if selected {
@@ -370,7 +413,15 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
             pressed_on = None;
         }
     }
-    if resp.double_clicked() {
+    if resp.double_clicked() && over_eye.is_some() {
+        // an eye: what it saw, big, and the others after it
+        let eye = over_eye.clone().unwrap_or_default();
+        app.tab = crate::app::Tab::Eye;
+        app.side_open = true;
+        if app.eyes.contains_key(&eye) {
+            app.lightbox = Some((eye, 0));
+        }
+    } else if resp.double_clicked() {
         if let Some(net) = over_net.clone() {
             app.dive(&net);
         } else if let Some(n) = hovered.as_ref().and_then(|n| pic.node(n)).filter(|_| only.is_none()) {

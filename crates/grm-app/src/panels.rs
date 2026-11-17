@@ -12,7 +12,7 @@ use crate::view::reading;
 pub fn sign_of(tab: Tab) -> &'static str {
     match tab {
         Tab::Inspector => "search",
-        Tab::Sandboxes => "flask-conical",
+        Tab::Sandboxes => "hammer",
         Tab::Sources => "waypoints",
         Tab::Journal => "scroll-text",
         Tab::Eye => "eye",
@@ -262,29 +262,107 @@ fn chart(ui: &mut egui::Ui, d: &crate::model::Detail, ink: &Ink, lang: crate::te
 fn sandboxes(app: &mut App, ui: &mut egui::Ui) {
     let ink = Ink::of(ui.ctx());
     let lang = app.settings.lang;
-    // the workshops: networks of data made apart (a table loaded makes one)
+    // the workshops: where networks are made apart
     ui.horizontal(|ui| {
         crate::icons::show(ui, "hammer", 15.0, ink.accent);
-        ui.label(RichText::new(t(lang, "workshops")).strong()).on_hover_text(t(lang, "workshop_d"));
+        ui.label(RichText::new(t(lang, "workshops")).strong());
     });
-    if app.picture.workshops.is_empty() {
-        ui.label(RichText::new(t(lang, "no_workshops")).small().color(ink.muted));
+    ui.label(RichText::new(t(lang, "workshop_d")).small().color(ink.muted));
+    if crate::icons::button(ui, "circle-plus", t(lang, "ws_new")).clicked() {
+        app.new_workshop_open = true;
     }
     for (name, nodes, rels) in app.picture.workshops.clone() {
         ui.horizontal(|ui| {
-            let on = app.workshop_shown.as_deref() == Some(name.as_str());
-            if crate::icons::toggle(ui, "hammer", &name, on).clicked() {
-                app.workshop_shown = Some(name.clone());
-                app.sandbox_shown = None;
-                app.current = None;
+            let kind = crate::space::Kind::Workshop(name.clone());
+            let on = app.zone_center.as_ref() == Some(&kind);
+            if crate::icons::toggle(ui, "hammer", &name, on).on_hover_text(t(lang, "space_full")).clicked() {
+                app.space.put(kind.clone());
+                app.zone_center = Some(kind);
+                app.space_on = true;
             }
             ui.label(RichText::new(format!("{nodes} · {rels}")).small().color(ink.muted));
-            if crate::icons::sign(ui, "merge", t(lang, "workshop_merge_d")).clicked() {
-                app.say(format!("workshop merge {name}"));
+            if crate::icons::sign(ui, "door-open", t(lang, "ws_let_in_d")).clicked() {
+                crate::airlock::open_for_workshop(app, &name);
             }
         });
     }
+    ui.add_space(8.0);
     ui.separator();
+    // the airlock: what waits to come into the main network
+    ui.horizontal(|ui| {
+        crate::icons::show(ui, "door-open", 15.0, ink.accent);
+        ui.label(RichText::new(t(lang, "airlock")).strong());
+    });
+    ui.label(RichText::new(t(lang, "airlock_tab_d")).small().color(ink.muted));
+    let pic = app.picture.clone();
+    if pic.sandboxes.is_empty() {
+        ui.label(RichText::new(t(lang, "airlock_empty")).small().color(ink.muted));
+    }
+    for s in &pic.sandboxes {
+        ui.add_space(6.0);
+        egui::Frame::group(ui.style()).show(ui, |ui| {
+            ui.label(RichText::new(&s.name).strong());
+            crate::style::terminal(ui, &s.lines);
+            ui.horizontal_wrapped(|ui| {
+                if crate::icons::toggle(
+                    ui,
+                    "eye",
+                    t(lang, "show_it"),
+                    app.sandbox_shown.as_deref() == Some(s.name.as_str()),
+                )
+                .clicked()
+                {
+                    app.sandbox_shown = Some(s.name.clone());
+                    app.current_file = None;
+                    app.space_on = false;
+                }
+                if crate::icons::button(ui, "door-open", t(lang, "airlock_try"))
+                    .on_hover_text(t(lang, "airlock_try_d"))
+                    .clicked()
+                {
+                    crate::airlock::open_for_sandbox(app, &s.name);
+                }
+                if crate::icons::button(ui, "log-in", t(lang, "airlock_let_in"))
+                    .on_hover_text(t(lang, "airlock_let_in_d"))
+                    .clicked()
+                {
+                    app.say(format!("merge {}", s.name));
+                }
+                if crate::icons::button(ui, "ban", t(lang, "airlock_refuse"))
+                    .on_hover_text(t(lang, "airlock_refuse_d"))
+                    .clicked()
+                {
+                    app.say(format!("refuse {}", s.name));
+                }
+            });
+            // a line more, written straight in it (for who knows the language)
+            let field = app.sandbox_lines.entry(s.name.clone()).or_default();
+            let r = ui.add(
+                egui::TextEdit::singleline(field)
+                    .margin(crate::style::FIELD)
+                    .hint_text(crate::style::hint(t(lang, "say_in")))
+                    .font(egui::TextStyle::Monospace),
+            );
+            if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                let line = std::mem::take(field);
+                if !line.trim().is_empty() {
+                    app.say(format!("in {}: {}", s.name, line.trim()));
+                }
+            }
+        });
+    }
+    if !pic.integrating.is_empty() {
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            crate::icons::show(ui, "trending-up", 14.0, ink.muted);
+            ui.label(RichText::new(t(lang, "integrating")).color(ink.muted));
+        });
+        for i in &pic.integrating {
+            ui.label(RichText::new(i).small().color(ink.muted));
+        }
+    }
+    // a draft by hand (for who knows the language)
+    ui.add_space(8.0);
     ui.horizontal(|ui| {
         ui.add(
             egui::TextEdit::singleline(&mut app.new_sandbox)
@@ -297,54 +375,6 @@ fn sandboxes(app: &mut App, ui: &mut egui::Ui) {
             app.say(format!("sandbox {}", name.trim()));
         }
     });
-    let pic = app.picture.clone();
-    if pic.sandboxes.is_empty() {
-        ui.label(RichText::new(t(lang, "no_sandbox")).color(ink.muted));
-    }
-    for s in &pic.sandboxes {
-        ui.add_space(6.0);
-        egui::Frame::group(ui.style()).show(ui, |ui| {
-            ui.label(RichText::new(&s.name).strong());
-            for l in &s.lines {
-                ui.label(RichText::new(l).monospace().small());
-            }
-            ui.horizontal(|ui| {
-                let field = app.sandbox_lines.entry(s.name.clone()).or_default();
-                let r = ui.add(
-                    egui::TextEdit::singleline(field)
-                        .margin(crate::style::FIELD)
-                        .hint_text(crate::style::hint(t(lang, "say_in")))
-                        .font(egui::TextStyle::Monospace),
-                );
-                if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                    let line = std::mem::take(field);
-                    if !line.trim().is_empty() {
-                        app.say(format!("in {}: {}", s.name, line.trim()));
-                    }
-                }
-            });
-            ui.horizontal(|ui| {
-                if crate::style::chosen(ui, app.sandbox_shown.as_deref() == Some(s.name.as_str()), t(lang, "show_it"))
-                    .clicked()
-                {
-                    app.sandbox_shown = Some(s.name.clone());
-                    app.current_file = None;
-                }
-                for (key, word) in [("run", "run"), ("trial", "trial"), ("merge", "merge"), ("refuse", "refuse")] {
-                    if ui.button(t(lang, key)).clicked() {
-                        app.say(format!("{word} {}", s.name));
-                    }
-                }
-            });
-        });
-    }
-    if !pic.integrating.is_empty() {
-        ui.add_space(6.0);
-        ui.label(RichText::new(t(lang, "integrating")).color(ink.muted));
-        for i in &pic.integrating {
-            ui.label(RichText::new(i).small().color(ink.muted));
-        }
-    }
 }
 
 /// The trash: apps put away, each can come back.
@@ -519,6 +549,21 @@ fn journal(app: &mut App, ui: &mut egui::Ui) {
 fn eye(app: &mut App, ui: &mut egui::Ui) {
     let ink = Ink::of(ui.ctx());
     let lang = app.settings.lang;
+    // what it does, in four signs
+    egui::Frame::new().fill(ink.raised).corner_radius(8.0).inner_margin(egui::Margin::symmetric(10, 8)).show(
+        ui,
+        |ui| {
+            for (sign, key) in
+                [("image", "eye_how1"), ("sparkles", "eye_how2"), ("scan-eye", "eye_how3"), ("network", "eye_how4")]
+            {
+                ui.horizontal(|ui| {
+                    crate::icons::show(ui, sign, 15.0, ink.accent);
+                    ui.label(RichText::new(t(lang, key)).small());
+                });
+            }
+        },
+    );
+    ui.add_space(6.0);
     ui.horizontal(|ui| {
         ui.add(
             egui::TextEdit::singleline(&mut app.eye_path)
@@ -529,24 +574,28 @@ fn eye(app: &mut App, ui: &mut egui::Ui) {
         if crate::icons::sign(ui, "folder-open", t(lang, "choose")).clicked() {
             app.pick(crate::app::Pick::Eye);
         }
-        ui.add(
-            egui::TextEdit::singleline(&mut app.eye_name)
-                .margin(crate::style::FIELD)
-                .hint_text(crate::style::hint(t(lang, "eye_name")))
-                .desired_width(60.0),
-        );
         if ui.button(t(lang, "see")).clicked() && !app.eye_path.trim().is_empty() {
-            let line =
-                format!("see {} {}", grm_shell::quoted(app.eye_path.trim().trim_matches('"')), app.eye_name.trim());
-            app.say(line);
+            let path = std::path::PathBuf::from(app.eye_path.trim().trim_matches('"'));
+            app.see(&path);
+            // seen (or being seen): the field is empty again
+            app.eye_path.clear();
         }
     });
+    // what is being seen: one after another
+    if !app.seeing.is_empty() {
+        ui.horizontal(|ui| {
+            ui.add(egui::Spinner::new().size(16.0).color(ink.accent));
+            ui.label(RichText::new(format!("{} ({})", t(lang, "eye_looking"), app.seeing.len())).color(ink.muted));
+        });
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
+    }
     if app.eyes.is_empty() {
         ui.label(RichText::new(t(lang, "no_sight")).color(ink.muted));
         return;
     }
     let width = ui.available_width();
-    for (name, e) in &app.eyes {
+    let eyes: Vec<(String, crate::app::Eye)> = app.eyes.iter().map(|(n, e)| (n.clone(), e.clone())).collect();
+    for (name, e) in &eyes {
         ui.add_space(6.0);
         ui.label(
             RichText::new(format!(
@@ -557,16 +606,29 @@ fn eye(app: &mut App, ui: &mut egui::Ui) {
         );
         let n = e.textures.len().max(1) as f32;
         let side = ((width - 8.0 * n) / n).clamp(60.0, 240.0);
+        let mut open: Option<usize> = None;
         ui.horizontal(|ui| {
-            for (tag, tex) in &e.textures {
+            for (k, (tag, tex)) in e.textures.iter().enumerate() {
                 ui.vertical(|ui| {
                     let size = tex.size_vec2();
                     let scale = side / size.x.max(size.y).max(1.0);
-                    ui.add(egui::Image::from_texture(egui::load::SizedTexture::new(tex.id(), size * scale)));
+                    // a click: bigger, and the others one after another
+                    let r = ui
+                        .add(
+                            egui::Image::from_texture(egui::load::SizedTexture::new(tex.id(), size * scale))
+                                .sense(egui::Sense::click()),
+                        )
+                        .on_hover_text(t(lang, "eye_bigger"));
+                    if r.clicked() {
+                        open = Some(k);
+                    }
                     ui.label(RichText::new(t(lang, tag)).small().color(ink.muted));
                 });
             }
         });
+        if let Some(k) = open {
+            app.lightbox = Some((name.clone(), k));
+        }
         let top: Vec<String> = e.sight.surprises(3).iter().map(|(x, y, s)| format!("({x}, {y}) {s:.1} σ")).collect();
         ui.label(RichText::new(format!("{}: {}", t(lang, "surprise"), top.join(", "))).small());
     }

@@ -9,6 +9,7 @@
 //!           --app NAME --mode code|network|app --edit --xray --launch
 //!           --screenshot OUT.png [--wait SECONDS]       (a picture of the window, then it closes: for tests)
 
+mod airlock;
 mod app;
 mod code;
 mod desk;
@@ -34,6 +35,8 @@ mod tour;
 mod tree;
 mod view;
 mod worker;
+mod workshop;
+mod zone;
 
 #[derive(Debug, Default, Clone)]
 pub struct Args {

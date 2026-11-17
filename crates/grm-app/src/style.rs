@@ -269,6 +269,8 @@ fn visuals(p: &Palette, ink: &Ink) -> egui::Visuals {
     v.error_fg_color = ink.amber;
     v.selection.bg_fill = ink.accent;
     v.selection.stroke = Stroke::new(1.0_f32, ink.on_accent());
+    // what can be clicked shows a hand (a text cursor only where text is written)
+    v.interact_cursor = Some(egui::CursorIcon::PointingHand);
     v.window_corner_radius = CornerRadius::same(10);
     v.menu_corner_radius = CornerRadius::same(8);
     v.window_stroke = Stroke::new(1.0_f32, ink.faint);
@@ -309,6 +311,8 @@ fn rest(ctx: &egui::Context, typewriter: bool, zoom: f32) {
         st.spacing.item_spacing = egui::vec2(8.0, 6.0);
         st.spacing.button_padding = egui::vec2(10.0, 4.0);
         st.spacing.interact_size.y = 24.0;
+        // words shown are not taken for words to select (no text cursor over a label)
+        st.interaction.selectable_labels = false;
         // check boxes and radio buttons with a little room
         st.spacing.icon_width = 17.0;
         st.spacing.icon_width_inner = 9.0;

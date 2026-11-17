@@ -267,6 +267,11 @@ up to a glance of 8 x 8 nodes. It computes near what it sees and sends on only w
 
 Pictures are written beside the one seen (`-clean`, `-surprise`, `-change`). An image port feeds an eye too.
 
+In the window, the Eye tab says what it does in four signs (a picture comes in; it is cleaned; what surprises it
+is shown; its glance goes to the network). Several pictures are chosen at once, each seen by an eye named after its
+file, with a slow wheel while it works; the path goes once a picture is seen. A picture clicked opens large, and the
+arrows go from one to the next through every eye (a carousel); a double click on an eye in the network does the same.
+
 ![A square seen twice by the eye: what came, cleaned, surprised; then moved, cleaned, what changed](docs/eye.png)
 
 On a 48 x 48 picture with noise of ± 0.10 and 15 % of its pixels missing, what the eye sees is within ± 0.028 of
@@ -456,6 +461,10 @@ clock. Several apps live side by side and play at once. A frame moves by its tit
 **The space is itself a file**, `space.grm` beside the memory, one line per thing on the table
 (`place app weather at 40 60 size 420 300`): *Its code* opens it, and what is written there is what is shown.
 
+**Every zone is four things**: small on the space, in place of the space, the whole screen, or a window of its
+own (a real window of the system, to put on another screen). Its signs are on its title; a double click inside a
+frame brings it in place of the space; Escape or closing its window puts it back on the table.
+
 The machine's voice (the wind, the pad) is turned on or off from anywhere: the speaker at the top, or Ctrl+M.
 
 ![The space: a clock, the network, what it feels, two apps playing side by side](docs/space.png)
@@ -501,17 +510,28 @@ hue, a hundredth of light, over half a minute and more; never a flash), the soun
 
 ### Workshops: new networks of data, apart
 
-A table loaded (`load FILE.csv`, a file dropped on the window) does not go into the main network: it is learned in
-a **workshop** of its own, a network of its own (its time, the laws it finds), shown at once. Nothing of it comes
-in until the human says so: *Merge into my network* puts what it made into a sandbox here (its nodes, its laws,
-what its inputs read last), to be tried, then merged little by little, or refused. `load FILE.csv COLUMNS --here`
-still learns it in the main network directly. Sharing a network with chosen others (friends, family) or with the
+A **workshop** is a network apart, where nothing touches the main one. *New workshop* opens a blank page; a table
+loaded (`load FILE.csv`, a file dropped on the window) is learned in a workshop of its own (its time, the laws it
+finds), shown at once. `load FILE.csv COLUMNS --here` still learns it in the main network directly.
+
+**The workshop teaches the language.** On its left, the words of GRML as buttons, by what they say (what there is,
+what links them, what is known, time, the app): three levels show more of them (*First steps*, *More*,
+*Everything*). A word clicked opens a form, field by field (the nodes already there as buttons, the operators as
+buttons), with the line it will write shown as a terminal shows it and as mathematics. Every line written stays
+under the network with a sentence that says what it means, and can be taken back. *Step by step* walks through
+small paths (a blank page, Newton's second law, a falling body, an oscillator that is heard), each step explained,
+and `ask` answers in a card. Workshops are kept when the machine sleeps, beside its memory.
+
+**The airlock.** *Let it into my network* shows, before anything changes, what the workshop would bring (its nodes,
+its relations), what it would change (what would move, the strains before and after, conflicts), and the harmony
+before and after; then three choices: *Let in* (it comes in little by little, its relations rising step by step and
+going to quarantine by themselves if the network is surprised), *Refuse*, or *Later*. Sharing a network with chosen others (friends, family) or with the
 world comes with the peer-to-peer network.
 
 **A removal asked for by a click** opens a window that says what would go (as a terminal shows it) and asks; asked
 for at the prompt, the prompt asks.
 
-![A workshop: a table learned apart, its law found](docs/workshop.png)
+![A workshop: the words of the language on the left, a path step by step, the lines written and what they mean](docs/workshop.png)
 
 ### What a relation is worth: its rent
 
@@ -637,8 +657,9 @@ python3 tools/bench_python.py path/to/grm-core/vm FILE.grm [ROUNDS]
 - The rent is counted and shown; what does not pay it is not yet forgotten at night (the night, pruning by use and
   the traces tagged by pleasure come with the organism). The colours breathe; the GRM does not yet harmonise them
   itself. Zooming out gathers networks by where they come from (sources), not yet the sub-networks an app calls.
-- Workshops live while the machine runs: they are not yet kept when it sleeps (the file stays: loading it again
-  makes the workshop again). The window's own networks (its layout, its looks) are not yet shown in the global view.
+- A workshop made from a table keeps its nodes, its laws and its lines when the machine sleeps, but its rows are
+  not loaded again on waking. Windows of their own (detached zones) are tried on Linux, not yet on Windows. The
+  eye's pictures are a list, not yet a library of nodes. The window's own networks (its layout, its looks) are not yet shown in the global view.
 - The space is a first version: the tabs are still there beside it; frames are placed by hand (a tidy in rows),
   not yet by soft relations; the weather and the clock are not yet apps with their own drawn signs.
 - Not ported yet from the Python machine: `step` (one pass at a time), `watch` (breakpoints), `mood`, `capacity`,

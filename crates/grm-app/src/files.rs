@@ -248,7 +248,8 @@ pub fn columns(app: &mut App, ctx: &egui::Context) {
     } else if go {
         let cols: Vec<String> = names.iter().zip(&checks).filter(|(_, c)| **c).map(|(n, _)| n.clone()).collect();
         app.columns = None;
-        app.say(format!("load {} {}", grm_shell::quoted(&path.display().to_string()), cols.join(" ")));
+        let into = app.workshop_loading.take().map(|w| format!(" --into {w}")).unwrap_or_default();
+        app.say(format!("load {} {}{into}", grm_shell::quoted(&path.display().to_string()), cols.join(" ")));
     } else {
         app.columns = Some((path, names, written, checks));
     }

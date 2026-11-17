@@ -221,6 +221,8 @@ pub struct World {
     /// Workshops: new networks of data, each a world of its own (its time, its laws), made apart from this one
     /// (nothing of it comes in until the human merges it).
     pub workshops: IndexMap<String, Box<World>>,
+    /// What was written in it, line by line, when it is a workshop (what its window shows and lets change).
+    pub written: Vec<String>,
 }
 
 impl Default for World {
@@ -254,6 +256,7 @@ impl World {
             rounds_per_tick: 1000,
             mood: Default::default(),
             workshops: IndexMap::new(),
+            written: vec![],
         }
     }
 
@@ -516,6 +519,27 @@ impl World {
         let tmp = path.with_extension("sleeping");
         std::fs::write(&tmp, bytes).map_err(|e| GrmError::new(format!("{}: {e}", tmp.display())))?;
         std::fs::rename(&tmp, path).map_err(|e| GrmError::new(format!("{}: {e}", path.display())))?;
+        // its workshops: each a world of its own, asleep beside it (with what was written in it)
+        let dir = path.with_extension("workshops");
+        if !self.workshops.is_empty() || dir.exists() {
+            std::fs::create_dir_all(&dir).map_err(|e| GrmError::new(format!("{}: {e}", dir.display())))?;
+            for (name, ws) in &self.workshops {
+                ws.sleep(&dir.join(format!("{name}.world")))?;
+                let lines = serde_json::to_string(&ws.written).unwrap_or_default();
+                let _ = std::fs::write(dir.join(format!("{name}.lines.json")), lines);
+            }
+            // a workshop closed since: its files go
+            if let Ok(d) = std::fs::read_dir(&dir) {
+                for e in d.flatten() {
+                    let p = e.path();
+                    let file = p.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+                    let name = file.split('.').next().unwrap_or("").to_string();
+                    if !self.workshops.contains_key(&name) {
+                        let _ = std::fs::remove_file(&p);
+                    }
+                }
+            }
+        }
         Ok(())
     }
 
@@ -547,7 +571,25 @@ impl World {
             eyes: IndexMap::new(),
             mood: Default::default(),
             workshops: IndexMap::new(),
+            written: vec![],
         };
+        // its workshops, woken too
+        let dir = path.with_extension("workshops");
+        if let Ok(d) = std::fs::read_dir(&dir) {
+            let mut files: Vec<std::path::PathBuf> =
+                d.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "world")).collect();
+            files.sort();
+            for f in files {
+                let name = f.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+                if let Ok(mut ws) = World::wake(&f) {
+                    ws.written = std::fs::read_to_string(dir.join(format!("{name}.lines.json")))
+                        .ok()
+                        .and_then(|t| serde_json::from_str(&t).ok())
+                        .unwrap_or_default();
+                    w.workshops.insert(name, Box::new(ws));
+                }
+            }
+        }
         w.log("woke", format!("woke from {}", path.display()));
         Ok(w)
     }
@@ -885,12 +927,18 @@ impl World {
                 out.push(format!("relate {}: {}", r.name, r.text));
             }
         }
+        // what it measured (a positive node's measurement is kept in decades), and what its inputs read last
         for (n, spec) in &net.nodes {
-            if spec.input && !n.contains("__") {
-                let v = ws.machine.value(n);
-                if v.is_finite() {
-                    out.push(format!("observe {n} = {}", lang::g(v)));
-                }
+            if n.contains("__") {
+                continue;
+            }
+            let v = match net.measured.get(n) {
+                Some((m, _)) => Some(if spec.signed { *m } else { 10f64.powf(*m) }),
+                None if spec.input => Some(ws.machine.value(n)),
+                None => None,
+            };
+            if let Some(v) = v.filter(|v| v.is_finite()) {
+                out.push(format!("observe {n} = {}", lang::g(v)));
             }
         }
         Ok(out)

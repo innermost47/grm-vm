@@ -78,6 +78,7 @@ struct Script {
     asked: bool,
 }
 
+#[derive(Clone)]
 pub struct Eye {
     pub sight: Sight,
     pub textures: Vec<(String, egui::TextureHandle)>,
@@ -114,7 +115,6 @@ pub struct App {
     focus_prompt: bool,
     pub eyes: IndexMap<String, Eye>,
     pub eye_path: String,
-    pub eye_name: String,
     pub play_field: String,
     pub new_sandbox: String,
     pub sandbox_lines: HashMap<String, String>,
@@ -156,6 +156,27 @@ pub struct App {
     pub focus: Option<String>,
     /// The network the view went into (double click): only it is shown.
     pub dived: Option<String>,
+    /// Zones: one in place of the space, one on the whole screen, some in windows of their own (each with its own
+    /// way of being looked at).
+    pub zone_center: Option<crate::space::Kind>,
+    pub zone_screen: Option<crate::space::Kind>,
+    pub detached: Vec<crate::space::Kind>,
+    pub zone_views: HashMap<String, crate::view::View>,
+    /// The workshops' windows: what each keeps, and its picture.
+    pub workshop_state: HashMap<String, crate::workshop::State>,
+    pub workshop_pulls: HashMap<String, (Pull<Option<Picture>>, Option<Picture>)>,
+    /// A workshop being drawn: what the mouse makes is written there.
+    pub write_into: Option<String>,
+    /// A workshop a table is being chosen for.
+    pub workshop_loading: Option<String>,
+    /// The airlock, open.
+    pub airlock: Option<crate::airlock::Airlock>,
+    /// The pictures given to the eye and not seen yet (the lines said).
+    pub seeing: Vec<String>,
+    /// A picture of an eye shown big: (eye, which), the arrows go through the others.
+    pub lightbox: Option<(String, usize)>,
+    pub new_workshop_open: bool,
+    new_workshop: String,
     /// The space (a table where the human puts what they want), and whether it is shown.
     pub space: crate::space::Space,
     pub space_on: bool,
@@ -212,6 +233,8 @@ pub struct App {
     pub confirm: Option<Confirm>,
     /// The line whose question was already answered yes in such a window.
     quiet_yes: Option<String>,
+    /// When the machine was last put to sleep (its sign shows it was done, for a while).
+    slept: Option<Instant>,
     /// The colours' breath: when it last moved, how loud the sound was lately, since when the window lives.
     breath_at: Instant,
     breath_sound: f32,
@@ -370,7 +393,6 @@ impl App {
             focus_prompt: true,
             eyes: IndexMap::new(),
             eye_path: String::new(),
-            eye_name: "eye".into(),
             play_field: String::new(),
             new_sandbox: String::new(),
             sandbox_lines: HashMap::new(),
@@ -431,6 +453,19 @@ impl App {
             world_saved_at: Instant::now(),
             journey: Default::default(),
             dived: None,
+            zone_center: None,
+            zone_screen: None,
+            detached: vec![],
+            zone_views: HashMap::new(),
+            workshop_state: HashMap::new(),
+            workshop_pulls: HashMap::new(),
+            write_into: None,
+            workshop_loading: None,
+            airlock: None,
+            lightbox: None,
+            seeing: vec![],
+            new_workshop_open: false,
+            new_workshop: String::new(),
             space: Default::default(),
             space_on: true,
             space_ready: false,
@@ -445,6 +480,7 @@ impl App {
             fullscreen_back: false,
             confirm: None,
             quiet_yes: None,
+            slept: None,
             breath_at: Instant::now(),
             breath_sound: 0.0,
             breathing: false,
@@ -495,6 +531,8 @@ impl App {
         self.history = w.history.clone();
         self.side_open = w.side_open;
         self.space_on = w.space_on;
+        self.zone_center = w.zone_center.as_deref().and_then(crate::space::kind_of);
+        self.detached = w.detached.iter().filter_map(|d| crate::space::kind_of(d)).collect();
         self.prompt_open = w.prompt_open;
         self.fullscreen_back = w.fullscreen || w.launched;
         let kind = |c: char| match c {
@@ -538,6 +576,8 @@ impl App {
             eye_path: self.eye_path.clone(),
             side_open: self.side_open,
             space_on: self.space_on,
+            zone_center: self.zone_center.as_ref().map(|k| k.word()),
+            detached: self.detached.iter().map(|k| k.word()).collect(),
             prompt_open: self.prompt_open,
             fullscreen: ctx.input(|i| i.viewport().fullscreen.unwrap_or(false)),
             history: self.history.iter().rev().take(500).rev().cloned().collect(),
@@ -647,6 +687,14 @@ impl App {
         } else {
             format!("relate {name}: {to} = 1 * {from}")
         };
+        if let Some(ws) = self.write_into.clone() {
+            // in a workshop: its relation form, filled with what the drag said
+            let mut v = std::collections::HashMap::new();
+            v.insert("name".to_string(), name);
+            v.insert("equation".to_string(), text.split_once(':').map(|x| x.1.trim().to_string()).unwrap_or_default());
+            self.workshop_state.entry(ws).or_default().form = Some(("relate", v));
+            return;
+        }
         self.line_draft = Some((self.current.clone(), None, text));
     }
 
@@ -668,6 +716,9 @@ impl App {
     /// Says a line to the prompt (as if typed).
     pub fn say(&mut self, line: impl Into<String>) {
         let line = line.into();
+        if line.trim() == "sleep" {
+            self.slept = Some(Instant::now());
+        }
         self.log.push((LineKind::Dim, format!("› {line}")));
         if self.history.last() != Some(&line) {
             self.history.push(line.clone());
@@ -765,6 +816,9 @@ impl App {
             if a.kept {
                 self.journey.record(crate::journey::Change::World, a.typed.clone());
             }
+            if let Some(k) = self.seeing.iter().position(|l| *l == a.typed) {
+                self.seeing.remove(k);
+            }
             // a question already answered in a window (a removal asked for by a click): not asked again here
             // only the answer to that very line (never another question of the prompt)
             let answered = a.asking && self.quiet_yes.as_deref() == Some(a.typed.as_str());
@@ -848,9 +902,11 @@ impl App {
                     }
                     grm_shell::Order::Clear => self.log.clear(),
                     grm_shell::Order::Workshop(n) => {
-                        // a table just learned: its network shown at once
-                        self.workshop_shown = Some(n);
-                        self.space_on = false;
+                        // a workshop opened (or a table just learned): in place of the space, at once
+                        let kind = crate::space::Kind::Workshop(n);
+                        self.space.put(kind.clone());
+                        self.zone_center = Some(kind);
+                        self.space_on = true;
                         self.sandbox_shown = None;
                         self.current = None;
                         self.current_file = None;
@@ -1117,7 +1173,21 @@ impl App {
                         self.settings_open = !self.settings_open;
                     }
                     let sleep_what = format!("{}: {}", self.tr("sleep"), self.memory.display());
-                    if crate::icons::sign(ui, "moon", &sleep_what).clicked() {
+                    // once asked, the sign changes for a while: the memory was written, it can be seen
+                    let just = self.slept.filter(|at| at.elapsed().as_secs_f32() < 4.0);
+                    if just.is_some() {
+                        let ink = Ink::of(ui.ctx());
+                        let done = format!("{}: {}", self.tr("slept"), self.memory.display());
+                        let b = egui::Button::image_and_text(
+                            crate::icons::image("moon-star", 16.0, ink.accent),
+                            RichText::new(self.tr("slept")).small().color(ink.accent),
+                        )
+                        .frame(false);
+                        if ui.add(b).on_hover_text(done).clicked() {
+                            self.say("sleep");
+                        }
+                        ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
+                    } else if crate::icons::sign(ui, "moon", &sleep_what).clicked() {
                         self.say("sleep");
                     }
                     if crate::icons::sign(ui, "step-forward", self.tr("tick_d")).clicked() {
@@ -1322,6 +1392,9 @@ impl App {
 
     fn windows(&mut self, ctx: &egui::Context) {
         self.line_window(ctx);
+        crate::airlock::window(self, ctx);
+        self.lightbox_window(ctx);
+        self.new_workshop_window(ctx);
         self.confirm_window(ctx);
         self.new_app_window(ctx);
         crate::menu::node_form(self, ctx);
@@ -1484,6 +1557,11 @@ impl eframe::App for App {
         self.script(ctx);
         self.keys(ctx);
         self.keep(ctx);
+        if crate::zone::screen(self, ctx) {
+            self.windows(ctx);
+            crate::zone::detached(self, ctx);
+            return;
+        }
         if self.launched {
             if let Some(name) = self.current.clone() {
                 self.launched_view(ctx, &name);
@@ -1574,6 +1652,7 @@ impl eframe::App for App {
             self.central(ui);
         });
         self.windows(ctx);
+        crate::zone::detached(self, ctx);
         self.toasts(ctx);
         crate::files::columns(self, ctx);
         crate::files::collide(self, ctx);
@@ -2106,7 +2185,7 @@ impl App {
             let start = Instant::now();
             let dialog = rfd::FileDialog::new().set_directory(here).set_title(title);
             let chosen = match what {
-                Pick::Eye => dialog.add_filter("PNG", &["png"]).pick_file().map(|f| vec![f]),
+                Pick::Eye => dialog.add_filter("PNG", &["png"]).pick_files(),
                 Pick::Open => dialog.pick_files(),
             };
             let _ = tx.send((chosen.unwrap_or_default(), start.elapsed()));
@@ -2126,15 +2205,24 @@ impl App {
                 }
                 match what {
                     Pick::Eye => {
-                        if let Some(f) = files.first() {
-                            self.eye_path = f.display().to_string();
-                            let line = format!("see {} {}", grm_shell::quoted(&self.eye_path), self.eye_name.trim());
-                            self.say(line);
+                        for f in files {
+                            self.see(&f);
                         }
                     }
                     Pick::Open => {
-                        for f in files {
-                            self.open_path(f);
+                        match self.workshop_loading.clone() {
+                            // tables for a workshop: learned in it
+                            Some(ws) => {
+                                for f in files {
+                                    let p = grm_shell::quoted(&f.display().to_string());
+                                    self.say(format!("load {p} --into {ws}"));
+                                }
+                            }
+                            None => {
+                                for f in files {
+                                    self.open_path(f);
+                                }
+                            }
                         }
                     }
                 }
@@ -2182,10 +2270,8 @@ impl App {
         let ext = p.extension().map(|x| x.to_string_lossy().to_lowercase()).unwrap_or_default();
         match ext.as_str() {
             "png" => {
-                self.eye_path = p.display().to_string();
                 self.tab = Tab::Eye;
-                let line = format!("see {shown} {}", self.eye_name.trim());
-                self.say(line);
+                self.see(&p);
             }
             "grm" => {
                 let app = std::fs::read_to_string(&p).is_ok_and(|text| {
@@ -2407,5 +2493,113 @@ impl App {
         let on = !self.mixer.lock().map(|m| m.ambient_on).unwrap_or(false);
         self.say(if on { "sound on" } else { "sound off" });
         self.settings.voice_on = on;
+    }
+}
+
+impl App {
+    /// The window that opens a new workshop: its name, and Enter.
+    fn new_workshop_window(&mut self, ctx: &egui::Context) {
+        if !self.new_workshop_open {
+            return;
+        }
+        let lang = self.settings.lang;
+        let mut open = true;
+        let mut made = false;
+        egui::Window::new(t(lang, "ws_new"))
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .pivot(egui::Align2::CENTER_CENTER)
+            .default_pos(ctx.content_rect().center())
+            .show(ctx, |ui| {
+                ui.label(t(lang, "workshop_d"));
+                let r = ui.add(
+                    egui::TextEdit::singleline(&mut self.new_workshop)
+                        .margin(crate::style::FIELD)
+                        .hint_text(crate::style::hint(t(lang, "ws_name")))
+                        .font(egui::TextStyle::Monospace)
+                        .desired_width(260.0),
+                );
+                r.request_focus();
+                let fine = grm_engine::lang::is_name(self.new_workshop.trim());
+                let enter = r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+                if crate::icons::button(ui, "hammer", t(lang, "ws_open")).clicked() || enter {
+                    made = fine;
+                }
+            });
+        if made {
+            let n = std::mem::take(&mut self.new_workshop);
+            self.say(format!("workshop new {}", n.trim()));
+            self.new_workshop_open = false;
+        } else if !open {
+            self.new_workshop_open = false;
+        }
+    }
+}
+
+impl App {
+    /// A picture of an eye, big; the arrows (or the keys) go through the others; Esc closes.
+    fn lightbox_window(&mut self, ctx: &egui::Context) {
+        let Some((name, k)) = self.lightbox.clone() else { return };
+        // every picture of every eye, one after another
+        let all: Vec<(String, usize)> =
+            self.eyes.iter().flat_map(|(n, e)| (0..e.textures.len()).map(move |i| (n.clone(), i))).collect();
+        let Some(at) = all.iter().position(|(n, i)| *n == name && *i == k) else {
+            self.lightbox = None;
+            return;
+        };
+        let n = all.len();
+        let k = at;
+        let (tag, tex) = self.eyes[&name].textures[self.lightbox.as_ref().map(|l| l.1).unwrap_or(0)].clone();
+        let lang = self.settings.lang;
+        let ink = Ink::of(ctx);
+        let mut go: i32 = 0;
+        let screen = ctx.content_rect();
+        let modal = egui::Modal::new(egui::Id::new("lightbox")).show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                crate::icons::show(ui, "eye", 16.0, ink.accent);
+                ui.label(RichText::new(format!("{name} · {}", t(lang, &tag))).strong());
+                ui.label(RichText::new(format!("{} / {n}", k + 1)).small().color(ink.muted));
+            });
+            let size = tex.size_vec2();
+            let room = egui::vec2(screen.width() * 0.75, screen.height() * 0.7);
+            let scale = (room.x / size.x).min(room.y / size.y).max(0.1);
+            ui.horizontal(|ui| {
+                if crate::icons::sign_enabled(ui, k > 0, "chevron-left", t(lang, "ws_prev")).clicked() {
+                    go = -1;
+                }
+                // drawn as pixels, not blurred: what the eye saw, as it saw it
+                ui.add(egui::Image::from_texture(egui::load::SizedTexture::new(tex.id(), size * scale)));
+                if crate::icons::sign_enabled(ui, k + 1 < n, "chevron-right", t(lang, "ws_next")).clicked() {
+                    go = 1;
+                }
+            });
+            ui.label(RichText::new(t(lang, "eye_keys")).small().color(ink.muted));
+        });
+        let (left, right) = ctx.input(|i| (i.key_pressed(Key::ArrowLeft), i.key_pressed(Key::ArrowRight)));
+        if left {
+            go = -1;
+        }
+        if right {
+            go = 1;
+        }
+        if modal.should_close() {
+            self.lightbox = None;
+            return;
+        }
+        let next = (k as i32 + go).clamp(0, n as i32 - 1) as usize;
+        self.lightbox = Some(all[next].clone());
+    }
+}
+
+impl App {
+    /// A picture given to the eye: each picture its own eye, named after its file (several can be given at once:
+    /// they are seen one after another, and the window says how many wait).
+    pub fn see(&mut self, path: &std::path::Path) {
+        let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or("eye".into());
+        let name = grm_connect::csv::name_of(&stem);
+        let line = format!("see {} {name}", grm_shell::quoted(&path.display().to_string()));
+        self.seeing.push(line.clone());
+        self.say(line);
     }
 }

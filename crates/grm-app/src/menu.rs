@@ -95,11 +95,17 @@ pub fn node_menu(app: &mut App, ui: &mut egui::Ui, n: &str) {
 pub fn background_menu(app: &mut App, ui: &mut egui::Ui, at: [f32; 2]) {
     let lang = app.settings.lang;
     if item(ui, "circle-plus", t(lang, "new_node"), t(lang, "m_new_node_d")) {
-        app.node_form = Some(NodeForm { at, ..Default::default() });
+        app.node_form = Some(NodeForm { at, into: app.write_into.clone(), ..Default::default() });
         ui.close();
     }
     if item(ui, "link", t(lang, "m_new_relation"), t(lang, "m_new_relation_d")) {
-        app.line_draft = Some((app.current.clone(), None, "relate r: a = 2 * b".into()));
+        match app.write_into.clone() {
+            // in a workshop: its form, to fill
+            Some(ws) => {
+                app.workshop_state.entry(ws).or_default().form = Some(("relate", Default::default()));
+            }
+            None => app.line_draft = Some((app.current.clone(), None, "relate r: a = 2 * b".into())),
+        }
         ui.close();
     }
     if item(ui, "scan-search", t(lang, "fit"), t(lang, "m_fit_d")) {
@@ -119,6 +125,8 @@ pub struct NodeForm {
     pub kind: usize,
     pub value: String,
     pub at: [f32; 2],
+    /// A workshop it is written in (None: the app shown, or the prompt).
+    pub into: Option<String>,
 }
 
 const KINDS: [(&str, &str); 6] = [
@@ -185,7 +193,12 @@ pub fn node_form(app: &mut App, ctx: &egui::Context) {
         app.graph.pos.insert(key.clone(), f.at);
         app.graph.pinned.insert(key);
         app.node_form = None;
-        app.write_line(&line);
+        match f.into.clone() {
+            Some(ws) => {
+                crate::workshop::write(app, &ws, &line);
+            }
+            None => app.write_line(&line),
+        }
     } else {
         app.node_form = Some(f);
     }

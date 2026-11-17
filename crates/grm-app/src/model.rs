@@ -69,6 +69,10 @@ pub struct Picture {
     pub mood: grm_engine::mind::Mood,
     /// Its workshops: (name, nodes, relations).
     pub workshops: Vec<(String, usize, usize)>,
+    /// What was written in it (a workshop's picture).
+    pub written: Vec<String>,
+    /// Its master equation, said (a workshop's picture).
+    pub master: Option<(String, String)>,
 }
 
 impl Picture {
@@ -77,6 +81,8 @@ impl Picture {
     pub fn of_workshop(w: &World, name: &str) -> Option<Picture> {
         let ws = w.workshops.get(name)?;
         let mut p = Picture::of(ws);
+        p.master =
+            ws.master(None).map(|m| (m.text(), format!("{:.2} decades, residual {:.1e} dex", m.decades, m.residual)));
         for n in &mut p.nodes {
             n.source = format!("workshop:{name}");
         }
@@ -189,6 +195,8 @@ impl Picture {
                 .collect(),
             sources: w.sources().into_iter().collect(),
             mood: w.mood.clone(),
+            written: w.written.clone(),
+            master: None,
             workshops: w
                 .workshops
                 .iter()

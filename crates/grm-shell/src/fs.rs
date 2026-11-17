@@ -117,7 +117,7 @@ pub const WORDS_HELP: &[(&str, &str, &str)] = &[
     ("undo", "undo / redo: the world as it was before the last change (30 kept)", "undo"),
     ("stats", "stats: the network counted, by source; what the human says most", "stats"),
     ("rent", "rent: what each relation brings, in bits a tick, against the rent of its links (the price grows as room runs out)", "rent"),
-    ("workshop", "workshop [list | show NAME | merge NAME | close NAME]: networks of data made apart (load FILE.csv makes one; merge: through a sandbox)", "workshop merge fall"),
+    ("workshop", "workshop [list | new NAME | show NAME | say NAME LINE | unsay NAME K | play NAME NODE | merge NAME | close NAME]: networks made apart (load FILE.csv [--into NAME] makes one; merge: through the airlock)", "workshop say fall relate r: h = 4.9 * t^2"),
     ("capacity", "capacity [N | auto]: the links the network may hold (auto: a quarter of the memory available now)", "capacity 20000"),
     ("look", "look NAME: accent = #E8A33D, round = 8, size = 1.2 (a look for widgets)", "look big: size = 1.5"),
 ];
@@ -131,7 +131,7 @@ impl Shell {
         let paths: Vec<&str> = args
             .iter()
             .copied()
-            .filter(|a| !(a.starts_with('-') && a.len() > 1) || *a == "--mix" || *a == "--here")
+            .filter(|a| !(a.starts_with('-') && a.len() > 1) || *a == "--mix" || *a == "--here" || *a == "--into")
             .collect();
         let err = |e: std::io::Error, p: &dyn std::fmt::Display| vec![Line::error(format!("! {p}: {e}"))];
         Some(match word {
@@ -679,6 +679,12 @@ impl Shell {
         let numeric: Vec<bool> = (0..table.names.len()).map(|k| table.numeric(k)).collect();
         let mut chosen: Vec<String> =
             paths[1..].iter().filter(|s| **s != "--mix" && **s != "--here").map(|s| s.to_string()).collect();
+        // the name after `--into` is not a column
+        if let Some(k) = rest.split_whitespace().position(|w| w == "--into") {
+            if let Some(n) = rest.split_whitespace().nth(k + 1) {
+                chosen.retain(|c| c != n);
+            }
+        }
         if chosen.is_empty() {
             if self.window {
                 // the window asks which columns
@@ -713,7 +719,14 @@ impl Shell {
         // by default a table is learned in a workshop of its own (a new network, apart): only `--here` puts it in
         // the global network at once
         if !rest.split_whitespace().any(|w| w == "--here") {
-            return self.load_in_workshop(engine, &table, &chosen, &into, &grm_connect::csv::name_of(&stem), &source);
+            // `--into NAME`: into a workshop already there (several tables in one)
+            let target = rest
+                .split_whitespace()
+                .skip_while(|w| *w != "--into")
+                .nth(1)
+                .map(String::from)
+                .unwrap_or_else(|| grm_connect::csv::name_of(&stem));
+            return self.load_in_workshop(engine, &table, &chosen, &into, &target, &source);
         }
         // a node of the same name, from somewhere else: its data would be mixed with this table's
         let wanted: Vec<String> = chosen
@@ -900,6 +913,86 @@ impl Shell {
                     Ok(text)
                 }))
             }
+            "new" => {
+                if !grm_engine::lang::is_name(&name) {
+                    return vec![Line::warn("? workshop new NAME (a name: a letter first, then letters, digits or _)")];
+                }
+                let n = name.clone();
+                let out = crate::said(engine.ask(move |w| {
+                    if w.workshops.contains_key(&n) {
+                        return Err(grm_engine::GrmError::new(format!("there is already a workshop {n}")));
+                    }
+                    w.workshops.insert(n.clone(), Box::new(grm_engine::world::World::new()));
+                    Ok(format!("workshop {n} opened: a network of its own, empty"))
+                }));
+                if self.window {
+                    self.orders.push(Order::Workshop(name.clone()));
+                }
+                out
+            }
+            "say" => {
+                // the rest of the line, as written, said in the workshop only
+                let line = rest.trim_start().strip_prefix("say").unwrap_or("").trim_start();
+                let line = line.strip_prefix(name.as_str()).unwrap_or("").trim().to_string();
+                let n = name.clone();
+                crate::said(engine.ask(move |w| {
+                    let Some(ws) = w.workshops.get_mut(&n) else {
+                        return Err(grm_engine::GrmError::new(format!("no workshop {n}")));
+                    };
+                    let origin = grm_engine::Provenance::of(format!("workshop:{n}"));
+                    let said = ws.say(&line, &origin)?;
+                    // a small network: built anew, so that everything it holds is heard at once
+                    if let Ok(m) = grm_engine::machine::Machine::new(ws.machine.net.clone()) {
+                        ws.machine = m;
+                    }
+                    ws.machine.run(4000);
+                    ws.written.push(line.clone());
+                    Ok(said.unwrap_or_default())
+                }))
+            }
+            "unsay" => {
+                // a line taken back: the workshop is said again without it
+                let k: usize = words.next().and_then(|x| x.parse().ok()).unwrap_or(usize::MAX);
+                let n = name.clone();
+                crate::said(engine.ask(move |w| {
+                    let Some(ws) = w.workshops.get_mut(&n) else {
+                        return Err(grm_engine::GrmError::new(format!("no workshop {n}")));
+                    };
+                    if k >= ws.written.len() {
+                        return Err(grm_engine::GrmError::new(format!("no line {k} in the workshop {n}")));
+                    }
+                    let mut lines = ws.written.clone();
+                    let gone = lines.remove(k);
+                    let mut fresh = grm_engine::world::World::new();
+                    let origin = grm_engine::Provenance::of(format!("workshop:{n}"));
+                    for l in &lines {
+                        let _ = fresh.say(l, &origin);
+                    }
+                    if let Ok(m) = grm_engine::machine::Machine::new(fresh.machine.net.clone()) {
+                        fresh.machine = m;
+                    }
+                    fresh.machine.run(4000);
+                    fresh.written = lines;
+                    **ws = fresh;
+                    Ok(format!("taken back from {n}: {gone}"))
+                }))
+            }
+            "play" => {
+                let node = words.next().unwrap_or("").to_string();
+                let rate = self.mixer.lock().map(|m| m.rate).unwrap_or(48_000);
+                match Self::reflex_in(engine, Some(&name), &node, rate) {
+                    Ok(r) => match grm_sound::mixer::ReflexSource::new(r, &node) {
+                        Some(source) => {
+                            if let Ok(mut m) = self.mixer.lock() {
+                                m.play(&node, Box::new(source), 0.5);
+                            }
+                            vec![Line::said(format!("{node} plays, from the workshop {name}"))]
+                        }
+                        None => vec![Line::error(format!("! {node} is not in its network"))],
+                    },
+                    Err(e) => vec![Line::error(format!("! {e}"))],
+                }
+            }
             "close" => {
                 let n = name.clone();
                 crate::said(engine.ask(move |w| match w.workshops.shift_remove(&n) {
@@ -907,7 +1000,9 @@ impl Shell {
                     None => Err(grm_engine::GrmError::new(format!("no workshop {n}"))),
                 }))
             }
-            _ => vec![Line::warn("? workshop [list | show NAME | merge NAME | close NAME]")],
+            _ => vec![Line::warn(
+                "? workshop [list | new NAME | show NAME | say NAME LINE | unsay NAME K | play NAME NODE | merge NAME | close NAME]",
+            )],
         }
     }
 

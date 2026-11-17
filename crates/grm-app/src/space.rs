@@ -24,10 +24,13 @@ pub enum Kind {
     Feelings,
     Plots,
     Clock,
+    /// A network made apart, where the language is learned.
+    Workshop(String),
+    Inspector,
 }
 
 impl Kind {
-    fn word(&self) -> String {
+    pub fn word(&self) -> String {
         match self {
             Kind::App(a) => format!("app {a}"),
             Kind::Network(n) => format!("network {n}"),
@@ -35,10 +38,12 @@ impl Kind {
             Kind::Feelings => "feelings".into(),
             Kind::Plots => "plots".into(),
             Kind::Clock => "clock".into(),
+            Kind::Workshop(w) => format!("workshop {w}"),
+            Kind::Inspector => "inspector".into(),
         }
     }
 
-    fn sign(&self, app: &App) -> String {
+    pub fn sign(&self, app: &App) -> String {
         match self {
             Kind::App(a) => app
                 .apps
@@ -53,10 +58,12 @@ impl Kind {
             Kind::Feelings => "heart-pulse".into(),
             Kind::Plots => "chart-line".into(),
             Kind::Clock => "clock-3".into(),
+            Kind::Workshop(_) => "hammer".into(),
+            Kind::Inspector => "search".into(),
         }
     }
 
-    fn title(&self, app: &App) -> String {
+    pub fn title(&self, app: &App) -> String {
         let lang = app.settings.lang;
         match self {
             Kind::App(a) => app.apps.iter().find(|x| &x.name == a).map(|x| x.title.clone()).unwrap_or(a.clone()),
@@ -66,6 +73,8 @@ impl Kind {
             Kind::Feelings => t(lang, "feel").to_string(),
             Kind::Plots => t(lang, "m_plots").to_string(),
             Kind::Clock => t(lang, "clock").to_string(),
+            Kind::Workshop(w) => format!("{} {w}", t(lang, "workshop")),
+            Kind::Inspector => t(lang, "inspector").to_string(),
         }
     }
 }
@@ -102,6 +111,11 @@ fn number(s: Option<&str>) -> Option<f32> {
     s.and_then(|x| x.parse::<f32>().ok()).filter(|x| x.is_finite())
 }
 
+/// A kind from its word (as `Kind::word` writes it).
+pub fn kind_of(word: &str) -> Option<Kind> {
+    parse(&format!("place {word} at 0 0 size 200 200")).into_iter().next().map(|(k, _)| k)
+}
+
 /// Reads the lines of a space (what is not understood is left out).
 pub fn parse(text: &str) -> Vec<(Kind, Rect)> {
     let mut out = vec![];
@@ -125,6 +139,8 @@ pub fn parse(text: &str) -> Vec<(Kind, Rect)> {
             (Some("feelings"), _) => Kind::Feelings,
             (Some("plots"), _) => Kind::Plots,
             (Some("clock"), _) => Kind::Clock,
+            (Some("workshop"), Some(w)) => Kind::Workshop(w.to_string()),
+            (Some("inspector"), _) => Kind::Inspector,
             _ => continue,
         };
         out.push((kind, Rect::from_min_size(pos2(x, y), vec2(wd.max(120.0), ht.max(80.0)))));
@@ -196,6 +212,7 @@ impl Space {
             Kind::Clock => vec2(220.0, 240.0),
             Kind::Feelings => vec2(340.0, 300.0),
             Kind::Network(_) => vec2(460.0, 360.0),
+            Kind::Workshop(_) => vec2(900.0, 640.0),
             _ => vec2(480.0, 360.0),
         };
         let right = self.items.iter().map(|i| i.rect.right()).fold(0.0, f32::max);
@@ -250,6 +267,9 @@ pub fn first(app: &App) -> Space {
 
 /// The space, in the middle.
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
+    if crate::zone::center(app, ui) {
+        return;
+    }
     let ink = Ink::of(ui.ctx());
     let lang = app.settings.lang;
     app.space.reread();
@@ -285,20 +305,27 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         app.space.seen = app.space.bounds();
     }
     let mut seen = app.space.seen;
-    let back = ui.available_rect_before_wrap();
+    // only what is seen of the middle (the side may stand over the end of it)
+    let back = ui.available_rect_before_wrap().intersect(ui.clip_rect());
     ui.painter().rect_filled(back, 0.0, ink.surface);
+    let mut table =
+        ui.new_child(egui::UiBuilder::new().max_rect(back).layout(egui::Layout::top_down(egui::Align::Min)));
+    table.set_clip_rect(back);
+    let ui = &mut table;
     // a quiet dotted ground: where the table is
     let scene = egui::Scene::new().zoom_range(0.1..=2.0);
     let mut order: Option<usize> = None;
-    let mut gone: Option<usize> = None;
-    let mut full: Option<Kind> = None;
+    let mut acts: Vec<(Kind, crate::zone::Act)> = vec![];
     scene.show(ui, &mut seen, |ui| {
+        // nothing of the table is drawn outside its place on the screen (not over the side, not over the prompt)
+        if let Some(to_screen) = ui.ctx().layer_transform_to_global(ui.layer_id()) {
+            ui.set_clip_rect(to_screen.inverse() * back);
+        }
         let n = app.space.items.len();
         for k in 0..n {
             match frame(app, ui, k) {
                 Some(Act::Front) => order = Some(k),
-                Some(Act::Remove) => gone = Some(k),
-                Some(Act::Full) => full = Some(app.space.items[k].kind.clone()),
+                Some(Act::Zone(a)) => acts.push((app.space.items[k].kind.clone(), a)),
                 None => {}
             }
         }
@@ -309,12 +336,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         let it = app.space.items.remove(k);
         app.space.items.push(it);
     }
-    if let Some(k) = gone {
-        app.space.items.remove(k);
-        app.space.dirty = true;
-    }
-    if let Some(kind) = full {
-        open_full(app, kind);
+    let ctx = ui.ctx().clone();
+    for (kind, a) in acts {
+        crate::zone::apply(app, &ctx, &kind, a);
     }
     if app.space.dirty && !ui.input(|i| i.pointer.any_down()) {
         app.space.save(&app.memory);
@@ -323,34 +347,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
 
 enum Act {
     Front,
-    Remove,
-    Full,
-}
-
-/// Opened whole (out of the table): an app in its own view, a network gone into, a file in its tab.
-fn open_full(app: &mut App, kind: Kind) {
-    app.space_on = false;
-    match kind {
-        Kind::App(a) => {
-            app.current = Some(a);
-            app.current_file = None;
-        }
-        Kind::Network(n) => {
-            app.current = None;
-            app.current_file = None;
-            app.desk_mode = crate::desk::Mode::Network;
-            if n != "all" {
-                app.dive(&n);
-            } else {
-                app.dived = None;
-            }
-        }
-        Kind::File(p) => app.say(format!("edit {}", grm_shell::quoted(&p.display().to_string()))),
-        Kind::Plots | Kind::Feelings | Kind::Clock => {
-            app.current = None;
-            app.desk_mode = crate::desk::Mode::Plot;
-        }
-    }
+    Zone(crate::zone::Act),
 }
 
 fn put_menu(app: &mut App, ui: &mut egui::Ui) {
@@ -393,7 +390,19 @@ fn put_menu(app: &mut App, ui: &mut egui::Ui) {
         }
     }
     ui.separator();
+    ui.label(RichText::new(t(lang, "workshops")).strong());
+    for (w, _, _) in app.picture.workshops.clone() {
+        if crate::icons::button(ui, "hammer", &w).clicked() {
+            put = Some(Kind::Workshop(w));
+        }
+    }
+    if crate::icons::button(ui, "circle-plus", t(lang, "ws_new")).on_hover_text(t(lang, "workshop_d")).clicked() {
+        app.new_workshop_open = true;
+        ui.close();
+    }
+    ui.separator();
     for (sign, key, kind) in [
+        ("search", "inspector", Kind::Inspector),
         ("heart-pulse", "feel", Kind::Feelings),
         ("chart-line", "m_plots", Kind::Plots),
         ("clock-3", "clock", Kind::Clock),
@@ -438,7 +447,7 @@ fn frame(app: &mut App, ui: &mut egui::Ui, k: usize) -> Option<Act> {
         act = Some(Act::Front);
     }
     if r.double_clicked() {
-        act = Some(Act::Full);
+        act = Some(Act::Zone(crate::zone::Act::Center));
     }
     let sign = kind.sign(app);
     let mut title_ui = ui.new_child(
@@ -450,11 +459,8 @@ fn frame(app: &mut App, ui: &mut egui::Ui, k: usize) -> Option<Act> {
     crate::icons::show(&mut title_ui, &sign, 15.0, ink.accent);
     title_ui.label(RichText::new(kind.title(app)).strong());
     title_ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-        if crate::icons::sign(ui, "x", t(lang, "space_take_off")).clicked() {
-            act = Some(Act::Remove);
-        }
-        if crate::icons::sign(ui, "maximize-2", t(lang, "space_full")).clicked() {
-            act = Some(Act::Full);
+        if let Some(a) = crate::zone::signs(ui, lang, crate::zone::Act::Space) {
+            act = Some(Act::Zone(a));
         }
     });
     painter.line_segment(
@@ -485,48 +491,21 @@ fn frame(app: &mut App, ui: &mut egui::Ui, k: usize) -> Option<Act> {
             .layout(egui::Layout::top_down(egui::Align::Min)),
     );
     body.set_clip_rect(inner.intersect(ui.clip_rect()));
-    match &kind {
-        Kind::App(a) => {
-            if app.apps.iter().any(|x| &x.name == a) {
-                let editing = std::mem::replace(&mut app.editing, false);
-                egui::ScrollArea::vertical()
-                    .id_salt(("space-app", a))
-                    .show(&mut body, |ui| crate::surface::show(app, ui, a));
-                app.editing = editing;
-            } else if crate::icons::button(&mut body, "play", t(lang, "space_open_app")).clicked() {
-                app.say(format!("app open {a}"));
-            }
-        }
-        Kind::Network(n) => {
-            // each network on the table is looked at its own way
-            std::mem::swap(&mut app.view, &mut app.space.items[k].view);
-            app.view.passive = true;
-            let only = if n == "all" { None } else { Some(n.as_str()) };
-            crate::view::show(app, &mut body, only);
-            app.view.passive = false;
-            std::mem::swap(&mut app.view, &mut app.space.items[k].view);
-        }
-        Kind::File(p) => {
-            let k = match app.files.iter().position(|f| &f.path == p) {
-                Some(k) => k,
-                None => {
-                    app.files.push(crate::files::FileTab::open(p.clone()));
-                    app.files.len() - 1
-                }
-            };
-            crate::files::show(app, &mut body, k);
-        }
-        Kind::Feelings => {
-            egui::ScrollArea::vertical().id_salt("space-feel").show(&mut body, |ui| crate::panels::feelings(app, ui));
-        }
-        Kind::Plots => crate::plot::show(app, &mut body, None),
-        Kind::Clock => clock(&mut body, &ink, lang),
+    // the whole frame, under what it shows: a double click where nothing else takes it makes it bigger
+    let back = ui.interact(inner, id.with("back"), Sense::click());
+    if back.double_clicked() {
+        act = Some(Act::Zone(crate::zone::Act::Center));
+    }
+    let mut view = std::mem::take(&mut app.space.items[k].view);
+    crate::zone::body(app, &mut body, &kind, &mut view, true);
+    if let Some(it) = app.space.items.get_mut(k) {
+        it.view = view;
     }
     act
 }
 
 /// A clock: a face with its hands (the seconds move slowly, without jumps), the time and the day in words.
-fn clock(ui: &mut egui::Ui, ink: &Ink, lang: crate::text::Lang) {
+pub fn clock(ui: &mut egui::Ui, ink: &Ink, lang: crate::text::Lang) {
     use chrono::{Datelike, Timelike};
     let now = chrono::Local::now();
     let size = ui.available_size();

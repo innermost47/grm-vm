@@ -40,6 +40,9 @@ pub struct Window {
     pub side_open: bool,
     #[serde(default = "yes")]
     pub space_on: bool,
+    /// The zone in place of the space, and those in windows of their own (as the space writes them).
+    pub zone_center: Option<String>,
+    pub detached: Vec<String>,
     #[serde(default = "yes")]
     pub prompt_open: bool,
     /// The window was full screen.
