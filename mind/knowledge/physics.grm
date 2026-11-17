@@ -1,0 +1,19 @@
+# Physics: what the world is made of, as she starts with it (constants with how sure they are, and a few laws).
+node phys_c = 299792458 fixed
+node phys_h = 6.62607015e-34 fixed
+node phys_k_boltzmann = 1.380649e-23 fixed
+node phys_g
+observe phys_g = 9.80665 ± 0.0001%
+# A falling body: the height fallen in a time (Galileo).
+node phys_fall_t
+observe phys_fall_t = 1 ± 0.0001%
+node phys_fall_h
+relate phys_fall: phys_fall_h = 0.5 * phys_g * phys_fall_t^2
+# Light: its frequency and its wavelength.
+node phys_light_f
+observe phys_light_f = 5.4e14 ± 0.0001%
+node phys_light_wavelength
+relate phys_light: phys_light_wavelength * phys_light_f = phys_c
+# A photon's energy (Planck).
+node phys_photon_energy
+relate phys_planck: phys_photon_energy = phys_h * phys_light_f

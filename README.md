@@ -720,6 +720,57 @@ again* plays on the instrument.
 
 ![Her lessons, her mood, the ratios beside her taste](docs/lessons.png)
 
+### The studio: one app, instruments, a mixer
+
+*Studio* is one app for the whole song. At the top, sticky, the **transport**: play and stop, the tempo, where it
+is (bar and beat), the metronome and its loudness (the human's alone), the echo's time in note values (1/16 to
+1/2, dotted ones too), *+ synth*, *+ drums*. In the middle the instruments; at the bottom a **mixer** that scrolls
+sideways: a strip per instrument (a meter that rises and falls slowly, its fader, its pan, what it sends to the one
+echo and the one reverb they all share, on or off), and the master. One clock for all (`networks/transport.grm`:
+sixteenths, bars, the click): every instrument reads it, so they are in time together.
+
+- **A synthesiser** (`networks/synth.grm`) is the analogue one as a single network: four voices, three oscillators,
+  the ladder filter, two envelopes, an LFO, glide (portamento; a note held while the pitch moves is legato), a
+  sequencer of eight steps each of which can be off, an arpeggiator with *latch*.
+- **A drum machine** (`networks/drums.grm`): a kick, a snare, a hat and a tom, each from oscillators and noise (a
+  falling pitch, a filtered noise), sixteen steps each, its pitch, its decay, its loudness; a pad for the human to
+  hit by hand.
+
+The song (its tracks, its tempo, its echo) is kept beside the memory (`<memory>.studio.json`); the app's file is
+written from it (`apps/studio.grm`) each time an instrument comes or goes.
+
+**She is not the instruments: she has hands.** A new word of GRML says which nodes of a tool she may play, and on
+which switch the human gives them to her:
+
+```
+hand kick when t3_k_hers: t3_k_s1 t3_k_s2 ... t3_k_level t3_k_tune t3_k_decay
+```
+
+Every instrument carries its hands (a synthesiser one, each drum of a machine its own), and every app can: what
+learns is a word of the language, not a feature of one module. She writes only through a hand she holds; what she
+holds the human sees move and cannot touch (until they take it back with its switch). On a drum she holds, at a bar
+now and then she moves one step, and keeps it when what she heard after pleased her more: clearer, and the groove
+nearer its sweet spot (Witek et al., 2014, found the wish to move and the pleasure highest at a middle amount of
+syncopation). With two synthesisers she plays a duet: she is not silenced by the human playing, and answers their
+phrases only now and then.
+
+![The studio: the transport, a drum machine (the hat hers), a synthesiser, the mixer](docs/studio.png)
+
+### Her own network, and what she starts knowing
+
+Her mood is no longer only inside the window: **ELLE** (`mind/elle.grm`) is a network of her own, with her
+provenance, like any other: her pleasure, surprise, curiosity, boredom and the weight of what she lived, written
+into it once a second; her **attention** (`elle_focus`) and her **wish to explore** (`elle_explore`) as relations
+of them, that `why` explains. The tools never see it: they see only what she does through their hands. Any other
+activity than music can read and write it the same way. Her mood now moves out of her lessons too.
+
+At the first launch she starts from a blank network and a few things known, each file its own provenance, each
+number with how sure it is (`mind/knowledge/`): **physics** (the speed of light, Planck's and Boltzmann's
+constants, a body falling, a photon's energy), **acoustics** (the speed of sound and its temperature, a tone's
+period and wavelength, harmonics, a pipe), **music** (the ratios of intervals, twelve equal semitones, the
+Pythagorean comma, the tempered fifth, a beat's seconds), **mathematics** (π, e, √2, the golden ratio, a circle)
+and **GRML** itself (the sample rate, a phase's step).
+
 ### Knobs, faders, lights
 
 Besides sliders, an app has round **knobs** with their scale, words and sign (`icon NAME`), **switches** with

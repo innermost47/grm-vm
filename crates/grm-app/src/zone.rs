@@ -90,9 +90,13 @@ pub fn body(app: &mut App, ui: &mut egui::Ui, kind: &Kind, view: &mut crate::vie
         Kind::App(a) => {
             if app.apps.iter().any(|x| &x.name == a) {
                 let editing = if small { std::mem::replace(&mut app.editing, false) } else { app.editing };
-                egui::ScrollArea::vertical()
-                    .id_salt(("zone-app", a, small))
-                    .show(ui, |ui| crate::surface::show(app, ui, a));
+                if a == crate::studio::APP && !small {
+                    crate::studio::panel(app, ui);
+                } else {
+                    egui::ScrollArea::vertical()
+                        .id_salt(("zone-app", a, small))
+                        .show(ui, |ui| crate::surface::show(app, ui, a));
+                }
                 app.editing = editing;
             } else if crate::icons::button(ui, "play", t(lang, "space_open_app")).clicked() {
                 app.say(format!("app open {a}"));

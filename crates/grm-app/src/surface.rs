@@ -156,7 +156,7 @@ fn reset_on_double_click(app: &App, r: &egui::Response, node: &str) {
     }
 }
 
-fn observe(app: &App, node: &str, v: f64) {
+pub(crate) fn observe(app: &App, node: &str, v: f64) {
     // her own synthesiser: only she plays it (its loudness and its switch to play by ear excepted)
     if app.locked(node) {
         return;

@@ -268,7 +268,9 @@
 5. **The decentralised network**: the internet transport (no central server), public, private and closed networks,
    signatures, the sas (identity, form, permissions, quarantine, compatibility, earned trust), debates between
    hypotheses, human experts, vaccines.
-6. **Apps made of networks**: a word processor, a spreadsheet, a DAW, a physical model of a guitar shared with
+6. **Apps made of networks**: a word processor, a spreadsheet, a DAW (*first version done*: the studio, its
+   transport, synthesisers and drum machines added by the human, a mixer with shared echo and reverb, her hands on
+   each instrument by the `hand` word, her own network ELLE apart from the tools, a first knowledge), a physical model of a guitar shared with
    others; programming by networks; flows wired like modules (sound, pictures, video, as in TouchDesigner) on the
    mixer's sources; plug-ins (VST) loading GRM packages.
 7. **Further**: a bootable USB key, GRM-OS.

@@ -1,0 +1,10 @@
+# GRML: the language she is written in, as she starts knowing it. Its sound runs at 48 000 samples a second: a time
+# in seconds is so many samples.
+node grml_sample_rate = 48000 fixed
+node grml_seconds
+observe grml_seconds = 1 ± 0.0001%
+node grml_samples
+relate grml_time: grml_samples = grml_sample_rate * grml_seconds
+# A step at each sample that makes a cycle a second: what a phase adds (an oscillator at f: f times it).
+node grml_hertz_step
+relate grml_phase: grml_hertz_step * grml_sample_rate = 1

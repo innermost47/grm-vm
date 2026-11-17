@@ -570,6 +570,14 @@ const WORDS: &[(&str, &str, &str)] = &[
     ("unfold_prompt", "Unfold the prompt's lines", "Déplier les lignes du prompteur"),
     ("icons_note", "signs an app can wear: `icon NAME` in its file (play, music, cloud-sun, calculator...)", "signes qu'une app peut porter : `icon NOM` dans son fichier (play, music, cloud-sun, calculator…)"),
     ("cell", "cell", "cellule"),
+    ("metronome", "metronome", "métronome"),
+    ("click_level", "how loud the click is", "volume du clic"),
+    ("echo", "echo", "écho"),
+    ("add_synth", "synth", "synthé"),
+    ("add_drums", "drums", "boîte à rythmes"),
+    ("drum_hers", "hers: she moves these steps", "à elle : c'est elle qui déplace ces pas"),
+    ("hers_word", "hers", "à elle"),
+    ("on_word", "on", "allumé"),
     ("table_shape", "table: a row or a column", "tableau : une ligne ou une colonne"),
 ];
 

@@ -1,0 +1,22 @@
+# Acoustics: what sound is (a pressure that moves), as she starts with it.
+# The speed of sound in air at 20 °C, and how it grows with temperature (the square root of the absolute one).
+node ac_sound_speed
+observe ac_sound_speed = 343.2 ± 0.5%
+node ac_air_kelvin
+observe ac_air_kelvin = 293.15 ± 0.0001%
+relate ac_temperature: ac_sound_speed = 20.05 * ac_air_kelvin^0.5 ± 0.5%
+# A tone: its frequency, its period, its wavelength in air.
+node ac_tone_f
+observe ac_tone_f = 440 ± 0.0001%
+node ac_tone_period
+relate ac_period: ac_tone_period * ac_tone_f = 1
+node ac_tone_wavelength
+relate ac_wavelength: ac_tone_wavelength * ac_tone_f = ac_sound_speed
+# Its harmonics: whole multiples of it (what a saw holds all of, a square the odd ones).
+node ac_h2
+relate ac_harmonic2: ac_h2 = 2 * ac_tone_f
+node ac_h3
+relate ac_harmonic3: ac_h3 = 3 * ac_tone_f
+# A pipe open at both ends sounds at a wavelength twice its length.
+node ac_pipe_length
+relate ac_pipe: 2 * ac_pipe_length * ac_tone_f = ac_sound_speed

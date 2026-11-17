@@ -1,0 +1,13 @@
+# Mathematics: a few numbers she starts with.
+node math_pi = 3.14159265358979 fixed
+node math_e = 2.71828182845905 fixed
+node math_sqrt2
+relate math_root2: math_sqrt2^2 = 2
+node math_phi = 1.61803398874989 fixed
+node math_phi_inverse
+relate math_golden: math_phi_inverse = math_phi - 1
+# A circle: its circumference from its radius.
+node math_radius
+observe math_radius = 1 ± 0.0001%
+node math_circumference
+relate math_circle: math_circumference = 2 * math_pi * math_radius

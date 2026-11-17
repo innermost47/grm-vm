@@ -342,9 +342,37 @@ pub struct Flat {
     pub from: Option<String>,
 }
 
+/// `hand NAME when SWITCH: NODE NODE ...`: a part of an instrument she may take in hand. While SWITCH is 1, those
+/// nodes are hers to write (and only hers: the human sees them move); the switch itself stays the human's. What she
+/// writes goes through hands only: she is not the instrument, she plays it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Hand {
+    pub name: String,
+    pub switch: String,
+    pub nodes: Vec<String>,
+    pub line: usize,
+}
+
+/// `hand NAME when SWITCH: NODE ...`
+pub fn parse_hand(rest: &str, line: usize) -> Result<Hand, String> {
+    let usage = "hand NAME when SWITCH: NODE NODE ...";
+    let (head, nodes) = rest.split_once(':').ok_or(usage)?;
+    let mut words = head.split_whitespace();
+    let (Some(name), Some("when"), Some(switch)) = (words.next(), words.next(), words.next()) else {
+        return Err(usage.into());
+    };
+    let nodes: Vec<String> = nodes.split_whitespace().map(|s| s.to_string()).collect();
+    if !is_name(name) || !is_name(switch) || nodes.iter().any(|n| !is_name(n)) {
+        return Err(usage.into());
+    }
+    Ok(Hand { name: name.to_string(), switch: switch.to_string(), nodes, line })
+}
+
 /// An app file, read.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Parsed {
+    /// The parts she may take in hand.
+    pub hands: Vec<Hand>,
     pub title: Option<String>,
     /// `icon NAME`: its sign (a Lucide icon's name).
     pub icon: Option<String>,
@@ -543,6 +571,10 @@ fn unfold(
                 Err(e) => p.errors.push((line_no, e)),
             },
             "look" | "style" if outer.is_none() => p.looks.push((line_no, text.to_string())),
+            "hand" => match parse_hand(rest, line_no) {
+                Ok(h) => p.hands.push(h),
+                Err(e) => p.errors.push((line_no, e)),
+            },
             "api" => match parse_api(rest) {
                 Ok(a) => {
                     p.apis.retain(|x| x.name != a.name);
@@ -614,6 +646,15 @@ mod defined_tests {
         let d = defined(&flat);
         assert!(d.contains(&"b".to_string()) && d.contains(&"a".to_string()), "{d:?}");
     }
+
+    #[test]
+    fn a_hand_names_its_switch_and_the_nodes_it_plays() {
+        let h = parse_hand("kick when t3_k_hers: t3_k_s1 t3_k_s2 t3_k_level", 4).unwrap();
+        assert_eq!(h.name, "kick");
+        assert_eq!(h.switch, "t3_k_hers");
+        assert_eq!(h.nodes, vec!["t3_k_s1", "t3_k_s2", "t3_k_level"]);
+        assert!(parse_hand("kick t3_k_s1", 4).is_err());
+    }
 }
 
 /// Every whole word `from` becomes `to`.
@@ -658,6 +699,16 @@ impl Parsed {
         }
         for w in &mut p.widgets {
             for n in &mut w.nodes {
+                if let Some(to) = map.get(n) {
+                    *n = to.clone();
+                }
+            }
+        }
+        for h in &mut p.hands {
+            if let Some(to) = map.get(&h.switch) {
+                h.switch = to.clone();
+            }
+            for n in &mut h.nodes {
                 if let Some(to) = map.get(n) {
                     *n = to.clone();
                 }

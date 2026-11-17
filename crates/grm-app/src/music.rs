@@ -730,6 +730,17 @@ impl Teacher {
                 self.pending = Some((step, mode, before, n + 1));
             }
         }
+        self.feel(k, clarity, mean, progress, seconds, usual);
+    }
+
+    /// What she feels on a note heard (in a lesson or not): her mood.
+    pub fn felt(&mut self, clarity: f64, seconds: f64, usual: f64) {
+        let k = self.lesson.min(self.lived.len() - 1);
+        let (mean, _, progress) = self.lived[k];
+        self.feel(k, clarity, mean, progress, seconds, usual);
+    }
+
+    fn feel(&mut self, k: usize, clarity: f64, mean: f64, progress: f64, seconds: f64, usual: f64) {
         // her mood: the surprise (against what she expected here), the pleasure (against what she usually hears,
         // and the new pleases), fading when it is the same again (boredom)
         // surprise: against how far what she hears usually strays from what she expects here (an ordinary note is
@@ -1069,6 +1080,9 @@ pub struct Kept {
     pub ear: crate::improvise::Ear,
     pub band: crate::improvise::Band,
     pub teacher: Teacher,
+    /// Her tastes on the drum machines.
+    #[serde(default)]
+    pub drums: crate::studio::DrumHand,
 }
 
 impl Kept {

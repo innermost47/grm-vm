@@ -517,6 +517,9 @@ pub struct Band {
     note_seconds: f64,
     /// What was heard lately, by pitch class (from A), fading: the key it is in.
     pub heard: [f64; 12],
+    /// Each on their own instrument: she plays on while the human plays.
+    #[serde(skip)]
+    pub duet: bool,
     /// The bar whose chord sounds (none: no chord).
     #[serde(skip)]
     chord_bar: Option<usize>,
@@ -581,6 +584,7 @@ impl Default for Band {
             long_note: None,
             pair: None,
             chord_bar: None,
+            duet: false,
             left: 0.0,
             chord_notes: vec![],
             bass_off: None,
@@ -795,9 +799,13 @@ impl Band {
                 "the click off: she keeps the time herself".into()
             });
         }
-        // the human plays: she listens, silent; they stop: she answers
+        // the human plays: she listens, silent; they stop: she answers. Each on their own instrument, she plays on
+        // with them (improvising together), and answers their phrase now and then
         let human_playing = now - self.last_human < 1.5 * beat;
-        if human_playing {
+        if self.duet && !human_playing && !self.phrase.is_empty() && self.random() > 0.35 {
+            self.phrase.clear();
+        }
+        if human_playing && !self.duet {
             if self.lead_on {
                 self.lead_on = false;
                 out.push((Part::LeadGate, 0.0));
@@ -944,6 +952,10 @@ impl Band {
                 }
             }
             // what she lived, for her lesson (and her mood)
+            // out of her lessons, she feels all the same (her mood is not the lessons')
+            if !teacher.on && self.note_seconds > 0.0 && judged {
+                teacher.felt(heard, self.note_seconds, ear.usual);
+            }
             if teacher.on && self.note_seconds > 0.0 && judged {
                 teacher.lived_note(heard, self.note_seconds, ear.usual);
                 let r = self.random();

@@ -39,6 +39,8 @@ pub struct AppView {
     pub can_redo: bool,
     /// Its looks and style lines.
     pub looks: Vec<(usize, String)>,
+    /// The parts she may take in hand (`hand NAME when SWITCH: NODE ...`).
+    pub hands: Vec<crate::apps::Hand>,
 }
 
 /// A running app.
@@ -138,6 +140,7 @@ impl Shell {
                 can_undo: !a.undo.is_empty(),
                 can_redo: !a.redo.is_empty(),
                 looks: a.parsed.looks.clone(),
+                hands: a.parsed.hands.clone(),
             })
             .collect()
     }

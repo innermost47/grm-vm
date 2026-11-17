@@ -1,0 +1,24 @@
+# ELLE: her own network. Not an instrument, not a tool: what she feels, what she pays attention to, what weighs on
+# her. The window writes what she lives into it (with the provenance "elle"); the tools (the synthesisers, the drum
+# machines, any app) only ever see what she does through their hands, never this. Another activity than music can
+# read and write it the same way: it is hers, not the studio's.
+#
+# Her mood, as lived (written by the window from what she hears).
+node elle_pleasure signed
+observe elle_pleasure = 0 ± 0.2
+node elle_surprise signed
+observe elle_surprise = 0 ± 0.2
+node elle_curiosity signed
+observe elle_curiosity = 0 ± 0.2
+node elle_boredom signed
+observe elle_boredom = 0 ± 0.2
+node elle_pressure signed
+observe elle_pressure = 0 ± 0.2
+# Her attention: drawn by what surprises her and what she is curious about, let go by boredom (a sum, read like
+# any other relation: `why elle_focus`).
+node elle_focus signed
+relate elle_attention: elle_focus = 0.5 + 0.4 * elle_curiosity + 0.3 * elle_surprise - 0.5 * elle_boredom
+# Her wish to change: boredom and the weight of what she lived, against the pleasure of what is (high: she explores;
+# low: she stays where it is good).
+node elle_explore signed
+relate elle_wish: elle_explore = 0.5 * elle_boredom + 0.3 * elle_pressure - 0.4 * elle_pleasure + 0.2

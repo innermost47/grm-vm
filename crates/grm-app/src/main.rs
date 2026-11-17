@@ -34,6 +34,7 @@ mod panels;
 mod plot;
 mod settings;
 mod space;
+mod studio;
 mod style;
 mod surface;
 mod text;

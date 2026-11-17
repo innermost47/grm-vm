@@ -1,0 +1,23 @@
+# Music: the ratios intervals are made of, as she starts with them (what pleases her is hers to learn: this is only
+# what they are).
+node mus_a4
+observe mus_a4 = 440 ± 0.0001%
+node mus_octave = 2 fixed
+node mus_fifth = 1.5 fixed
+node mus_fourth = 1.33333333333 fixed
+node mus_major_third = 1.25 fixed
+node mus_minor_third = 1.2 fixed
+# Twelve equal semitones make an octave (equal temperament).
+node mus_semitone
+relate mus_equal: mus_semitone^12 = mus_octave
+# Twelve pure fifths overshoot seven octaves: the Pythagorean comma.
+node mus_pyth_comma
+relate mus_comma: mus_pyth_comma * mus_octave^7 = mus_fifth^12
+# The tempered fifth (seven semitones), a little narrower than the pure one.
+node mus_tempered_fifth
+relate mus_tempered: mus_tempered_fifth = mus_semitone^7
+# A beat at a tempo: its seconds.
+node mus_bpm
+observe mus_bpm = 120 ± 0.0001%
+node mus_beat_seconds
+relate mus_beat: mus_beat_seconds * mus_bpm = 60
