@@ -832,8 +832,9 @@ her state read, plus her taste for that place in the bar. She is born knowing wh
 kick on the beats, the snare on two and four, the hat on the eighths, the tom at the end); what pleases her moves
 it, by the same gap of pleasure. The steps stay the human's; she plays as the human strikes a pad.
 
-**Held notes.** Her unison is a tie: choosing the same note again, she holds it on (longer notes, and a first
-lesson of long notes on the beats).
+**How long.** With each note she chooses how long it lasts (an eighth, a quarter, a dotted quarter, a half),
+the same way she chooses which: her state read, her taste for each length, the same length again tiring her, and
+what pleased her moving it. In her first two lessons, a quarter: one note a beat.
 
 **Power.** Each instrument of the studio has its power button (on its strip): off, it is not in the song's
 network at all, and costs nothing.

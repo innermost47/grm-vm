@@ -326,9 +326,15 @@ pub fn split_sum(text: &str) -> Vec<(f64, String)> {
                 k -= 1;
             }
             let after_op = k >= 1 && "*/^(".contains(chars[k - 1]);
-            let exponent = k >= 2
-                && (chars[k - 1] == 'e' || chars[k - 1] == 'E')
-                && (chars[k - 2].is_ascii_digit() || chars[k - 2] == '.');
+            // a number's exponent (2e-3): the sign right after its e, and the e after the digits of a number, not
+            // after a name's (x2e - y is a difference)
+            let exponent = k == i && k >= 2 && (chars[k - 1] == 'e' || chars[k - 1] == 'E') && {
+                let mut d = k - 1;
+                while d > 0 && (chars[d - 1].is_ascii_digit() || chars[d - 1] == '.') {
+                    d -= 1;
+                }
+                d < k - 1 && (d == 0 || !(chars[d - 1].is_alphanumeric() || chars[d - 1] == '_'))
+            };
             if !after_op && !exponent {
                 pieces.push(current.trim_end().to_string());
                 pieces.push(c.to_string());

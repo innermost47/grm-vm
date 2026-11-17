@@ -1397,6 +1397,19 @@ mod tests {
         seen.dedup();
         assert!(seen.len() > 8, "she hardly moves: {seen:?}");
         assert!(a.iter().any(|n| n.2 > 0.5) && a.iter().any(|n| n.2 < 0.5), "no notes");
+        // she chooses how long each note lasts: some an eighth (a quarter of a second here), some longer
+        let mut runs = vec![];
+        let mut run = 0;
+        for n in &a {
+            if n.2 > 0.5 {
+                run += 1;
+            } else if run > 0 {
+                runs.push(run);
+                run = 0;
+            }
+        }
+        // a sample every 5 ms: an eighth held is about 37 of them, a quarter about 87
+        assert!(runs.iter().any(|r| *r < 50) && runs.iter().any(|r| *r > 60), "{runs:?}");
         // nothing drawn by chance (the twins inside it agree)
         her_notes(1, "twins", 0);
     }

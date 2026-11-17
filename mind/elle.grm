@@ -22,6 +22,7 @@
 #   choosing      a sweep across the wants, the strongest taken, the one held kept unless another beats it by a
 #                 margin (the basal ganglia's selection: Redgrave, Prescott, Gurney, 1999)
 #   learning      after each note, what made it is moved by the gap of pleasure
+#   how long      each note its length (an eighth to a half), chosen and learned the same way
 #   drums         on a drum the human gives her, she strikes it at a sixteenth when she wants to (her state, her
 #                 taste for that place in the bar), and learns it by the same gap of pleasure
 #   lessons       a lesson opens some choices and closes the others; she stays while she progresses, goes on when
@@ -40,10 +41,17 @@ network elle(name, ear, clock_i, clock_f, other_pitch, other_gate, ctx_song, ctx
   set {name}_li = {clock_i}
   node {name}_di signed
   relate {name}_tick: {name}_di = {clock_i} - {name}_li
+  var {name}_ev8 = 0
+  set {name}_ev8 = 0
+  repeat e in 0 .. 7: set {name}_ev8 = 1 when {name}_di in 0.5 .. 99 and {clock_i} in {2*e - 0.5} .. {2*e + 0.5}
+  set {name}_ev8 = 1 when {name}_di in -99 .. -0.5 and {clock_i} in -0.5 .. 0.5
+  # a new note begins at an eighth when the one before is over ({name}_left: its eighths still to come)
+  var {name}_left = 0
+  set {name}_left = {name}_left - 1 when {name}_ev8 in 0.5 .. 1.5 and {name}_left in 0.5 .. 99
   var {name}_ev = 0
   set {name}_ev = 0
-  repeat e in 0 .. 7: set {name}_ev = 1 when {name}_di in 0.5 .. 99 and {clock_i} in {2*e - 0.5} .. {2*e + 0.5}
-  set {name}_ev = 1 when {name}_di in -99 .. -0.5 and {clock_i} in -0.5 .. 0.5
+  repeat e in 0 .. 7: set {name}_ev = 1 when {name}_di in 0.5 .. 99 and {clock_i} in {2*e - 0.5} .. {2*e + 0.5} and {name}_left in -9 .. 0.5
+  set {name}_ev = 1 when {name}_di in -99 .. -0.5 and {clock_i} in -0.5 .. 0.5 and {name}_left in -9 .. 0.5
 
   # ---- the ear: a cochlea of resonators (a state-variable filter each: Chamberlin), the energy of each band
   repeat b in 1 .. 36: var {name}_lo{b} = 0
@@ -267,11 +275,56 @@ network elle(name, ear, clock_i, clock_f, other_pitch, other_gate, ctx_song, ctx
   repeat k in 1 .. 15: set {name}_pitch = {2^((k - 8)/12)} * {name}_pitch when {name}_ev in 0.5 .. 1.5 and {name}_choice in {k - 0.5} .. {k + 0.5}
   repeat k in 1 .. 15: set {name}_semi = {name}_semi + {k - 8} when {name}_ev in 0.5 .. 1.5 and {name}_choice in {k - 0.5} .. {k + 0.5}
   var {name}_gate = 0
-  # a note let go before the next eighth, unless the next is the same held on (her unison is a tie: longer notes)
-  repeat o in 0 .. 7: set {name}_gate = 0 when {clock_i} in {2*o + 0.5} .. {2*o + 1.5} and {clock_f} in 0.75 .. 1.5 and {name}_choice in -9 .. 7.5
-  repeat o in 0 .. 7: set {name}_gate = 0 when {clock_i} in {2*o + 0.5} .. {2*o + 1.5} and {clock_f} in 0.75 .. 1.5 and {name}_choice in 8.5 .. 99
+  # a note let go just before its last eighth ends (held over the eighths it was chosen to last)
+  repeat o in 0 .. 7: set {name}_gate = 0 when {clock_i} in {2*o + 0.5} .. {2*o + 1.5} and {clock_f} in 0.75 .. 1.5 and {name}_left in -9 .. 0.5
   set {name}_gate = 1 when {name}_ev in 0.5 .. 1.5 and {name}_choice in 0.5 .. 15.5
   set {name}_gate = 0 when {name}_ev in 0.5 .. 1.5 and {name}_choice in 15.5 .. 16.5
+
+
+  # ---- how long: with each note she chooses how long it lasts (1 to 4 eighths: an eighth, a quarter, a dotted
+  # quarter, a half), the same way she chooses what (her state read, her taste for each length, learned by the gap
+  # of pleasure); in her first two lessons, a quarter (one note a beat)
+  repeat m in 1 .. 4: repeat j in 1 .. 6: memory {name}_wl{m}_{j} = {0.15 * sin(m * 1.9 + j * 0.7)}
+  memory {name}_tlen1 = 0
+  memory {name}_tlen2 = 0.2
+  memory {name}_tlen3 = -0.1
+  memory {name}_tlen4 = 0.05
+  var {name}_early = 0
+  set {name}_early = 0
+  set {name}_early = 1 when {name}_lesson in -9 .. 2.5 and {lessons} in 0.5 .. 9
+  repeat m in 1 .. 4: node {name}_lw{m} signed
+  # the same length again and again tires (as the same note does)
+  repeat m in 1 .. 4: var {name}_flen{m} = 0
+  repeat m in 1 .. 4: set {name}_flen{m} = 0.7 * {name}_flen{m} when {name}_ev in 0.5 .. 1.5
+  repeat m in 1 .. 4: set {name}_flen{m} = 0.7 * {name}_flen{m} + 1 when {name}_ev in 0.5 .. 1.5 and {name}_len in {m - 0.5} .. {m + 0.5}
+  repeat m in 1 .. 4: relate {name}_long{m}: {name}_lw{m} = sum(j in 1 .. 6: {name}_wl{m}_{j} * {name}_s{j}) + {name}_tlen{m} - 0.25 * {name}_flen{m}
+  node {name}_lwq signed
+  relate {name}_longq: {name}_lwq = {name}_lw2 + 6 * {name}_early
+  # the longest wanted wins (each against the others: six differences)
+  node {name}_l12 signed
+  relate {name}_l12r: {name}_l12 = {name}_lw1 - {name}_lwq
+  node {name}_l13 signed
+  relate {name}_l13r: {name}_l13 = {name}_lw1 - {name}_lw3
+  node {name}_l14 signed
+  relate {name}_l14r: {name}_l14 = {name}_lw1 - {name}_lw4
+  node {name}_l23 signed
+  relate {name}_l23r: {name}_l23 = {name}_lwq - {name}_lw3
+  node {name}_l24 signed
+  relate {name}_l24r: {name}_l24 = {name}_lwq - {name}_lw4
+  node {name}_l34 signed
+  relate {name}_l34r: {name}_l34 = {name}_lw3 - {name}_lw4
+  var {name}_len = 1
+  set {name}_len = 1 when {name}_ev in 0.5 .. 1.5 and {name}_l12 in 0 .. 99 and {name}_l13 in 0 .. 99 and {name}_l14 in 0 .. 99
+  set {name}_len = 2 when {name}_ev in 0.5 .. 1.5 and {name}_l12 in -99 .. 0 and {name}_l23 in 0 .. 99 and {name}_l24 in 0 .. 99
+  set {name}_len = 3 when {name}_ev in 0.5 .. 1.5 and {name}_l13 in -99 .. 0 and {name}_l23 in -99 .. 0 and {name}_l34 in 0 .. 99
+  set {name}_len = 4 when {name}_ev in 0.5 .. 1.5 and {name}_l14 in -99 .. 0 and {name}_l24 in -99 .. 0 and {name}_l34 in -99 .. 0
+  set {name}_left = 0 when {name}_ev in 0.5 .. 1.5 and {name}_l12 in 0 .. 99 and {name}_l13 in 0 .. 99 and {name}_l14 in 0 .. 99
+  set {name}_left = 1 when {name}_ev in 0.5 .. 1.5 and {name}_l12 in -99 .. 0 and {name}_l23 in 0 .. 99 and {name}_l24 in 0 .. 99
+  set {name}_left = 2 when {name}_ev in 0.5 .. 1.5 and {name}_l13 in -99 .. 0 and {name}_l23 in -99 .. 0 and {name}_l34 in 0 .. 99
+  set {name}_left = 3 when {name}_ev in 0.5 .. 1.5 and {name}_l14 in -99 .. 0 and {name}_l24 in -99 .. 0 and {name}_l34 in -99 .. 0
+  # the length of the note before, moved by the gap of pleasure when the next begins
+  repeat m in 1 .. 4: repeat j in 1 .. 6: set {name}_wl{m}_{j} = {name}_wl{m}_{j} + 0.05 * {name}_delta * {name}_sd{j} when {name}_ev in 0.5 .. 1.5 and {name}_len in {m - 0.5} .. {m + 0.5}
+  repeat m in 1 .. 4: set {name}_tlen{m} = {name}_tlen{m} + 0.03 * {name}_delta when {name}_ev in 0.5 .. 1.5 and {name}_len in {m - 0.5} .. {m + 0.5}
 
   # ---- learning: after each eighth, what made the last choice is moved by the gap of pleasure
   var {name}_last = 16
