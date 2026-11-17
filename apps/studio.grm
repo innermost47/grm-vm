@@ -81,7 +81,7 @@ use ../mind/elle.grm
 call elle(name=elle, ear=elle_ear, clock_i=tr_i, clock_f=tr_f, other_pitch=t1_pitch, other_gate=t1_hold, ctx_song=elle_ctx_song, ctx_human=elle_ctx_human, lessons=elle_lessons)
 node echo_in signed
 relate echo_send: echo_in = t1_echo * t1_on * t1_out + t2_echo * t2_on * t2_out + t3_echo * t3_on * t3_out
-call echo(name=fxe, input=echo_in, time=0.7500, feedback=echo_back)
+call echo(name=fxe, input=echo_in, time=0.3750, feedback=echo_back)
 node rev_in signed
 relate rev_send: rev_in = t1_rev * t1_on * t1_out + t2_rev * t2_on * t2_out + t3_rev * t3_on * t3_out + 0.3 * fxe_wet
 call reverb(name=fxr, input=rev_in, decay=room)

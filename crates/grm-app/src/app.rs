@@ -385,6 +385,19 @@ impl App {
             }
         }
         let silent = if output.is_none() { Some(grm_sound::silent(mixer.clone())) } else { None };
+        // the studio's file, written from its song before anything opens it (the desk opens it again at once: it
+        // must find this version, not the one of before)
+        {
+            let mut song = crate::studio::Song::load(&memory);
+            let human = song.human(&settings.human);
+            song.save(&memory);
+            let dir = grm_shell::runtime::apps_dir(&memory);
+            let path = dir.join(format!("{}.grm", crate::studio::APP));
+            let text = song.grm(human);
+            if std::fs::read_to_string(&path).ok().as_deref() != Some(text.as_str()) {
+                let _ = std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&path, text));
+            }
+        }
         let mut shell = Shell::new(memory.clone(), mixer.clone());
         shell.keep_desk = !(args.fresh || args.screenshot.is_some());
         shell.human = Some(settings.human.clone()).filter(|h| !h.trim().is_empty());
@@ -436,18 +449,6 @@ impl App {
         // her music, as she left it (her ear, her tastes, her lessons, her mood)
         let kept = if args.fresh { None } else { crate::notes::Kept::load(&memory) }.unwrap_or_default();
         let memory_for_song = memory.clone();
-        // the studio's file, written from its song (so it is there to open, as it was left)
-        {
-            let mut song = crate::studio::Song::load(&memory);
-            let human = song.human(&settings.human);
-            song.save(&memory);
-            let dir = grm_shell::runtime::apps_dir(&memory);
-            let path = dir.join(format!("{}.grm", crate::studio::APP));
-            let text = song.grm(human);
-            if std::fs::read_to_string(&path).ok().as_deref() != Some(text.as_str()) {
-                let _ = std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&path, text));
-            }
-        }
         let kept_elle = kept.elle.clone();
         App {
             engine,
@@ -1168,8 +1169,11 @@ impl App {
                 (Some((at, p, b, bar)), Some((_, p2, b2, _))) if (b - b2).abs() < 1e-6 => {
                     let predicted = (p + (now - at) / b.max(1e-3)).fract();
                     let gap = (p2 - predicted + 1.5).fract() - 0.5;
-                    if gap.abs() < 0.04 {
-                        Some((at, p, b, bar))
+                    if gap.abs() < 0.25 {
+                        // a small gap: corrected a little at a time (a twentieth each frame), never by a jump
+                        let gone = p + (now - at) / b.max(1e-3);
+                        let bar = (bar + gone.floor()).rem_euclid(4.0);
+                        Some((now, (predicted + 0.05 * gap + 1.0).fract(), b, bar))
                     } else {
                         read
                     }
