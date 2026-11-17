@@ -586,7 +586,11 @@ pub fn defined(flat: &[Flat]) -> Vec<String> {
     for f in flat {
         let mut words = f.text.split(|c: char| c.is_whitespace() || c == ':' || c == '=' || c == '[');
         let word = words.next().unwrap_or("").to_lowercase();
-        if matches!(word.as_str(), "node" | "var" | "learn" | "input" | "output" | "relate" | "keep" | "rel" | "kp") {
+        // a delay is a node too: two copies sharing one would pour the sound of one into the other's echo
+        if matches!(
+            word.as_str(),
+            "node" | "var" | "learn" | "input" | "output" | "relate" | "keep" | "rel" | "kp" | "delay"
+        ) {
             if let Some(name) = words.find(|w| !w.is_empty()) {
                 if is_name(name) && !out.iter().any(|o| o == name) {
                     out.push(name.to_string());
@@ -595,6 +599,21 @@ pub fn defined(flat: &[Flat]) -> Vec<String> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod defined_tests {
+    use super::*;
+
+    #[test]
+    fn a_delay_is_defined_as_a_node_is() {
+        let flat: Vec<Flat> = ["node a signed", "delay b = a by 0.3", "relate r: a = 2 * b"]
+            .iter()
+            .map(|t| Flat { text: t.to_string(), line: 1, from: None })
+            .collect();
+        let d = defined(&flat);
+        assert!(d.contains(&"b".to_string()) && d.contains(&"a".to_string()), "{d:?}");
+    }
 }
 
 /// Every whole word `from` becomes `to`.

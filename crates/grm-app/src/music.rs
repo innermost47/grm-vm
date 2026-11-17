@@ -258,6 +258,8 @@ pub struct Lesson {
     pub changes: Option<String>,
     /// A jazz progression (chord to chord, each chord its scale).
     pub jazz: Option<String>,
+    /// A switch the lesson turns on while it lasts (the sequencer, the arpeggiator).
+    pub switch: Option<String>,
     /// A lesson on the instrument itself: the knobs she studies (what each does to the sound), her melody simple
     /// meanwhile.
     pub knobs: Option<Vec<String>>,
@@ -274,6 +276,7 @@ pub fn lessons() -> Vec<Lesson> {
         changes: None,
         jazz: None,
         knobs: None,
+        switch: None,
     };
     let synth = |name: &str, knobs: &[&str]| Lesson {
         knobs: Some(knobs.iter().map(|k| k.to_string()).collect()),
@@ -290,6 +293,10 @@ pub fn lessons() -> Vec<Lesson> {
     vec![
         l("pentatonic, wholes and halves", Some("pentatonic"), None, Some("wholes"), false),
         l("pentatonic, quarters", Some("pentatonic"), None, Some("four"), false),
+        Lesson {
+            switch: Some("seq_on".into()),
+            ..l("the sequencer: a loop of eight steps", Some("pentatonic"), None, Some("four"), false)
+        },
         l("major, eighths", Some("ionian"), None, Some("eighths"), false),
         l("major, a waltz", Some("ionian"), None, Some("waltz"), false),
         synth("the synthesiser: the filter", &["cutoff", "resonance", "env_amount"]),
@@ -297,6 +304,10 @@ pub fn lessons() -> Vec<Lesson> {
         synth("the synthesiser: the envelopes", &["aa_time", "ad_time", "a_sustain", "ar_time", "fd_time"]),
         l("dorian over a modal vamp", Some("dorian"), Some("modal_vamp"), Some("four"), false),
         l("pop chords, swing", None, Some("pop"), Some("swing"), false),
+        Lesson {
+            switch: Some("arp_on".into()),
+            ..synth("the arpeggiator: its chords one note at a time", &["arp_mode", "arp_oct", "arp_rate"])
+        },
         l("mixolydian, triplets", Some("mixolydian"), None, Some("triplets"), false),
         synth("the synthesiser: the oscillators", &["shape", "o2_level", "o2_ratio"]),
         l("minor, andalusian", Some("aeolian"), Some("andalusian"), Some("tresillo"), false),
@@ -461,6 +472,8 @@ pub struct Teacher {
     /// The sound she looks for on the synthesiser (in a lesson on it), by its place in TARGETS.
     #[serde(skip)]
     pub target: Option<usize>,
+    /// How far what she hears usually strays from what she expects (her surprise is measured against it).
+    pub spread: f64,
     /// How much each lesson pleased her (her pleasure while in it, kept).
     pub liked: Vec<f64>,
     /// Her notes held to the rules of two notes together, and those the rules moved.
@@ -502,6 +515,7 @@ impl Default for Teacher {
             freedom: 0.0,
             harmony: (0, 0),
             liked: vec![0.0; n],
+            spread: 0.1,
             target: None,
         }
     }
@@ -689,7 +703,7 @@ impl Teacher {
         self.lived[k] = (new_mean, time + seconds, progress);
         // she learns faster when it pleases her, slower when she is bored (her mood is the pace, not a clock)
         if clarity >= mean - 0.02 {
-            let pace = (1.0 + self.mood.pleasure.max(0.0)) * (1.0 - 0.5 * self.mood.boredom);
+            let pace = self.pace();
             self.bridle[k] = (self.bridle[k] - 0.004 * pace).max(0.0);
         }
         if let Some(l) = self.liked.get_mut(k) {
@@ -718,10 +732,15 @@ impl Teacher {
         }
         // her mood: the surprise (against what she expected here), the pleasure (against what she usually hears,
         // and the new pleases), fading when it is the same again (boredom)
+        // surprise: against how far what she hears usually strays from what she expects here (an ordinary note is
+        // no surprise, however much notes vary); novelty fades too with the time spent in the same lesson and key
+        let dev = (clarity - mean).abs();
+        self.spread += 0.05 * (dev - self.spread);
+        let z = dev / (self.spread + 0.02);
+        let key_time = self.keys_lived.get(k).map(|v| v[self.tonic.rem_euclid(12) as usize]).unwrap_or(0.0);
+        let novelty = ((z - 1.0) / 2.0).clamp(0.0, 1.0) / (1.0 + key_time / 120.0);
         let m = &mut self.mood;
-        let surprise = (clarity - mean).abs();
-        m.surprise += 0.2 * (surprise - m.surprise);
-        let novelty = (surprise * 8.0).min(1.0);
+        m.surprise += 0.2 * ((z / 3.0).min(1.0) - m.surprise);
         m.boredom = (m.boredom + 0.03 * ((1.0 - novelty) - m.boredom) * 2.0).clamp(0.0, 1.0);
         let joy = ((clarity - usual) * 4.0 + 0.5 * novelty) * (1.0 - m.boredom);
         m.pleasure = (m.pleasure + 0.1 * (joy.clamp(-1.0, 1.0) - m.pleasure)).clamp(-1.0, 1.0);
@@ -743,6 +762,16 @@ impl Teacher {
     }
 
     /// The phase of the lesson, from its bridle: guided, accompanied, free.
+    /// How fast she learns now: faster when it pleases her, slower when she is bored.
+    pub fn pace(&self) -> f64 {
+        (1.0 + self.mood.pleasure.max(0.0)) * (1.0 - 0.5 * self.mood.boredom)
+    }
+
+    /// The bridle of the lesson now (1: every note bound; 0: free).
+    pub fn bridle_now(&self) -> f64 {
+        self.bridle.get(self.lesson).copied().unwrap_or(0.0)
+    }
+
     pub fn phase(&self) -> &'static str {
         let b = self.bridle[self.lesson.min(self.bridle.len() - 1)];
         if b > 0.66 {
@@ -984,11 +1013,18 @@ impl Teacher {
             return note;
         }
         const CONSONANT: [i32; 6] = [0, 3, 4, 7, 8, 9];
+        // guided, her leaps are imposed: a third, a fourth, a fifth, a sixth, a seventh, an octave, a ninth (no
+        // wandering by small steps yet), and every note agrees with the bass
+        const LEAPS: [i32; 10] = [3, 4, 5, 7, 8, 9, 10, 11, 12, 14];
+        let guided = self.phase() == "guided";
         let rule = self.rule(base);
         let ok = |c: i32| {
             let iv = (c - bass).rem_euclid(12);
             let consonant = CONSONANT.contains(&iv);
-            if strong && !consonant {
+            if (strong || guided) && !consonant {
+                return false;
+            }
+            if guided && pair.is_some_and(|(p, _)| !LEAPS.contains(&(c - p).abs())) {
                 return false;
             }
             if !consonant && !pair.is_some_and(|(p, _)| (1..=2).contains(&(c - p).abs())) {
@@ -1004,7 +1040,7 @@ impl Teacher {
             rule.is_none_or(|(root, set)| set.contains(&(c - root).rem_euclid(12)))
         };
         self.harmony.0 += 1;
-        for d in 0..7 {
+        for d in 0..13 {
             for c in [note + d, note - d] {
                 if (24..=56).contains(&c) && ok(c) {
                     if c != note {
@@ -1209,12 +1245,15 @@ mod tests {
         // a fifth after a fifth, both going up: not allowed
         let c = t.counterpoint(31 + 2 + 12, Some((31 + 12, 24)), 26, false, 0.0, 24);
         assert_ne!((c - 26).rem_euclid(12), 7, "{c}");
-        // a weak beat: a dissonance by step stays (B over A, from C#)
-        assert_eq!(t.counterpoint(38, Some((40, 24)), 24, false, 0.0, 24), 38);
-        assert!(t.harmony.0 == 3 && t.harmony.1 >= 1);
-        // the bridle loosened: now and then left as she chose
+        // guided, a leap is imposed: from C#, never a step
+        let c = t.counterpoint(38, Some((40, 24)), 24, false, 0.0, 24);
+        assert!((c - 40).abs() >= 3, "{c}");
+        // looser (accompanied), a dissonance by step stays on a weak beat (B over A, from C#)
         let k = t.lesson;
         t.bridle[k] = 0.5;
+        assert_eq!(t.counterpoint(38, Some((40, 24)), 24, false, 0.0, 24), 38);
+        assert!(t.harmony.0 == 4 && t.harmony.1 >= 1);
+        // the bridle loosened: now and then left as she chose
         assert_eq!(t.counterpoint(25 + 12, None, 24, true, 0.99, 24), 37);
     }
 
@@ -1245,5 +1284,22 @@ mod tests {
         assert_eq!(t.lived[1].1, 50.0);
         assert_eq!(t.lesson, 1);
         assert_eq!(t.bridle.len(), names.len());
+    }
+
+    #[test]
+    fn the_same_again_bores_her_and_the_new_surprises_her() {
+        let mut t = Teacher { on: true, ..Default::default() };
+        // notes that vary as usual, again and again, in the same lesson and key
+        for k in 0..400 {
+            let c = 0.5 + if k % 2 == 0 { 0.15 } else { -0.15 };
+            t.lived_note(c, 0.5, 0.5);
+        }
+        assert!(t.mood.boredom > 0.5, "{:?}", t.mood);
+        assert!(t.pace() < 1.0);
+        // something far from all she knew: a surprise
+        let before = t.mood.surprise;
+        t.lived_note(1.0, 0.5, 0.5);
+        t.lived_note(1.0, 0.5, 0.5);
+        assert!(t.mood.surprise > before, "{} -> {}", before, t.mood.surprise);
     }
 }

@@ -702,6 +702,13 @@ roll draws the beat: a line each beat, stronger at each bar, fainter eighths.
 into almost a sine) moves the filter (multiplied, so it never closes it below nothing), the pitch (a vibrato) and the
 loudness (a tremolo), its speed from 0.05 to 12 Hz, its shape from smooth to square. Its knobs are hers to play too.
 
+**Strict first.** Guided, her leaps are imposed (a third, a fourth, a fifth, a sixth, a seventh, an octave, a
+ninth: no wandering by small steps yet), every note agrees with the bass, and her notes fall on the beat whatever her
+sense of time; the bridle loosens all three. Two more lessons: *the sequencer* (it runs while the lesson lasts, she
+writes its loop) and *the arpeggiator* (its chords one note at a time, its knobs studied). Her surprise is measured
+against how far what she hears usually strays, and novelty fades with the time spent in the same lesson and key: the
+same again bores her, and her pace (shown, with its reason) slows. The click going on or off is said.
+
 **The mathematics of what she likes.** Each interval is a ratio of frequencies (an octave 2/1, a fifth 3/2, a fourth
 4/3, a major third 5/4...); the simpler the ratio (Tenney's height, log2 of p × q), the more the two waves agree. The
 Sound tab sets her taste beside each ratio, and how far her taste follows the simple ratios (a correlation): nobody

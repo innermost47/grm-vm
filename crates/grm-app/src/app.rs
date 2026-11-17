@@ -152,6 +152,8 @@ pub struct App {
     arps: HashMap<String, (f64, usize, Option<f64>)>,
     /// The synthesiser whose voices the human's hands hold.
     hands_view: Option<String>,
+    /// The switch the lesson turned on (the sequencer, the arpeggiator).
+    lesson_switch: Option<String>,
     /// The gates kept open in the memory were let go, at the start.
     gates_closed: bool,
     /// She was playing (by ear): when she stops, her notes are let go.
@@ -481,6 +483,7 @@ impl App {
             arp_voices: HashMap::new(),
             her_playing: false,
             gates_closed: false,
+            lesson_switch: None,
             fused_seen: 0,
             replay: None,
             started: Instant::now(),
@@ -2921,11 +2924,37 @@ impl App {
     }
 }
 
+/// A toast says little: its first lines, cut short with an ellipsis (the whole stays in the prompt's lines).
+fn brief(text: &str) -> String {
+    const LINES: usize = 3;
+    const CHARS: usize = 220;
+    let mut out = String::new();
+    let mut cut = false;
+    for (k, line) in text.lines().enumerate() {
+        if k >= LINES {
+            cut = true;
+            break;
+        }
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(line);
+    }
+    if out.chars().count() > CHARS {
+        out = out.chars().take(CHARS).collect();
+        cut = true;
+    }
+    if cut {
+        out.push_str(" …");
+    }
+    out
+}
+
 impl App {
     /// A line for the human: in the prompt's lines, and (what went wrong) said softly in a corner too.
     pub fn note(&mut self, kind: LineKind, text: String) {
         if matches!(kind, LineKind::Warning | LineKind::Error) {
-            self.toasts.push((kind, text.clone(), Instant::now()));
+            self.toasts.push((kind, brief(&text), Instant::now()));
             if self.toasts.len() > 3 {
                 self.toasts.remove(0);
             }
@@ -2935,7 +2964,7 @@ impl App {
 
     /// Something done that the human asked for, said softly in a corner (and in the prompt's lines).
     pub fn toast(&mut self, text: String) {
-        self.toasts.push((LineKind::Said, text.clone(), Instant::now()));
+        self.toasts.push((LineKind::Said, brief(&text), Instant::now()));
         if self.toasts.len() > 3 {
             self.toasts.remove(0);
         }
@@ -2954,7 +2983,7 @@ impl App {
             None => true,
         };
         if fresh {
-            self.toasts.push((LineKind::Said, words.clone(), Instant::now()));
+            self.toasts.push((LineKind::Said, brief(&words), Instant::now()));
             if self.toasts.len() > 3 {
                 self.toasts.remove(0);
             }
@@ -3170,6 +3199,19 @@ impl App {
                     .collect()
             })
             .unwrap_or_default();
+        // a lesson that needs a switch (the sequencer, the arpeggiator) has it on while it lasts, and off after
+        let wanted = self.teacher.current().switch.filter(|_| self.teacher.on);
+        if wanted != self.lesson_switch {
+            if let Some(old) = self.lesson_switch.take() {
+                let n = self.named(&old);
+                self.by_ear(&n, 0.0);
+            }
+            if let Some(new) = &wanted {
+                let n = self.named(new);
+                self.by_ear(&n, 1.0);
+            }
+            self.lesson_switch = wanted;
+        }
         // a lesson on the synthesiser: she studies its knobs (the lesson's), exploring, then looking for a sound
         let studied = self.teacher.current().knobs.filter(|_| self.teacher.on);
         let writes = if let Some(names) = studied {

@@ -789,6 +789,11 @@ impl Band {
         if self.metro_asked != Some(wants) && teacher.on {
             self.metro_asked = Some(wants);
             out.push((Part::Metro, if wants { 1.0 } else { 0.0 }));
+            self.say(if wants {
+                "the click on: the lesson is guided".into()
+            } else {
+                "the click off: she keeps the time herself".into()
+            });
         }
         // the human plays: she listens, silent; they stop: she answers
         let human_playing = now - self.last_human < 1.5 * beat;
@@ -1022,13 +1027,18 @@ impl Band {
                 }
                 let end = p + len;
                 let grid = (end * 4.0).round() / 4.0;
-                self.lead_until += self.timing * (grid - end) * beat;
+                // guided, on the beat whatever her sense of time (as tight as the bridle); then hers
+                let held = if teacher.on && teacher.phase() == "guided" { teacher.bridle_now() } else { 0.0 };
+                self.lead_until += self.timing.max(held) * (grid - end) * beat;
             }
         }
         // with or without the sequencer: hers to decide. At the end of each of her notes she weighs both ways by
         // what she heard in each, the one she knows less counting a little more (it might be better: she tries it);
         // she changes only when the other way weighs more than this one
-        if ended && self.ways[0].1 + self.ways[1].1 > 2.0 && !(teacher.on && teacher.chord().is_some()) {
+        if ended
+            && self.ways[0].1 + self.ways[1].1 > 2.0
+            && !(teacher.on && (teacher.chord().is_some() || teacher.current().switch.is_some()))
+        {
             let total = self.ways[0].1 + self.ways[1].1;
             let weigh = |w: (f64, f64)| w.0 + 0.15 * (total.ln().max(0.0) / (w.1 + 1.0)).sqrt();
             let (here, there) = (weigh(self.ways[seq_on as usize]), weigh(self.ways[!seq_on as usize]));

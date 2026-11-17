@@ -209,10 +209,12 @@
    *Then done*: each their instrument (her own synthesiser, locked to the human but for its volume; she never
    touches the human's; she hears both; one tempo); drums (noise, the envelope on the pitch); the flow with small
    points and an oscilloscope on what is heard.
-   **Asked, to think through first**: her boredom rising for real (her surprise was measured against too little,
-   so it was always high and she was never bored); lessons on the sequencer and the arpeggiator; at first, intervals
-   imposed (thirds, fourths, fifths, sevenths, ninths) and notes forced on the beat, both loosened with the bridle;
-   when the click goes off (a lesson loosening), said.
+   *Then done*: her surprise measured against her usual spread, and novelty fading with the time spent in the same
+   lesson and key (she was never bored: now the same again bores her); her pace shown with its reason; lessons on
+   the sequencer and the arpeggiator; guided, her leaps imposed (thirds to ninths) and her notes on the beat; the
+   click going on and off said.
+   Mended: a delay was not counted as a node of an app, so two copies of the same network shared their delay lines
+   (her echo and her reverb poured into the human's): each copy now has its own.
    Next for the flow: a voice or a module folded into one block, opened with a double click.
    **Agreed next** (lots 3 and 4, with Anthony): hearing the computer's sound (a loopback, with consent);
    a catalogue of free MIDI to listen to; phonemes, an inner voice, reading and writing (Wikipedia), a scrabble of

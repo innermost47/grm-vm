@@ -901,11 +901,24 @@ fn lessons(app: &mut App, ui: &mut egui::Ui) {
     keys(app, ui, &ink, |ui| {
         ui.add_space(8.0);
         gauge(ui, t(lang, "mood_pleasure"), m.pleasure, true, &ink);
-        gauge(ui, t(lang, "mood_surprise"), (m.surprise * 5.0).min(1.0), false, &ink);
+        gauge(ui, t(lang, "mood_surprise"), m.surprise, false, &ink);
         gauge(ui, t(lang, "mood_curiosity"), m.curiosity, false, &ink);
         gauge(ui, t(lang, "mood_boredom"), m.boredom, false, &ink);
         gauge(ui, t(lang, "sleep_pressure"), pressure, false, &ink);
         gauge(ui, t(lang, "freedom"), freedom, false, &ink);
+    });
+    // how fast she learns now, and why (her mood is the pace)
+    let pace = app.teacher.pace();
+    let why = if app.teacher.mood.boredom > 0.5 {
+        t(lang, "pace_bored")
+    } else if app.teacher.mood.pleasure > 0.3 {
+        t(lang, "pace_pleased")
+    } else {
+        t(lang, "pace_even")
+    };
+    ui.horizontal(|ui| {
+        crate::icons::show(ui, "gauge", 12.0, ink.muted);
+        ui.label(RichText::new(format!("{} ×{pace:.2} · {why}", t(lang, "pace"))).small());
     });
     // two notes together: held to the rules, and moved by them
     let (held, moved) = app.teacher.harmony;
