@@ -37,7 +37,17 @@ var elle_dhit1 = 0
 var elle_dhit2 = 0
 var elle_dhit3 = 0
 var elle_dhit4 = 0
-call synth(name=t1, clock_i=tr_i, clock_f=tr_f, hers=0, her_pitch=elle_pitch, her_gate=elle_gate)
+node elle_sounding signed
+relate elle_while_playing: elle_sounding = playing * elle_gate
+node elle_strike1 signed
+relate elle_strike_while1: elle_strike1 = playing * elle_dhit1
+node elle_strike2 signed
+relate elle_strike_while2: elle_strike2 = playing * elle_dhit2
+node elle_strike3 signed
+relate elle_strike_while3: elle_strike3 = playing * elle_dhit3
+node elle_strike4 signed
+relate elle_strike_while4: elle_strike4 = playing * elle_dhit4
+call synth(name=t1, clock_i=tr_i, clock_f=tr_f, hers=0, her_pitch=elle_pitch, her_gate=elle_sounding)
 input t1_level = 0.6
 input t1_pan = 0.42
 input t1_echo = 0.2
@@ -47,7 +57,7 @@ node t1_l signed
 relate t1_left: t1_l = 1.4 * t1_on * t1_level * t1_out - 1.4 * t1_on * t1_level * t1_pan * t1_out
 node t1_r signed
 relate t1_right: t1_r = 1.4 * t1_on * t1_level * t1_pan * t1_out
-call synth(name=t2, clock_i=tr_i, clock_f=tr_f, hers=1, her_pitch=elle_pitch, her_gate=elle_gate)
+call synth(name=t2, clock_i=tr_i, clock_f=tr_f, hers=1, her_pitch=elle_pitch, her_gate=elle_sounding)
 input t2_level = 0.6
 input t2_pan = 0.62
 input t2_echo = 0.2
@@ -57,7 +67,7 @@ node t2_l signed
 relate t2_left: t2_l = 1.4 * t2_on * t2_level * t2_out - 1.4 * t2_on * t2_level * t2_pan * t2_out
 node t2_r signed
 relate t2_right: t2_r = 1.4 * t2_on * t2_level * t2_pan * t2_out
-call drums(name=t3, clock_i=tr_i, clock_f=tr_f, her_k=elle_dhit1, her_s=elle_dhit2, her_h=elle_dhit3, her_t=elle_dhit4)
+call drums(name=t3, clock_i=tr_i, clock_f=tr_f, her_k=elle_strike1, her_s=elle_strike2, her_h=elle_strike3, her_t=elle_strike4)
 input t3_level = 0.9
 input t3_pan = 0.42
 input t3_echo = 0
@@ -71,7 +81,7 @@ use ../mind/elle.grm
 call elle(name=elle, ear=elle_ear, clock_i=tr_i, clock_f=tr_f, other_pitch=t1_pitch, other_gate=t1_hold, ctx_song=elle_ctx_song, ctx_human=elle_ctx_human, lessons=elle_lessons)
 node echo_in signed
 relate echo_send: echo_in = t1_echo * t1_on * t1_out + t2_echo * t2_on * t2_out + t3_echo * t3_on * t3_out
-call echo(name=fxe, input=echo_in, time=0.3750, feedback=echo_back)
+call echo(name=fxe, input=echo_in, time=0.7500, feedback=echo_back)
 node rev_in signed
 relate rev_send: rev_in = t1_rev * t1_on * t1_out + t2_rev * t2_on * t2_out + t3_rev * t3_on * t3_out + 0.3 * fxe_wet
 call reverb(name=fxr, input=rev_in, decay=room)
