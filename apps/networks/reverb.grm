@@ -1,0 +1,19 @@
+# A reverb: four lines that remember (29.7, 37.1, 41.1 and 43.7 ms, lengths that share nothing) and feed each other
+# through a mixing that keeps the energy (a Hadamard matrix halved), each time {decay} as loud (under 1). A feedback
+# delay network (Jot, 1991): nothing ready-made, only delays and relations. {name}_out is the room.
+network reverb(name, input, decay)
+  node {name}_f1 signed
+  node {name}_f2 signed
+  node {name}_f3 signed
+  node {name}_f4 signed
+  delay {name}_d1 = {name}_f1 by 0.0297
+  delay {name}_d2 = {name}_f2 by 0.0371
+  delay {name}_d3 = {name}_f3 by 0.0411
+  delay {name}_d4 = {name}_f4 by 0.0437
+  relate {name}_m1: {name}_f1 = {input} + 0.5 * {decay} * {name}_d1 + 0.5 * {decay} * {name}_d2 + 0.5 * {decay} * {name}_d3 + 0.5 * {decay} * {name}_d4
+  relate {name}_m2: {name}_f2 = {input} + 0.5 * {decay} * {name}_d1 - 0.5 * {decay} * {name}_d2 + 0.5 * {decay} * {name}_d3 - 0.5 * {decay} * {name}_d4
+  relate {name}_m3: {name}_f3 = {input} + 0.5 * {decay} * {name}_d1 + 0.5 * {decay} * {name}_d2 - 0.5 * {decay} * {name}_d3 - 0.5 * {decay} * {name}_d4
+  relate {name}_m4: {name}_f4 = {input} + 0.5 * {decay} * {name}_d1 - 0.5 * {decay} * {name}_d2 - 0.5 * {decay} * {name}_d3 + 0.5 * {decay} * {name}_d4
+  node {name}_out signed
+  relate {name}_sum: {name}_out = 0.25 * {name}_d1 + 0.25 * {name}_d2 + 0.25 * {name}_d3 + 0.25 * {name}_d4
+end

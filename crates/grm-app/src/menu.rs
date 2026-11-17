@@ -35,6 +35,12 @@ pub fn node_menu(app: &mut App, ui: &mut egui::Ui, n: &str) {
         app.select(n, false);
         ui.close();
     }
+    if item(ui, "piano", t(lang, "midi_learn"), t(lang, "midi_learn_d")) {
+        let (lo, hi) = crate::midi::range_of(app, n);
+        app.midi_learn = Some(crate::midi::Target::Node { name: n.to_string(), lo, hi });
+        app.settings_open = true;
+        ui.close();
+    }
     if !tracked && item(ui, "timer", t(lang, "track"), t(lang, "m_track_d")) {
         app.say(format!("track {n}"));
         ui.close();

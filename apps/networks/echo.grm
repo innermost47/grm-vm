@@ -1,0 +1,7 @@
+# An echo: a line that remembers what came {time} before, and gives it back, {feedback} as loud (under 1: it fades).
+# Nothing ready-made: one delay and one relation. {name}_wet is the sound with its echoes.
+network echo(name, input, time, feedback)
+  node {name}_wet signed
+  delay {name}_back = {name}_wet by {time}
+  relate {name}_loop: {name}_wet = {input} + {feedback} * {name}_back
+end

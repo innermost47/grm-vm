@@ -17,6 +17,7 @@ pub fn sign_of(tab: Tab) -> &'static str {
         Tab::Journal => "scroll-text",
         Tab::Eye => "eye",
         Tab::Sound => "audio-lines",
+        Tab::Insights => "lightbulb",
     }
 }
 
@@ -42,6 +43,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         Tab::Journal => journal(app, ui),
         Tab::Eye => eye(app, ui),
         Tab::Sound => sound(app, ui),
+        Tab::Insights => crate::insights::panel(app, ui),
     });
 }
 
@@ -103,6 +105,7 @@ pub fn sheet(app: &mut App, ui: &mut egui::Ui, name: &str, pic: &crate::model::P
             }
         }
     });
+    crate::insights::control(app, ui, &n, None);
     let playing = app.mixer.lock().map(|m| m.playing().contains(&name)).unwrap_or(false);
     ui.horizontal_wrapped(|ui| {
         if !n.tracked && crate::icons::button(ui, "timer", t(lang, "track")).on_hover_text(t(lang, "track_d")).clicked()
@@ -259,6 +262,52 @@ fn chart(ui: &mut egui::Ui, d: &crate::model::Detail, ink: &Ink, lang: crate::te
     );
 }
 
+/// The world, as Our World in Data publishes it: a place, the categories, and it comes (each category a workshop).
+fn world(app: &mut App, ui: &mut egui::Ui) {
+    let ink = Ink::of(ui.ctx());
+    let lang = app.settings.lang;
+    let fr = lang == crate::text::Lang::Fr;
+    egui::Frame::new().stroke(Stroke::new(1.0_f32, ink.faint)).corner_radius(3.0).inner_margin(8.0).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            crate::icons::show(ui, "globe", 15.0, ink.accent);
+            ui.label(RichText::new(t(lang, "world_title")).strong());
+        });
+        ui.label(RichText::new(t(lang, "world_d")).small().color(ink.muted));
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(t(lang, "world_place")).small());
+            ui.add(
+                egui::TextEdit::singleline(&mut app.world_place)
+                    .hint_text(crate::style::hint("World"))
+                    .desired_width(140.0),
+            );
+        });
+        ui.horizontal_wrapped(|ui| {
+            for (k, (_, en, frw)) in grm_connect::world::CATEGORIES.iter().enumerate() {
+                if app.world_off.len() <= k {
+                    app.world_off.resize(k + 1, false);
+                }
+                let on = !app.world_off[k];
+                if crate::icons::toggle(ui, if on { "check" } else { "minus" }, if fr { *frw } else { *en }, on)
+                    .clicked()
+                {
+                    app.world_off[k] = on;
+                }
+            }
+        });
+        if crate::icons::button(ui, "globe", t(lang, "world_go")).on_hover_text(t(lang, "world_go_d")).clicked() {
+            let place = app.world_place.trim();
+            let place = if place.is_empty() { "World" } else { place };
+            let only: Vec<&str> = grm_connect::world::CATEGORIES
+                .iter()
+                .enumerate()
+                .filter(|(k, _)| !app.world_off.get(*k).copied().unwrap_or(false))
+                .map(|(_, c)| c.0)
+                .collect();
+            app.say(format!("world {place} --only {}", only.join(",")));
+        }
+    });
+}
+
 fn sandboxes(app: &mut App, ui: &mut egui::Ui) {
     let ink = Ink::of(ui.ctx());
     let lang = app.settings.lang;
@@ -271,6 +320,7 @@ fn sandboxes(app: &mut App, ui: &mut egui::Ui) {
     if crate::icons::button(ui, "circle-plus", t(lang, "ws_new")).clicked() {
         app.new_workshop_open = true;
     }
+    world(app, ui);
     for (name, nodes, rels) in app.picture.workshops.clone() {
         ui.horizontal(|ui| {
             let kind = crate::space::Kind::Workshop(name.clone());
@@ -481,6 +531,35 @@ pub fn feelings(app: &mut App, ui: &mut egui::Ui) {
             .small()
             .color(ink.muted),
     );
+    // what would make her feel better: a sign and a few words each, what the human can give
+    let mut needs: Vec<(&str, &str, &str)> = vec![];
+    if m.dopamine < 0.2 {
+        needs.push(("file-plus", "need_new", "need_new_d"));
+    }
+    if m.flourishing < 0.5 {
+        needs.push(("trash-2", "need_room", "need_room_d"));
+    }
+    if m.progress <= 0.05 {
+        needs.push(("repeat", "need_time", "need_time_d"));
+    }
+    if m.accuracy < 0.7 {
+        needs.push(("ruler", "need_sure", "need_sure_d"));
+    }
+    ui.add_space(2.0);
+    if needs.is_empty() {
+        ui.horizontal(|ui| {
+            crate::icons::show(ui, "check", 13.0, ink.source(2));
+            ui.label(RichText::new(t(lang, "need_nothing")).small().color(ink.muted));
+        });
+    } else {
+        ui.label(RichText::new(t(lang, "need_title")).small().strong());
+        for (sign, key, d) in needs {
+            ui.horizontal(|ui| {
+                crate::icons::show(ui, sign, 14.0, ink.accent);
+                ui.label(RichText::new(t(lang, key)).small()).on_hover_text(t(lang, d));
+            });
+        }
+    }
     // as it went
     if m.past.len() > 1 {
         let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width().min(320.0), 70.0), Sense::hover());
@@ -537,32 +616,69 @@ fn journal(app: &mut App, ui: &mut egui::Ui) {
     feelings(app, ui);
     let ink = Ink::of(ui.ctx());
     let lang = app.settings.lang;
-    // the window's changes: each can be taken back (Ctrl+Z), in the order they were made
+    // the window's changes: each can be taken back (Ctrl+Z), in the order they were made; a button takes back
+    // everything down to it, another gives back what was taken
     if !app.journey.undo.is_empty() || !app.journey.redo.is_empty() {
         ui.label(RichText::new(t(lang, "changes")).strong());
-        for e in app.journey.redo.iter().take(5) {
-            ui.horizontal(|ui| {
-                crate::icons::show(ui, "redo-2", 13.0, ink.faint);
-                ui.label(RichText::new(&e.what).small().color(ink.faint)).on_hover_text(t(lang, "taken_back"));
-            });
+        let mut again = 0;
+        for (k, e) in app.journey.redo.iter().rev().take(5).enumerate() {
+            let b = egui::Button::image_and_text(
+                crate::icons::image("redo-2", 13.0, ink.muted),
+                RichText::new(&e.what).small().color(ink.muted),
+            );
+            if ui.add(b).on_hover_text(t(lang, "give_again_d")).clicked() {
+                again = k + 1;
+            }
         }
-        for e in app.journey.undo.iter().rev().take(12) {
-            ui.horizontal(|ui| {
-                crate::icons::show(ui, "undo-2", 13.0, ink.muted);
-                ui.label(RichText::new(&e.what).small().monospace());
-            });
+        let mut back = 0;
+        for (k, e) in app.journey.undo.iter().rev().take(12).enumerate() {
+            let b = egui::Button::image_and_text(
+                crate::icons::image("undo-2", 13.0, ink.text),
+                RichText::new(&e.what).small().monospace(),
+            );
+            if ui.add(b).on_hover_text(t(lang, "take_back_d")).clicked() {
+                back = k + 1;
+            }
+        }
+        for _ in 0..back {
+            app.take_back(false);
+        }
+        for _ in 0..again {
+            app.take_back(true);
         }
         ui.separator();
     }
-    for (tick, kind, text) in app.picture.journal.iter().rev() {
-        let colour =
-            if matches!(kind.as_str(), "quarantine" | "revised" | "recall" | "refused") { ink.amber } else { ink.text };
-        ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new(format!("[{tick}]")).monospace().small().color(ink.muted));
-            ui.label(RichText::new(kind).small().strong().color(colour));
-            ui.label(RichText::new(text).small());
-        });
-    }
+    // its journal, as a terminal shows it: the newest on top, scrolled in its own pane
+    let dark = egui::Color32::from_rgb(0x16, 0x17, 0x1b);
+    egui::Frame::new().fill(dark).corner_radius(2.0).inner_margin(egui::Margin::symmetric(10, 8)).show(ui, |ui| {
+        ui.set_min_width(ui.available_width());
+        egui::ScrollArea::vertical().id_salt("journal-pane").max_height(360.0).auto_shrink([false, true]).show(
+            ui,
+            |ui| {
+                for (tick, kind, text) in app.picture.journal.iter().rev() {
+                    let colour = if matches!(kind.as_str(), "quarantine" | "revised" | "recall" | "refused") {
+                        ink.amber
+                    } else {
+                        egui::Color32::from_rgb(0x9f, 0xc8, 0x8a)
+                    };
+                    ui.horizontal_wrapped(|ui| {
+                        ui.spacing_mut().item_spacing.x = 6.0;
+                        ui.label(
+                            RichText::new(format!("[{tick}]"))
+                                .monospace()
+                                .small()
+                                .color(egui::Color32::from_rgb(0x8a, 0x8c, 0x92)),
+                        );
+                        ui.label(RichText::new(kind).monospace().small().color(colour));
+                        let shown = if lang == crate::text::Lang::Fr { crate::french::fr(text) } else { text.clone() };
+                        ui.label(
+                            RichText::new(shown).monospace().small().color(egui::Color32::from_rgb(0xd8, 0xd8, 0xd0)),
+                        );
+                    });
+                }
+            },
+        );
+    });
 }
 
 fn eye(app: &mut App, ui: &mut egui::Ui) {

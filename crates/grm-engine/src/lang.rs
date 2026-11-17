@@ -633,6 +633,7 @@ pub fn statement(
     let said = match word.as_str() {
         "var" | "learn" | "input" | "output" => role(net, &word, rest, origin)?,
         "set" => set(net, rest, origin)?,
+        "delay" => delay(net, rest, origin)?,
         "carry" => carry(net, rest, origin)?,
         "observe-joint" => observe_joint(net, rest)?,
         "fuse" => {
@@ -996,6 +997,44 @@ fn set(net: &mut Network, rest: &str, origin: &Provenance) -> Result<String> {
         "at each tick {target} <- {expr}{}",
         if when.trim().is_empty() { String::new() } else { format!(" when {}", when.trim()) }
     ))
+}
+
+/// delay NAME = SOURCE by SECONDS: NAME is what SOURCE was SECONDS ago (a line that remembers). At the speed of
+/// sound it is exact to the sample; at the machine's pace it is one tick late. An echo is one delay and one
+/// relation that brings it back; a reverb a few of them feeding each other.
+fn delay(net: &mut Network, rest: &str, origin: &Provenance) -> Result<String> {
+    let Some((body, by)) = rest.rsplit_once(" by ") else { bail!("delay NAME = SOURCE by SECONDS") };
+    let Some(m) = re_set().captures(body.trim()) else { bail!("delay NAME = SOURCE by SECONDS") };
+    let (target, source) = (m[1].to_string(), m[2].trim().to_string());
+    if !is_name(&source) {
+        bail!("delay {target} = {source}: what is delayed is a node");
+    }
+    let seconds =
+        seconds_of(by).ok_or_else(|| GrmError::new(format!("delay: {by} is not a time (0.3, 300ms, 0.3s)")))?;
+    if !(seconds > 0.0 && seconds <= 10.0) {
+        bail!("delay: between 0 and 10 seconds");
+    }
+    if !net.nodes.contains_key(&source) {
+        let mut s = NodeSpec::new(0.0, true);
+        s.origin = origin.clone();
+        net.nodes.insert(source.clone(), s);
+    }
+    if !net.nodes.contains_key(&target) {
+        role(net, "var", &format!("{target} = 0"), origin)?;
+    }
+    net.sets.retain(|st| !(st.target == target && st.text.starts_with("delay ")));
+    let text = format!("delay {target} = {source} by {}", crate::lang::g(seconds));
+    net.sets.push(SetRule { target: target.clone(), source: source.clone(), when: vec![], text, carry: false });
+    Ok(format!("{target} is {source} as it was {} s before", crate::lang::g(seconds)))
+}
+
+/// A time in seconds: "0.3", "0.3s", "300ms".
+pub fn seconds_of(t: &str) -> Option<f64> {
+    let t = t.trim();
+    if let Some(ms) = t.strip_suffix("ms") {
+        return ms.trim().parse::<f64>().ok().map(|v| v / 1000.0);
+    }
+    t.strip_suffix('s').unwrap_or(t).trim().parse::<f64>().ok()
 }
 
 /// carry x = y [when ...]: at each tick x takes y's value and how sure of it the network is (a state carried from

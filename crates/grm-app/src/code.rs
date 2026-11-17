@@ -23,7 +23,7 @@ pub struct Draft {
 
 const STATEMENTS: &[&str] = &[
     "node", "relate", "keep", "observe", "forget", "var", "set", "carry", "learn", "input", "output", "fuse",
-    "network", "end", "call", "use",
+    "network", "end", "call", "use", "delay",
 ];
 const APP_WORDS: &[&str] = &["app", "widget", "api", "read"];
 
@@ -37,6 +37,7 @@ pub const PROMPT_WORDS: &[&str] = &[
     "var",
     "set",
     "carry",
+    "delay",
     "learn",
     "input",
     "output",

@@ -73,8 +73,11 @@ pub fn glance(w: &World) -> Glance {
         .nodes
         .iter()
         .filter(|(_, s)| !s.input && !s.var)
+        // a signal written at each sample (a set, a delay, what follows from them) is not a belief to be sure of
+        .filter(|(n, _)| !n.contains("__next") && !m.net.sets.iter().any(|s| s.target == **n || s.source == **n))
         .map(|(n, _)| (n.clone(), m.doubt(n)))
-        .filter(|(_, d)| d.is_finite() && *d > 0.05)
+        // past ± 1000 %, nothing tells it yet: it is unknown, not unsure
+        .filter(|(_, d)| d.is_finite() && *d > 0.05 && *d < 10.0)
         .collect();
     unsure.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     unsure.truncate(FEW);

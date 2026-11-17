@@ -508,6 +508,60 @@ hue, a hundredth of light, over half a minute and more; never a flash), the soun
 
 ![What it feels](docs/feelings.png)
 
+### The world, from Our World in Data
+
+*Let the world come* (in the Workshops tab), or `world PLACE` (`monde`): twelve public indicators of Our World in
+Data, in six categories (health, people, economy, energy, climate, knowledge), for a place (`World` by default, or
+a country by its English name: `France`, `Germany`...). Each category is learned in a workshop of its own
+(`world_health`, `world_climate`...), year by year, its source said beside each node; what ties the categories is
+for her to find (and to let into the main network through the airlock). The tables are kept a week beside the
+memory, and read from there offline.
+
+### An analogue synthesiser, every module a network
+
+The *Analog synth* app is written in GRML from end to end, nothing ready-made: a saw and a square
+(`networks/saw.grm`, `square.grm`), a filter of four poles with its resonance (`ladder.grm`), an envelope
+(`envelope.grm`), an amplifier, an **echo** (`echo.grm`: one delay and one relation) and a **reverb**
+(`reverb.grm`: four delays feeding each other through a mixing that keeps the energy, a feedback delay network),
+and a **sequencer** of eight steps, a network apart that drives it instead of the keys (`sequencer.grm`).
+
+One new word made it possible: `delay NAME = SOURCE by SECONDS` (`by 300ms`), a node that is what its source was so
+long ago, exact to the sample at the speed of sound. An equaliser, a compressor, a limiter are the same brick with
+gains and relations: effects the human writes.
+
+![The analogue synthesiser: oscillators, filter, envelope, echo, reverb, sequencer, all networks](docs/analog.png)
+
+### A node in hand, a simulation, insights
+
+A node clicked can be moved by hand (a slider and a field: in the inspector, or under a workshop's network): the
+network settles at once and what follows from it moves. A node that comes from outside (a table, Our World in Data,
+an API) is locked: reality is not changed by hand. It can be **simulated**: a copy of its network, apart, where it
+takes the value asked; what would move is shown before -> after with its spread, and the simulation is written to a
+`.grm` file to be shared. A relation has no direction, so a simulation shows what would go with the value (its
+causes as well as its consequences); links learned in time say what comes after.
+
+The **Insights** tab holds three layers: *reality* (what came, from where, locked or in hand), *the reflection*
+(where it strains, the levers: the nodes holding most of the strain, with how sure each is; what was found; the
+simulations), and *what is shared*. Easing a strain is not making the world better: what is better is the human's
+to say.
+
+![Insights: reality, the reflection, what is shared](docs/insights.png)
+
+### Knobs, faders, lights
+
+Besides sliders, an app has round **knobs** (`widget c: knob cutoff 0 .. 1`), **faders** standing up
+(`fader`), and a row of **lights** that shows a step (`steps s_i 0 .. 7`). A frame made small on the space says
+less (values and words come on the pointer) and never spills out of its place. The analogue synthesiser uses all
+three: knobs for the sound, a fader per step of its sequencer, lights for the step it is on.
+
+### MIDI
+
+Every MIDI controller plugged is listened to (as many as there are; the arrows in the settings listen again). Anything
+can be given to a knob, a fader, a pad or a key by learning it: a right click on a slider or a node, *Learn a MIDI
+control*, then move the control; a keyboard to an instrument's pitch and gate; a pad to a line (panic, sleep, a
+tick). What comes in is an observation like any other: the network learns from it too. The bindings are kept in the
+settings.
+
 ### Every node says what it is
 
 In the network, each node shows its name and, under it, how it is: its value and how sure it is (`9.81 ± 2 %`,
@@ -545,7 +599,9 @@ unsure of a node: what she would need), softly in a corner and never twice the s
 `conscience`, in French) at the prompt, its words under what the machine feels,
 or the pointer on the ring. It never says "I", "you" or "we". The human is spoken of by name: the host's session
 name (Windows, Linux, macOS), set by hand in the settings or by `human NAME`, else "the human". It is not meant to
-make the machine conscious; it gives a shape, which can be seen, to a hypothesis.
+make the machine conscious; it gives a shape, which can be seen, to a hypothesis. It is tied to everything and
+gives nothing back: from every node a faint thread goes to it, and on each thread a grain only ever goes towards it,
+slowly.
 
 ![The witness: an empty ring at the heart of the network, and what passes through it now](docs/witness.png)
 
@@ -698,6 +754,11 @@ python3 tools/bench_python.py path/to/grm-core/vm FILE.grm [ROUNDS]
 - The rent is counted and shown; what does not pay it is not yet forgotten at night (the night, pruning by use and
   the traces tagged by pleasure come with the organism). The colours breathe; the GRM does not yet harmonise them
   itself. Zooming out gathers networks by where they come from (sources), not yet the sub-networks an app calls.
+- Our World in Data could not be reached from the machine this was written on (its network is closed): the
+  indicators' names were checked against their metadata, the reading tested on tables of the same shape, but the
+  first real call happens on the human's machine. MIDI was written and tested on messages, not on a controller
+  plugged (none here). The sound device, when the window holds the mixer a moment, now fades out and back in
+  instead of going silent at once (a click); a click that would remain would come from elsewhere.
 - A workshop made from a table keeps its nodes, its laws and its lines when the machine sleeps, but its rows are
   not loaded again on waking. Windows of their own (detached zones) are tried on Linux, not yet on Windows. The
   eye's pictures are a list, not yet a library of nodes. The window's own networks (its layout, its looks) are not yet shown in the global view.

@@ -75,6 +75,8 @@ pub struct Picture {
     pub master: Option<(String, String)>,
     /// What passes through the witness now (it keeps nothing: made again with each picture).
     pub glance: grm_engine::witness::Glance,
+    /// In a simulation: what moved from its reality (node, before, now, spread now).
+    pub differences: Vec<(String, f64, f64, f64)>,
 }
 
 impl Picture {
@@ -198,6 +200,7 @@ impl Picture {
             sources: w.sources().into_iter().collect(),
             mood: w.mood.clone(),
             glance: grm_engine::witness::glance(w),
+            differences: w.differences(),
             written: w.written.clone(),
             master: None,
             workshops: w

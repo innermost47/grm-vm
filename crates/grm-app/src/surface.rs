@@ -259,8 +259,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
             ui.set_style(saved_style.clone());
             continue;
         }
-        // the widget at work
+        // the widget at work, never out of its place: small, it says less (its words come on the pointer)
         let label = if w.text.is_empty() { w.name.clone() } else { w.text.clone() };
+        let clip_before = ui.clip_rect();
+        ui.set_clip_rect(rect.expand(1.0).intersect(clip_before));
+        let painter = painter.with_clip_rect(rect.expand(1.0).intersect(clip_before));
+        let small = rect.width() < 230.0;
         match w.kind {
             WidgetKind::Slider => {
                 if let Some(n) = node(0) {
@@ -268,13 +272,24 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                     let mut inner = rect;
                     inner.set_height(inner.height().min(28.0));
                     inner = inner.translate(vec2(0.0, (rect.height() - inner.height()) / 2.0));
-                    let r = ui.put(
-                        inner,
-                        egui::Slider::new(&mut v, w.lo..=w.hi).text(&label).clamping(egui::SliderClamping::Always),
-                    );
+                    ui.spacing_mut().slider_width = (inner.width() - if small { 8.0 } else { 150.0 }).max(30.0);
+                    let slider = egui::Slider::new(&mut v, w.lo..=w.hi).clamping(egui::SliderClamping::Always);
+                    let slider = if small { slider.show_value(false) } else { slider.text(&label) };
+                    let r = ui.put(inner, slider);
+                    let r = if small { r.on_hover_text(format!("{label}: {}", grm_engine::lang::g(v))) } else { r };
                     if r.changed() {
                         observe(app, &n.name, v);
                     }
+                    // any slider can be given to a knob of a controller
+                    let (lo, hi, node_name) = (w.lo, w.hi, n.name.clone());
+                    r.context_menu(|ui| {
+                        if crate::icons::button(ui, "piano", crate::text::t(app.settings.lang, "midi_learn")).clicked()
+                        {
+                            app.midi_learn = Some(crate::midi::Target::Node { name: node_name.clone(), lo, hi });
+                            app.settings_open = true;
+                            ui.close();
+                        }
+                    });
                 }
             }
             WidgetKind::Toggle => {
@@ -452,6 +467,128 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                 }
             }
             WidgetKind::Keys => keys(app, ui, &painter, rect, id, w, &ink),
+            WidgetKind::Knob => {
+                if let Some(n) = node(0) {
+                    // a round knob: dragged up and down; its arc from seven o'clock to five o'clock
+                    let r = ui.interact(rect, id, Sense::click_and_drag());
+                    let span = (w.hi - w.lo).abs().max(1e-12);
+                    let mut v = n.value;
+                    if r.dragged() {
+                        let dy = -r.drag_delta().y as f64;
+                        v = (v + dy / 150.0 * span).clamp(w.lo.min(w.hi), w.hi.max(w.lo));
+                        observe(app, &n.name, v);
+                    }
+                    let lab_h = if small { 0.0 } else { 14.0 };
+                    let d = (rect.width().min(rect.height() - lab_h - 14.0) - 6.0).max(16.0);
+                    let c = pos2(rect.center().x, rect.top() + 4.0 + d / 2.0);
+                    let rad = d / 2.0;
+                    let a0 = std::f32::consts::PI * 0.75;
+                    let sweep = std::f32::consts::PI * 1.5;
+                    let share = (((v - w.lo) / (w.hi - w.lo)).clamp(0.0, 1.0)) as f32;
+                    let arc = |from: f32, to: f32| -> Vec<Pos2> {
+                        (0..=32)
+                            .map(|k| {
+                                let a = from + (to - from) * k as f32 / 32.0;
+                                c + vec2(a.cos(), a.sin()) * rad
+                            })
+                            .collect()
+                    };
+                    painter.add(egui::Shape::line(arc(a0, a0 + sweep), Stroke::new(3.0_f32, ink.faint)));
+                    painter.add(egui::Shape::line(arc(a0, a0 + sweep * share), Stroke::new(3.0_f32, ink.accent)));
+                    painter.circle_filled(c, rad * 0.62, ink.surface);
+                    let a = a0 + sweep * share;
+                    painter.line_segment(
+                        [c + vec2(a.cos(), a.sin()) * rad * 0.2, c + vec2(a.cos(), a.sin()) * rad * 0.6],
+                        Stroke::new(2.0_f32, ink.text),
+                    );
+                    painter.text(
+                        c + vec2(0.0, rad + 2.0),
+                        egui::Align2::CENTER_TOP,
+                        grm_engine::lang::g((v * 1000.0).round() / 1000.0),
+                        egui::FontId::monospace(10.0),
+                        ink.muted,
+                    );
+                    if !small {
+                        painter.text(
+                            pos2(c.x, rect.bottom()),
+                            egui::Align2::CENTER_BOTTOM,
+                            &label,
+                            egui::FontId::proportional(11.0),
+                            ink.text,
+                        );
+                    }
+                    let r = r
+                        .on_hover_text(format!("{label}: {}", grm_engine::lang::g(v)))
+                        .on_hover_cursor(egui::CursorIcon::ResizeVertical);
+                    let (lo, hi, node_name) = (w.lo, w.hi, n.name.clone());
+                    r.context_menu(|ui| {
+                        if crate::icons::button(ui, "piano", crate::text::t(app.settings.lang, "midi_learn")).clicked()
+                        {
+                            app.midi_learn = Some(crate::midi::Target::Node { name: node_name.clone(), lo, hi });
+                            app.settings_open = true;
+                            ui.close();
+                        }
+                    });
+                }
+            }
+            WidgetKind::Fader => {
+                if let Some(n) = node(0) {
+                    // a slider standing up, its words under it
+                    let mut v = n.value;
+                    let lab_h = if small && rect.width() < 60.0 { 0.0 } else { 16.0 };
+                    let inner = Rect::from_min_max(rect.min, pos2(rect.max.x, rect.max.y - lab_h));
+                    ui.spacing_mut().slider_width = (inner.height() - 30.0).max(30.0);
+                    let r = ui.put(
+                        inner,
+                        egui::Slider::new(&mut v, w.lo..=w.hi)
+                            .vertical()
+                            .clamping(egui::SliderClamping::Always)
+                            .show_value(false),
+                    );
+                    if r.changed() {
+                        observe(app, &n.name, v);
+                    }
+                    if lab_h > 0.0 {
+                        painter.text(
+                            pos2(rect.center().x, rect.bottom()),
+                            egui::Align2::CENTER_BOTTOM,
+                            &label,
+                            egui::FontId::proportional(11.0),
+                            ink.text,
+                        );
+                    }
+                    let r = r.on_hover_text(format!("{label}: {}", grm_engine::lang::g(v)));
+                    let (lo, hi, node_name) = (w.lo, w.hi, n.name.clone());
+                    r.context_menu(|ui| {
+                        if crate::icons::button(ui, "piano", crate::text::t(app.settings.lang, "midi_learn")).clicked()
+                        {
+                            app.midi_learn = Some(crate::midi::Target::Node { name: node_name.clone(), lo, hi });
+                            app.settings_open = true;
+                            ui.close();
+                        }
+                    });
+                }
+            }
+            WidgetKind::Steps => {
+                if let Some(n) = node(0) {
+                    // a light per step, the one it is on lit (steady: it moves with the steps, it does not blink)
+                    let count = ((w.hi - w.lo).round() as i64 + 1).clamp(1, 64) as usize;
+                    let now = (n.value - w.lo).round() as i64;
+                    let gap = 4.0;
+                    let lw = ((rect.width() - gap * (count as f32 - 1.0)) / count as f32).max(4.0);
+                    let lh = rect.height().min(lw).clamp(6.0, 22.0);
+                    for k in 0..count {
+                        let x = rect.left() + k as f32 * (lw + gap);
+                        let led = Rect::from_min_size(pos2(x, rect.center().y - lh / 2.0), vec2(lw, lh));
+                        if k as i64 == now {
+                            painter.rect_filled(led, 2.0, ink.accent);
+                        } else {
+                            painter.rect_stroke(led, 2.0, Stroke::new(1.0_f32, ink.faint), egui::StrokeKind::Inside);
+                        }
+                    }
+                    ui.interact(rect, id, Sense::hover()).on_hover_text(format!("{label}: {}", now + 1));
+                }
+            }
             WidgetKind::Scope => {
                 let r = ui.interact(rect, id, Sense::hover());
                 painter.rect_stroke(rect, 4.0, Stroke::new(1.0_f32, ink.faint), egui::StrokeKind::Inside);
@@ -506,6 +643,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                 });
             }
         }
+        ui.set_clip_rect(clip_before);
         ui.set_style(saved_style);
         if app.xray {
             let words: Vec<String> = w

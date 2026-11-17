@@ -242,6 +242,8 @@ pub struct World {
     pub workshops: IndexMap<String, Box<World>>,
     /// Networks put in the trash (by their source): what they held, to be given back.
     pub trash: IndexMap<String, Trashed>,
+    /// A simulation's reality: each node as it was before anything was changed in it (empty: not a simulation).
+    pub baseline: IndexMap<String, (f64, f64)>,
     /// What was written in it, line by line, when it is a workshop (what its window shows and lets change).
     pub written: Vec<String>,
 }
@@ -278,6 +280,7 @@ impl World {
             mood: Default::default(),
             workshops: IndexMap::new(),
             trash: IndexMap::new(),
+            baseline: IndexMap::new(),
             written: vec![],
         }
     }
@@ -572,6 +575,67 @@ impl World {
         Ok(())
     }
 
+    /// A simulation: a copy of a network (the main one, or a workshop), apart, where a node takes a value it does
+    /// not have in reality; reality goes on untouched. Its name (sim_NODE, sim_NODE_2...).
+    pub fn simulate(&mut self, from: Option<&str>, node: &str, value: f64) -> Result<String> {
+        let mut sim = match from {
+            Some(ws) => match self.workshops.get(ws) {
+                Some(b) => (**b).clone(),
+                None => bail!("no workshop {ws}"),
+            },
+            None => {
+                let mut c = self.clone();
+                c.workshops.clear();
+                c
+            }
+        };
+        if !sim.machine.net.nodes.contains_key(node) {
+            bail!("no node {node}");
+        }
+        sim.sandboxes.clear();
+        sim.trash.clear();
+        sim.eyes.clear();
+        sim.baseline = sim.machine.net.nodes.keys().map(|n| (n.clone(), sim.machine.reading(n))).collect();
+        let line = format!("observe {node} = {} ± 0.000001", crate::lang::g(value));
+        sim.say(&line, &Provenance::of("simulation"))?;
+        sim.machine = Machine::new(sim.machine.net.clone())?;
+        sim.machine.run(4000);
+        sim.written =
+            vec![format!("# a simulation of {}: {node} set by hand", from.unwrap_or("the main network")), line];
+        let mut name = format!("sim_{node}");
+        let mut k = 2;
+        while self.workshops.contains_key(&name) {
+            name = format!("sim_{node}_{k}");
+            k += 1;
+        }
+        self.workshops.insert(name.clone(), Box::new(sim));
+        self.log("simulated", format!("{name}: {node} = {} (reality untouched)", crate::lang::g(value)));
+        Ok(name)
+    }
+
+    /// In a simulation: what moved from its reality, (node, before, now, its spread now), the largest first
+    /// (relative changes under half a percent are left out).
+    pub fn differences(&self) -> Vec<(String, f64, f64, f64)> {
+        let mut out: Vec<(String, f64, f64, f64)> = self
+            .baseline
+            .iter()
+            .filter(|(n, _)| self.machine.net.nodes.contains_key(*n) && !n.contains("__next"))
+            // what a set writes at each tick is a signal running on, not a consequence of the value asked
+            .filter(|(n, _)| !self.machine.net.sets.iter().any(|s| s.target == **n || s.source == **n))
+            .filter_map(|(n, (before, _))| {
+                let (now, s) = self.machine.reading(n);
+                let rel = (now - before).abs() / before.abs().max(1e-9);
+                (now.is_finite() && rel > 0.005).then(|| (n.clone(), *before, now, s))
+            })
+            .collect();
+        out.sort_by(|a, b| {
+            let ra = (a.2 - a.1).abs() / a.1.abs().max(1e-9);
+            let rb = (b.2 - b.1).abs() / b.1.abs().max(1e-9);
+            rb.partial_cmp(&ra).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        out
+    }
+
     /// A network in the network (a source) goes to the trash: taken away, kept to be given back.
     pub fn trash_source(&mut self, source: &str) -> Result<String> {
         if factory(source) {
@@ -644,6 +708,7 @@ impl World {
             mood: Default::default(),
             workshops: IndexMap::new(),
             trash: IndexMap::new(),
+            baseline: IndexMap::new(),
             written: vec![],
         };
         // its workshops, woken too
@@ -1403,6 +1468,27 @@ mod tests {
         w.say_all(lines, &Provenance::of("base")).unwrap();
         w.machine.run(1000);
         w
+    }
+
+    #[test]
+    fn a_simulation_changes_a_copy_never_reality() {
+        let mut w = world(&[
+            "node mass = 70",
+            "node acceleration = 9.81",
+            "node force",
+            "relate newton: force = mass * acceleration",
+            "observe mass = 70",
+            "observe acceleration = 9.81",
+        ]);
+        let force = w.machine.value_si("force");
+        let sim = w.simulate(None, "mass", 140.0).unwrap();
+        assert_eq!(sim, "sim_mass");
+        assert!((w.machine.value_si("force") - force).abs() < 1e-9, "reality untouched");
+        let s = &w.workshops[&sim];
+        let d = s.differences();
+        let f = d.iter().find(|x| x.0 == "force").expect("the force moved");
+        assert!((f.2 / f.1 - 2.0).abs() < 0.02, "{d:?}");
+        assert_eq!(w.simulate(None, "mass", 100.0).unwrap(), "sim_mass_2");
     }
 
     #[test]

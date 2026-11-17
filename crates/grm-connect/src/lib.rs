@@ -16,6 +16,7 @@
 pub mod api;
 pub mod bias;
 pub mod csv;
+pub mod world;
 
 use indexmap::IndexMap;
 use serde_json::Value;
@@ -326,12 +327,18 @@ pub fn owid_table(csv: &str, entity: &str, chosen: &[&str], metadata: Option<&Va
         .as_array()
         .unwrap()
         .iter()
-        .filter(|r| r.get("Entity").and_then(|e| e.as_str()) == Some(entity))
+        .filter(|r| {
+            r.get("Entity")
+                .or_else(|| r.get("entity"))
+                .and_then(|e| e.as_str())
+                .is_some_and(|e| e.eq_ignore_ascii_case(entity))
+        })
         .collect();
     if rows.is_empty() {
         return Err(GrmError::new(format!("no row for {entity}")));
     }
-    let time_key = ["Year", "Day", "year", "date"].into_iter().find(|k| rows[0].get(*k).is_some()).unwrap_or("Year");
+    let time_key =
+        ["Year", "Day", "year", "day", "date"].into_iter().find(|k| rows[0].get(*k).is_some()).unwrap_or("Year");
     let mut t = Table { time_unit: time_key.to_lowercase(), ..Default::default() };
     t.time = rows
         .iter()

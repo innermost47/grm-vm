@@ -34,15 +34,17 @@ pub enum Tab {
     Journal,
     Eye,
     Sound,
+    Insights,
 }
 
-pub const TABS: [(Tab, &str); 6] = [
+pub const TABS: [(Tab, &str); 7] = [
     (Tab::Inspector, "inspector"),
     (Tab::Sandboxes, "sandboxes"),
     (Tab::Sources, "sources"),
     (Tab::Journal, "journal"),
     (Tab::Eye, "eye"),
     (Tab::Sound, "sound"),
+    (Tab::Insights, "insights"),
 ];
 
 pub use crate::style::Ink;
@@ -112,8 +114,22 @@ pub struct App {
     saved: Settings,
     pub help_open: bool,
     pub help_page: usize,
+    /// The world asked of Our World in Data: a place, and the categories left out.
+    pub world_place: String,
+    pub world_off: Vec<bool>,
+    /// The node chosen in a workshop: (workshop, node).
+    pub ws_selected: Option<(String, String)>,
+    /// A node in hand: the range of its slider (chosen once) and the value being moved.
+    pub hand_range: std::collections::HashMap<String, (f64, f64)>,
+    pub hand_value: std::collections::HashMap<String, f64>,
+    /// The MIDI controllers listened to, what is being learned, the keys held (by gate).
+    pub midi: crate::midi::Midi,
+    pub midi_learn: Option<crate::midi::Target>,
+    midi_held: std::collections::HashMap<String, Vec<u8>>,
+    /// The last values sent to each node by MIDI (what changed goes once a frame).
+    midi_sent: std::collections::HashMap<String, f64>,
     pub help_search: String,
-    settings_open: bool,
+    pub settings_open: bool,
     focus_prompt: bool,
     pub eyes: IndexMap<String, Eye>,
     pub eye_path: String,
@@ -365,6 +381,7 @@ impl App {
             Some("journal") => Tab::Journal,
             Some("eye") => Tab::Eye,
             Some("sound") => Tab::Sound,
+            Some("insights") => Tab::Insights,
             _ => Tab::Inspector,
         };
         apply_look(&cc.egui_ctx, &settings);
@@ -396,6 +413,15 @@ impl App {
             settings,
             help_open: false,
             help_page: 0,
+            world_place: String::new(),
+            world_off: vec![],
+            ws_selected: None,
+            hand_range: Default::default(),
+            hand_value: Default::default(),
+            midi: crate::midi::Midi::start(),
+            midi_learn: None,
+            midi_held: Default::default(),
+            midi_sent: Default::default(),
             help_search: String::new(),
             settings_open: false,
             focus_prompt: true,
@@ -853,6 +879,7 @@ impl App {
                             // again by taking it back)
                             self.space.put(crate::space::Kind::App(v.name.clone()));
                             self.space_on = true;
+                            self.zone_center = None;
                             self.current = None;
                             if !self.journey.quiet.remove(&v.name) {
                                 let change =
@@ -1108,7 +1135,7 @@ impl App {
         if panic {
             self.say("panic");
         }
-        let keys = [Key::Num1, Key::Num2, Key::Num3, Key::Num4, Key::Num5, Key::Num6];
+        let keys = [Key::Num1, Key::Num2, Key::Num3, Key::Num4, Key::Num5, Key::Num6, Key::Num7];
         for (k, key) in keys.iter().enumerate() {
             if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, *key)) {
                 self.tab = TABS[k].0;
@@ -1257,7 +1284,7 @@ impl App {
                                 for sec in job.sections.iter().skip(1) {
                                     full.append(&job.text[sec.byte_range.clone()], 0.0, sec.format.clone());
                                 }
-                                ui.label(full);
+                                ui.add(egui::Label::new(full).selectable(true));
                                 continue;
                             }
                             let shown = if self.settings.lang == Lang::Fr && !text.starts_with("› ") {
@@ -1267,7 +1294,8 @@ impl App {
                             };
                             let rich = RichText::new(shown).monospace().color(colour);
                             let rich = if *kind == LineKind::Error { rich.strong() } else { rich };
-                            ui.label(rich);
+                            // what the prompt said can be selected and copied
+                            ui.add(egui::Label::new(rich).selectable(true));
                         }
                     });
             }
@@ -1483,6 +1511,8 @@ impl App {
                 ui.label(RichText::new(self.memory.display().to_string()).monospace());
                 ui.end_row();
             });
+            ui.separator();
+            crate::midi::settings(self, ui);
             ui.separator();
             ui.label(RichText::new(t(lang, "layout")).strong());
             ui.label(t(lang, "layout_note"));
@@ -2319,6 +2349,15 @@ impl App {
         self.log.push((kind, text));
     }
 
+    /// Something done that the human asked for, said softly in a corner (and in the prompt's lines).
+    pub fn toast(&mut self, text: String) {
+        self.toasts.push((LineKind::Said, text.clone(), Instant::now()));
+        if self.toasts.len() > 3 {
+            self.toasts.remove(0);
+        }
+        self.log.push((LineKind::Said, text));
+    }
+
     /// What went wrong, in a corner: it blocks nothing, comes and goes slowly, can be closed.
     /// Her consciousness speaks by itself when something in her asks for it (what she feels, what she lacks):
     /// softly, in a corner, not more than once in a while, and never twice the same words in a row.
@@ -2340,7 +2379,48 @@ impl App {
         }
     }
 
+    /// What the controllers sent since the last frame: learned, or turned into observations and lines.
+    fn midi_in(&mut self, ctx: &egui::Context) {
+        let came = self.midi.drain();
+        if came.is_empty() {
+            if self.midi_learn.is_some() {
+                ctx.request_repaint_after(std::time::Duration::from_millis(30));
+            }
+            return;
+        }
+        let mut nodes: indexmap::IndexMap<String, f64> = indexmap::IndexMap::new();
+        let mut lines = vec![];
+        for (port, s) in came {
+            if let Some(target) = self.midi_learn.clone() {
+                if let Some(b) = crate::midi::learn(&port, s, &target) {
+                    let words = b.words();
+                    self.settings.midi.retain(|x| x.control != b.control || x.port != b.port);
+                    self.settings.midi.push(b);
+                    self.midi_learn = None;
+                    self.toasts.push((LineKind::Said, format!("MIDI · {words}"), Instant::now()));
+                    continue;
+                }
+            }
+            let (n, l) = crate::midi::apply(&self.settings.midi, &port, s, &mut self.midi_held);
+            for (k, v) in n {
+                nodes.insert(k, v);
+            }
+            lines.extend(l);
+        }
+        for (n, v) in nodes {
+            if self.midi_sent.get(&n) != Some(&v) {
+                self.worker.send(format!("observe {n} = {}", grm_engine::lang::g(v)));
+                self.midi_sent.insert(n, v);
+            }
+        }
+        for l in lines {
+            self.say(l);
+        }
+        ctx.request_repaint();
+    }
+
     fn toasts(&mut self, ctx: &egui::Context) {
+        self.midi_in(ctx);
         self.witness_speaks();
         const STAY: f32 = 8.0;
         self.toasts.retain(|(_, _, at)| at.elapsed().as_secs_f32() < STAY);

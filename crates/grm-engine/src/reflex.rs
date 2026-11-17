@@ -47,6 +47,15 @@ enum Expr {
     Exp(usize),
 }
 
+/// A line that remembers: its node is what its source was so many samples ago.
+#[derive(Debug, Clone)]
+struct Delay {
+    target: usize,
+    source: usize,
+    line: Vec<f64>,
+    at: usize,
+}
+
 #[derive(Debug, Clone)]
 struct Step {
     target: usize,
@@ -62,6 +71,7 @@ pub struct Reflex {
     pub values: Vec<f64>,
     sets: Vec<Step>,
     follow: Vec<Step>,
+    delays: Vec<Delay>,
     pub samples: u64,
 }
 
@@ -82,8 +92,19 @@ impl Reflex {
                     .unwrap_or_else(|| machine.value_si(n))
             })
             .collect();
-        let mut r = Reflex { clock, names, values, sets: vec![], follow: vec![], samples: 0 };
+        let mut r = Reflex { clock, names, values, sets: vec![], follow: vec![], delays: vec![], samples: 0 };
         for st in &net.sets {
+            // a delay: a line of so many samples (one at a slower clock)
+            if let Some(by) = st.text.starts_with("delay ").then(|| st.text.rsplit_once(" by ")).flatten() {
+                let seconds = crate::lang::seconds_of(by.1).unwrap_or(0.0);
+                let n = match clock {
+                    Clock::Audio { rate } => ((seconds * rate as f64).round() as usize).max(1),
+                    _ => 1,
+                };
+                let (target, source) = (r.slot(&st.target)?, r.slot(&st.source)?);
+                r.delays.push(Delay { target, source, line: vec![0.0; n], at: 0 });
+                continue;
+            }
             let expr = if let Some((_, k)) = st.source.rsplit_once("__next") {
                 let rel = net.relation(&format!("set_{}_{}", st.target, k));
                 let Some(rel) = rel else { bail!("the relation of set {} is missing", st.target) };
@@ -156,8 +177,7 @@ impl Reflex {
 
     /// Takes the values of the parameters the machine has settled since (the reflex keeps its own `set`s).
     pub fn tune(&mut self, machine: &Machine) {
-        let written: Vec<usize> =
-            self.sets.iter().map(|s| s.target).chain(self.follow.iter().map(|s| s.target)).collect();
+        let written: Vec<usize> = self.written();
         for (n, &i) in &self.names {
             if !written.contains(&i) && (machine.index.contains_key(n) || machine.fixed.contains_key(n)) {
                 self.values[i] = machine.value_si(n);
@@ -166,7 +186,12 @@ impl Reflex {
     }
 
     fn written(&self) -> Vec<usize> {
-        self.sets.iter().map(|s| s.target).chain(self.follow.iter().map(|s| s.target)).collect()
+        self.sets
+            .iter()
+            .map(|s| s.target)
+            .chain(self.follow.iter().map(|s| s.target))
+            .chain(self.delays.iter().map(|d| d.target))
+            .collect()
     }
 
     /// Its parameters: the nodes it reads but does not write (what the machine above tunes).
@@ -232,6 +257,10 @@ impl Reflex {
     /// One sample: every `set` whose conditions hold writes its node, all at once from the values before; then the
     /// nodes that follow.
     pub fn step(&mut self) {
+        // what each line remembers comes out first (the sets and what follows may read it)
+        for d in &self.delays {
+            self.values[d.target] = d.line[d.at];
+        }
         let writes: Vec<(usize, f64)> =
             self.sets.iter().filter(|s| self.holds(&s.when)).map(|s| (s.target, self.eval(&s.expr))).collect();
         for (i, v) in writes {
@@ -242,6 +271,11 @@ impl Reflex {
                 let v = self.eval(&self.follow[k].expr);
                 self.values[self.follow[k].target] = v;
             }
+        }
+        // and each line takes what its source is now
+        for d in &mut self.delays {
+            d.line[d.at] = self.values[d.source];
+            d.at = (d.at + 1) % d.line.len();
         }
         self.samples += 1;
     }
@@ -323,6 +357,30 @@ mod tests {
         let (c, s) = (reflex.value("cos_val").unwrap(), reflex.value("sine_wave").unwrap());
         let want = 1.0001f64.powi(48000);
         assert!(((c * c + s * s) / want - 1.0).abs() < 1e-6, "{} vs {want}", c * c + s * s);
+    }
+
+    #[test]
+    fn an_echo_is_a_delay_and_a_relation_that_brings_it_back() {
+        // a sound that starts and stays: heard again 10 ms later half as loud, then a quarter... (1, 1.5, 1.75)
+        let mut w = World::new();
+        w.say_all(
+            &[
+                "node dry = 1 fixed",
+                "node wet signed",
+                "delay back = wet by 10ms",
+                "relate echo: wet = dry + 0.5 * back",
+            ],
+            &Provenance::default(),
+        )
+        .unwrap();
+        w.machine.run(200);
+        let mut r = Reflex::of(&w.machine, Clock::Audio { rate: 48000 }).unwrap();
+        r.follow(&w.machine, "wet").unwrap();
+        let slot = r.slot_of("wet").unwrap();
+        let out: Vec<f64> = (0..1500).map(|_| r.step_read(slot)).collect();
+        for (k, want) in [(0, 1.0), (479, 1.0), (480, 1.5), (959, 1.5), (960, 1.75), (1440, 1.875)] {
+            assert!((out[k] - want).abs() < 1e-9, "sample {k}: {} instead of {want}", out[k]);
+        }
     }
 
     #[test]

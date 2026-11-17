@@ -1,0 +1,7 @@
+# A square (pulse) from a saw: high while the saw is under the width, low after (the hollow wave).
+# {name}_q is its sound; {saw} is a saw's phase (from -1 to 1), {width} where it turns (0: a square).
+network square(name, saw, width)
+  var {name}_q = 1
+  set {name}_q = 1 when {saw} in -3 .. {width}
+  set {name}_q = -1 when {saw} in {width} .. 3
+end

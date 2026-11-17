@@ -153,10 +153,26 @@
    with the machine); new apps put on the space; squarer corners; sleep explained in the visit; the eye's words;
    help as a small book; her consciousness speaking by itself; what a table leans towards (biases), said before
    learning from it.
+   *Then done*: Our World in Data (twelve indicators in six categories, a workshop each, kept a week); `delay`, and
+   an analogue synthesiser all in networks (saw, square, four-pole filter with resonance, envelope, amplifier, echo,
+   reverb as a feedback delay network, a sequencer of eight steps apart); MIDI in from every controller, MIDI learn
+   on sliders, nodes, keyboards and lines; `why` and the trash said in French; her consciousness tied to all,
+   flowing only towards it; the sound device fading instead of clicking when the mixer is held.
+   **Still to do from the list below**: equalisation, compression, a limiter written as networks (the brick is there);
+   MIDI learn on every control of the window (tabs, buttons), noise for the synthesiser, the weather view.
+   *Then done*: a node in hand (slider and field; locked when it comes from outside), simulations (a copy apart,
+   before -> after, written to share), the Insights tab (reality, the reflection with strains and levers, what is
+   shared); knobs, faders and step lights; small frames that say less instead of spilling; what would help her
+   feel better, in signs; the journal as a terminal, its changes as buttons; the prompt's lines selectable; a
+   double click on a gathered network comes close to it and dims the others; Our World in Data's new headers.
+   **To think through with Anthony**: every node and every relation as a potential input and output (a relation's
+   strain read as a node, a network that pulses, with feedback, plugged into the sequencer).
    **Agreed next** (with Anthony): Our World in Data as a first source of the world (the next lot); MIDI in, as
    many controllers as plugged, everything in the app controllable by MIDI with MIDI learn everywhere (not only
    music); a real analogue synthesiser with all its modules (oscillators, filters, envelopes, LFOs, VCA, mixer,
-   noise...) and a sequencer that drives it (a network apart), besides the keyboard; reverb and delay; effects the
+   noise...) and a sequencer that drives it (a network apart), besides the keyboard; reverb and delay made as networks, no effect ready-made (one new brick: a node that
+   remembers its value N samples ago; an echo is one node and one relation, a reverb a feedback delay network of
+   8 to 16 of them, an equaliser or a compressor the same brick with gains); effects the
    human makes (equalisation, compression, limiter...). GRML must be able to make anything a computer is asked for,
    and more: a synthesiser, an audio effect, water simulated, a physics calculator, a paint, a picture editor; the
    global network learns the logic of each app and what the human does with it (in the window's own network). The

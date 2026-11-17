@@ -15,6 +15,34 @@ fn rules() -> &'static Vec<Rule> {
         let r = |p: &str, to: &'static str| (Regex::new(p).expect("a rule"), to);
         vec![
             r(r"^node (\S+) = (.*)$", "nœud $1 = $2"),
+            // why: who says what of a node, and how much it weighs
+            r(r"^why (\S+) = (.*)$", "pourquoi $1 = $2"),
+            r(
+                r"^(\S+) put in the trash \(restore (\S+) gives it back\)$",
+                "$1 mis à la corbeille (restore $2 le rend)",
+            ),
+            r(r"^(\S+) given back from the trash$", "$1 rendu depuis la corbeille"),
+            r(r"^the trash is empty$", "la corbeille est vide"),
+            r(
+                r"^! (\S+) came with the machine: it does not go to the trash$",
+                "! $1 est venu avec la machine : il ne va pas à la corbeille",
+            ),
+            r(r"^(\d+) years learned in (\S+)$", "$1 années apprises dans $2"),
+            r(
+                r"^(\s+)([0-9.]+) %  its measurement \(or what it was given\)$",
+                "$1$2 %  sa mesure (ou ce qu'on lui a donné)",
+            ),
+            r(r"^(\s+)([0-9.]+) %  relation (\S+): (.*)$", "$1$2 %  la relation $3 : $4"),
+            r(r"^(\s+)([0-9.]+) %  the limit (\S+): (.*)$", "$1$2 %  la limite $3 : $4"),
+            r(
+                r"^(\s+)([0-9.]+) %  a belief held with others \((.*)\)$",
+                "$1$2 %  une croyance tenue avec d'autres ($3)",
+            ),
+            r(r"^(\s+)says (.*)$", "${1}dit $2"),
+            r(r"^  and (\d+) that say almost nothing of it$", "  et $1 qui n'en disent presque rien"),
+            r(r"^(\S+): nothing tells it anything yet$", "$1 : rien ne lui en dit encore quoi que ce soit"),
+            r(r"^(\S+) is fixed: (.*)$", "$1 est fixé : $2"),
+            r(r"^\? not understood: (.*) \(help\)$", "? pas compris : $1 (help)"),
             r(
                 r"^(\d+) links / room (\d+) \(([0-9]+) % taken\): a link costs (\S+) bit a tick$",
                 "$1 liens / place $2 ($3 % prise) : un lien coûte $4 bit par tick",
@@ -120,6 +148,10 @@ fn rules() -> &'static Vec<Rule> {
 }
 
 pub fn fr(text: &str) -> String {
+    // an answer of several lines: each said again on its own
+    if text.contains('\n') {
+        return text.split('\n').map(fr).collect::<Vec<_>>().join("\n");
+    }
     for (re, to) in rules() {
         if re.is_match(text) {
             return re.replace(text, *to).to_string();
@@ -138,5 +170,10 @@ mod tests {
         assert_eq!(fr("observed mass = 2 ± 0.01 dex"), "observé mass = 2 ± 0.01 dex");
         assert_eq!(fr("synth, line 4: no node x"), "synth, ligne 4 : no node x");
         assert_eq!(fr("something new"), "something new");
+        let why = "why distance = 18 (± 0.01 dex)\n  50.0 %  relation run: distance = speed * time\n          says 18\n  and 1 that say almost nothing of it";
+        assert_eq!(
+            fr(why),
+            "pourquoi distance = 18 (± 0.01 dex)\n  50.0 %  la relation run : distance = speed * time\n          dit 18\n  et 1 qui n'en disent presque rien"
+        );
     }
 }

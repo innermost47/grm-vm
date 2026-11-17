@@ -1,0 +1,85 @@
+app Analog synth
+# An analogue synthesiser, every module a network (nothing ready-made): oscillators (saw, square), a filter of four
+# poles with its resonance, an envelope, an amplifier, an echo and a reverb made of delays; and a sequencer of eight
+# steps, a network apart, that can drive it instead of the keys.
+# The keys: a pitch (Hz) and a gate (held or not).
+input pitch = 220 positive
+input hold = 0
+# The sequencer: on or off, its tempo (steps a second), the pitch of each of its eight steps.
+input seq_on = 0
+input tempo = 6 positive
+node seq_rate signed
+relate seq_speed: seq_rate = 0.0000208333333 * tempo
+input s_n1 = 110 positive
+input s_n2 = 165 positive
+input s_n3 = 220 positive
+input s_n4 = 110 positive
+input s_n5 = 147 positive
+input s_n6 = 220 positive
+input s_n7 = 196 positive
+input s_n8 = 131 positive
+use networks/sequencer.grm
+call sequencer(name=s, rate=seq_rate)
+# What plays: the keys, or the sequencer when it is on.
+node note signed
+relate choose: note = pitch + seq_on * s_pitch - seq_on * pitch
+node gate signed
+relate open: gate = hold + seq_on * s_gate
+# The oscillators: a saw, and a square made from it; the shape goes from one to the other.
+node vstep signed
+relate osc_rate: vstep = 0.0000416666667 * note
+use networks/saw.grm
+call saw(name=vco, step=vstep)
+use networks/square.grm
+call square(name=pw, saw=vco_p, width=0)
+input shape = 0
+node vco_mix signed
+relate wave: vco_mix = vco_p + shape * pw_q - shape * vco_p
+# The filter: how open, and how much it sings.
+input cutoff = 0.08 positive
+input resonance = 1
+use networks/ladder.grm
+call ladder(name=vcf, input=vco_mix, cut=cutoff, res=resonance)
+# The envelope and the amplifier.
+input attack = 0.003 positive
+input release = 0.0005 positive
+use networks/envelope.grm
+call envelope(name=env, gate=gate, attack=attack, release=release)
+input volume = 0.4 positive
+node vca signed
+relate amp: vca = volume * env_e * vcf_y4
+# The echo (a third of a second) and the room.
+input echo_back = 0.35
+use networks/echo.grm
+call echo(name=dl, input=vca, time=0.33, feedback=echo_back)
+input room = 0.7
+use networks/reverb.grm
+call reverb(name=rv, input=dl_wet, decay=room)
+input wet = 0.3
+node out signed
+relate final: out = dl_wet + wet * rv_out
+# Its surface: knobs for the sound, faders for the steps, lights for where the sequencer is.
+widget about: text "Every module is a network: saw, filter, envelope, echo, room are delays and relations." at 0 0 size 12 1
+widget go: play out at 0 1 size 2 1 "sound"
+widget sq: toggle seq_on at 2 1 size 2 1 "sequencer"
+widget st: steps s_i 0 .. 7 at 4 1 size 8 1 "step"
+widget sh: knob shape 0 .. 1 at 0 2 size 2 2 "saw · square"
+widget cu: knob cutoff 0.005 .. 0.5 at 2 2 size 2 2 "filter"
+widget re: knob resonance 0 .. 3.5 at 4 2 size 2 2 "resonance"
+widget at: knob attack 0.0002 .. 0.02 at 6 2 size 2 2 "attack"
+widget rl: knob release 0.00002 .. 0.002 at 8 2 size 2 2 "release"
+widget ec: knob echo_back 0 .. 0.9 at 10 2 size 2 2 "echo"
+widget n1: fader s_n1 55 .. 880 at 0 4 size 1 3 "1"
+widget n2: fader s_n2 55 .. 880 at 1 4 size 1 3 "2"
+widget n3: fader s_n3 55 .. 880 at 2 4 size 1 3 "3"
+widget n4: fader s_n4 55 .. 880 at 3 4 size 1 3 "4"
+widget n5: fader s_n5 55 .. 880 at 4 4 size 1 3 "5"
+widget n6: fader s_n6 55 .. 880 at 5 4 size 1 3 "6"
+widget n7: fader s_n7 55 .. 880 at 6 4 size 1 3 "7"
+widget n8: fader s_n8 55 .. 880 at 7 4 size 1 3 "8"
+widget tp: fader tempo 1 .. 16 at 8 4 size 1 3 "tempo"
+widget vo: fader volume 0.01 .. 1 at 9 4 size 1 3 "volume"
+widget ro: fader room 0 .. 0.97 at 10 4 size 1 3 "room"
+widget we: fader wet 0 .. 1 at 11 4 size 1 3 "reverb"
+widget wave: scope out -1 .. 1 at 0 7 size 12 2 "what is heard"
+widget kb: keys pitch hold at 0 9 size 12 2 "keys (or A W S E D F T G Y H U J K)"

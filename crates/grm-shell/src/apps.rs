@@ -53,6 +53,12 @@ pub enum WidgetKind {
     Play,
     /// What a node that plays sounds like, as a wave.
     Scope,
+    /// A round knob (a potentiometer): turned by dragging up and down.
+    Knob,
+    /// A slider standing up (a fader).
+    Fader,
+    /// A row of lights, one lit: which step a node is on (lo .. hi, a light each).
+    Steps,
 }
 
 impl WidgetKind {
@@ -70,6 +76,9 @@ impl WidgetKind {
             "keys" => WidgetKind::Keys,
             "play" => WidgetKind::Play,
             "scope" => WidgetKind::Scope,
+            "knob" => WidgetKind::Knob,
+            "fader" | "vslider" => WidgetKind::Fader,
+            "steps" | "leds" => WidgetKind::Steps,
             _ => return None,
         })
     }
@@ -88,6 +97,9 @@ impl WidgetKind {
             WidgetKind::Keys => "keys",
             WidgetKind::Play => "play",
             WidgetKind::Scope => "scope",
+            WidgetKind::Knob => "knob",
+            WidgetKind::Fader => "fader",
+            WidgetKind::Steps => "steps",
         }
     }
 
@@ -113,10 +125,13 @@ impl WidgetKind {
             WidgetKind::Pad => (3, 3),
             WidgetKind::Keys => (8, 2),
             WidgetKind::Scope => (6, 3),
+            WidgetKind::Knob => (2, 2),
+            WidgetKind::Fader => (1, 3),
+            WidgetKind::Steps => (8, 1),
         }
     }
 
-    pub const ALL: [WidgetKind; 12] = [
+    pub const ALL: [WidgetKind; 15] = [
         WidgetKind::Slider,
         WidgetKind::Toggle,
         WidgetKind::Button,
@@ -129,6 +144,9 @@ impl WidgetKind {
         WidgetKind::Keys,
         WidgetKind::Play,
         WidgetKind::Scope,
+        WidgetKind::Knob,
+        WidgetKind::Fader,
+        WidgetKind::Steps,
     ];
 }
 
@@ -167,7 +185,14 @@ impl Widget {
         }
         if matches!(
             self.kind,
-            WidgetKind::Slider | WidgetKind::Meter | WidgetKind::Plot | WidgetKind::Pad | WidgetKind::Scope
+            WidgetKind::Slider
+                | WidgetKind::Meter
+                | WidgetKind::Plot
+                | WidgetKind::Pad
+                | WidgetKind::Scope
+                | WidgetKind::Knob
+                | WidgetKind::Fader
+                | WidgetKind::Steps
         ) {
             s.push_str(&format!(" {} .. {}", grm_engine::lang::g(self.lo), grm_engine::lang::g(self.hi)));
         }

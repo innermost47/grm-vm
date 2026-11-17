@@ -782,6 +782,23 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, ws: &str, view: &mut crate::view::
                     }
                 }
             });
+            // the node chosen in it, in hand; and in a simulation, what moved
+            if let Some(p) = picture.as_ref() {
+                let chosen: Vec<crate::model::NodeView> = p
+                    .nodes
+                    .iter()
+                    .filter(|n| app.ws_selected.as_ref().is_some_and(|(w, s)| w == ws && *s == n.name))
+                    .take(1)
+                    .cloned()
+                    .collect();
+                for n in chosen {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(&n.name).strong().monospace());
+                    });
+                    crate::insights::control(app, ui, &n, Some(ws));
+                }
+                crate::insights::differences(app, ui, ws, p);
+            }
             // the lines written, each in words, each can be taken back
             ui.separator();
             egui::ScrollArea::vertical().id_salt(("ws-lines", ws)).show(ui, |ui| {

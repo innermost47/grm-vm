@@ -40,6 +40,8 @@ pub struct Settings {
     pub breathe: bool,
     /// Who the machine speaks of (never to): empty, the host's user name (else "the human").
     pub human: String,
+    /// What the MIDI controllers drive (learned).
+    pub midi: Vec<crate::midi::Binding>,
 }
 
 impl Default for Settings {
@@ -61,6 +63,7 @@ impl Default for Settings {
             breathe: true,
             follow_hour: false,
             human: String::new(),
+            midi: vec![],
         }
     }
 }

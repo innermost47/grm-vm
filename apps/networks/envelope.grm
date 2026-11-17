@@ -1,0 +1,7 @@
+# An envelope: while the gate is open it rises towards 1 (as fast as {attack}), closed it falls back to 0 (as fast
+# as {release}). {name}_e is how loud, from 0 to 1.
+network envelope(name, gate, attack, release)
+  var {name}_e = 0
+  set {name}_e = {name}_e + {attack} - {attack} * {name}_e when {gate} in 0.5 .. 2
+  set {name}_e = {name}_e - {release} * {name}_e when {gate} in -1 .. 0.5
+end

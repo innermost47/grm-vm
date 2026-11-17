@@ -1,0 +1,7 @@
+# A saw: a phase that climbs from -1 to 1 and falls back at once (the bright wave of analogue synthesisers).
+# {name}_p is its sound; {step} says how far it climbs at each of the 48 000 samples (2 x frequency / 48 000).
+network saw(name, step)
+  var {name}_p = 0
+  set {name}_p = {name}_p + {step} when {name}_p in -3 .. 1
+  set {name}_p = {name}_p + {step} - 2 when {name}_p in 1 .. 3
+end

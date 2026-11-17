@@ -118,6 +118,7 @@ pub const WORDS_HELP: &[(&str, &str, &str)] = &[
     ("stats", "stats: the network counted, by source; what the human says most", "stats"),
     ("rent", "rent: what each relation brings, in bits a tick, against the rent of its links (the price grows as room runs out)", "rent"),
     ("workshop", "workshop [list | new NAME | show NAME | say NAME LINE | unsay NAME K | play NAME NODE | merge NAME | close NAME]: networks made apart (load FILE.csv [--into NAME] makes one; merge: through the airlock)", "workshop say fall relate r: h = 4.9 * t^2"),
+    ("world", "world [PLACE] [--only health,climate,...] (or monde): the world as Our World in Data publishes it (health, people, economy, energy, climate, knowledge), for a place (World by default), each category learned in a workshop of its own", "world France"),
     ("bias", "bias FILE.csv: what a table leans towards (groups less represented, values missing more for some, gaps between groups), before learning from it; also said by load", "bias cv.csv"),
     ("trash", "trash [SOURCE]: a network in the network (a file, what was typed...) goes to the trash, kept to be given back; alone: what is in it. What came with the machine never goes", "trash file:fall"),
     ("restore", "restore SOURCE: a network given back from the trash", "restore file:fall"),
@@ -611,6 +612,7 @@ impl Shell {
                     })]
                 }
             },
+            "world" | "monde" => self.world(engine, rest),
             "bias" => {
                 let file = rest.trim().trim_matches('"');
                 if file.is_empty() {
@@ -774,6 +776,126 @@ impl Shell {
             format!("{file} leans: {} thing(s) to know before learning from it (bias {file})", leans.len())
         })];
         out.extend(leans.iter().map(|l| Line::said(format!("  {}", grm_connect::bias::words(l, fr)))));
+        out
+    }
+
+    /// The world as Our World in Data publishes it: a few indicators by category, for a place (World by default),
+    /// each category learned in a workshop of its own (world_health, world_climate...). What ties the categories
+    /// is for the machine to find.
+    fn world(&mut self, engine: &Engine, rest: &str) -> Vec<Line> {
+        use grm_connect::world::{series, workshop_of, CATEGORIES, INDICATORS};
+        let mut words: Vec<&str> = rest.split_whitespace().collect();
+        let mut only: Vec<String> = vec![];
+        if let Some(k) = words.iter().position(|w| *w == "--only") {
+            only = words.get(k + 1).map(|c| c.split(',').map(String::from).collect()).unwrap_or_default();
+            words.truncate(k);
+        }
+        let entity = if words.is_empty() { "World".to_string() } else { words.join(" ") };
+        let fr = self.french;
+        let mut out = vec![Line::dim(if fr {
+            format!("le monde vu par Our World in Data, pour {entity} : ça peut prendre un moment")
+        } else {
+            format!("the world as Our World in Data publishes it, for {entity}: this may take a while")
+        })];
+        let mut made: Vec<String> = vec![];
+        for (cat, en, frw) in CATEGORIES {
+            if !only.is_empty() && !only.iter().any(|o| o == cat) {
+                continue;
+            }
+            let mut got: IndexMap<String, Vec<(f64, f64)>> = IndexMap::new();
+            let mut said: Vec<String> = vec![];
+            for i in INDICATORS.iter().filter(|i| i.category == *cat) {
+                let (csv_url, _) = grm_connect::owid_urls(i.slug);
+                // kept beside the memory: asked again after a week, read from there meanwhile (and offline)
+                let cache = self.memory.with_extension("owid").join(format!("{}.csv", i.slug));
+                let fresh = std::fs::metadata(&cache)
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .and_then(|t| t.elapsed().ok())
+                    .is_some_and(|age| age.as_secs() < 7 * 24 * 3600);
+                let csv = if fresh {
+                    std::fs::read_to_string(&cache).map_err(|e| grm_engine::error::GrmError::new(e.to_string()))
+                } else {
+                    grm_connect::fetch(&csv_url).inspect(|text| {
+                        if let Some(d) = cache.parent() {
+                            let _ = std::fs::create_dir_all(d);
+                        }
+                        let _ = std::fs::write(&cache, text);
+                    })
+                };
+                let csv = csv.or_else(|e| std::fs::read_to_string(&cache).map_err(|_| e));
+                match csv.and_then(|csv| series(&csv, &entity, i.column)) {
+                    Ok(s) if !s.is_empty() => {
+                        said.push(format!(
+                            "  {}{} {} ({} → {}, {} {}) · ourworldindata.org/grapher/{}",
+                            i.node,
+                            if fr { " :" } else { ":" },
+                            if fr { i.fr } else { i.en },
+                            s[0].0,
+                            s[s.len() - 1].0,
+                            s.len(),
+                            if fr { "années" } else { "years" },
+                            i.slug
+                        ));
+                        got.insert(i.node.to_string(), s);
+                    }
+                    Ok(_) => said.push(format!(
+                        "  {}: {}",
+                        i.node,
+                        if fr { "rien pour ce lieu" } else { "nothing for this place" }
+                    )),
+                    Err(e) => out.push(Line::warn(format!("! {} ({}): {e}", i.node, i.slug))),
+                }
+            }
+            if got.is_empty() {
+                continue;
+            }
+            let name = workshop_of(cat);
+            let positive: Vec<(String, bool)> =
+                got.iter().map(|(n, s)| (n.clone(), s.iter().all(|p| p.1 > 0.0))).collect();
+            let rows = grm_connect::world::rows(&got);
+            let origin = grm_engine::Provenance::of(format!("owid:{entity}"));
+            let ws_name = name.clone();
+            let learned = engine.ask(move |w| {
+                let ws =
+                    w.workshops.entry(ws_name.clone()).or_insert_with(|| Box::new(grm_engine::world::World::new()));
+                ws.time.unit = "year".into();
+                for (n, pos) in &positive {
+                    if !ws.machine.net.nodes.contains_key(n) {
+                        ws.say(&format!("input {n}{}", if *pos { " positive" } else { "" }), &origin)?;
+                    }
+                }
+                let fed = ws.feed_rows(&rows)?;
+                let found = ws.discover();
+                let mut text = format!("{fed} years learned in {ws_name}");
+                for f in found {
+                    text.push_str(&format!("\nfound by itself: {f}"));
+                }
+                let tick = w.machine.net.ticks;
+                w.mood.reward(0.2, tick, format!("the world came in: {ws_name}"));
+                Ok(text)
+            });
+            out.push(Line::said(format!("{} ({name})", if fr { frw } else { en })));
+            out.extend(said.into_iter().map(Line::dim));
+            out.extend(crate::said(learned).into_iter().filter(|l| !l.text.is_empty()));
+            made.push(name);
+        }
+        if made.is_empty() {
+            out.push(Line::warn(if fr {
+                "rien n'est venu (le réseau est-il joignable ?)"
+            } else {
+                "nothing came (can the network be reached?)"
+            }));
+        } else {
+            out.push(Line::dim(if fr {
+                "chaque catégorie est un atelier à part ; ce qui les relie, c'est à elle de le trouver (le sas : workshop merge NOM)"
+            } else {
+                "each category is a workshop apart; what ties them is for her to find (the airlock: workshop merge NAME)"
+            }));
+            if self.window {
+                self.orders.push(Order::Workshop(made[0].clone()));
+            }
+        }
         out
     }
 

@@ -162,6 +162,21 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
             .map(|(r, _)| format!("r:{r}"))
             .chain(g.moved.iter().map(|(n, _, _)| item_of(n)))
             .collect();
+        // tied to everything, it takes and gives nothing back: from each node a faint thread to it, and on each
+        // thread a grain that only ever goes towards it, slowly (nothing ever leaves it)
+        let time = ui.input(|i| i.time);
+        let faint = ink.accent.gamma_multiply(0.07);
+        let grain = ink.accent.gamma_multiply(0.35);
+        for (k, (key, p)) in positions.iter().filter(|(k, _)| k.starts_with("n:")).take(240).enumerate() {
+            let _ = key;
+            let p = to_screen(*p);
+            painter.line_segment([p, c], Stroke::new(0.6_f32, faint));
+            // each grain on its own pace, all of them inwards
+            let f = ((time / 6.0 + k as f64 * 0.137) % 1.0) as f32;
+            let at = p + (c - p) * f;
+            painter.circle_filled(at, 1.4, grain.gamma_multiply(0.4 + 0.6 * f));
+        }
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
         let thread = ink.accent.gamma_multiply(0.45);
         for key in &passing {
             if let Some(p) = at(key) {
@@ -170,8 +185,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
                 painter.line_segment([p, beyond], Stroke::new(1.0_f32, thread));
             }
         }
+        // the eye of a needle: an empty ring, darker inside (nothing is kept in it)
         let r = 9.0 * zoom.clamp(0.7, 1.4);
+        painter.circle_filled(c, r, ink.surface);
         painter.circle_stroke(c, r, Stroke::new(1.4_f32, ink.accent.gamma_multiply(0.8)));
+        painter.circle_stroke(c, r + 4.0, Stroke::new(0.6_f32, ink.accent.gamma_multiply(0.25)));
         if pointer_over(&resp, c, r + 4.0) {
             let lang = app.settings.lang;
             let fr = lang == crate::text::Lang::Fr;
@@ -239,7 +257,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
         }
     }
     // nodes
-    let label_all = zoom > 0.55 && pic.nodes.len() < 200;
+    // every label where there is room (the ones that would fall on others wait for the pointer)
+    let label_all = zoom > 0.45 && pic.nodes.len() < 3000;
     // the labels already placed: a label that would fall on another goes above its node, or waits for the pointer
     let mut placed: Vec<Rect> = vec![];
     let mut over_eye: Option<String> = None;
@@ -247,8 +266,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
         let Some(p) = at(&format!("g:{eye}")) else { continue };
         let k = app.colours.get(source).copied().unwrap_or(0);
         let r = 11.0 * zoom.clamp(0.6, 1.6);
-        painter.circle_filled(p, r, ink.source(k));
-        painter.circle_stroke(p, r + 3.0, Stroke::new(1.0_f32, ink.source(k)));
+        let colour =
+            if app.focus.as_ref().is_none_or(|f| f == source) { ink.source(k) } else { faded(ink.source(k), 0.25) };
+        painter.circle_filled(p, r, colour);
+        painter.circle_stroke(p, r + 3.0, Stroke::new(1.0_f32, colour));
         let label = format!("{eye} · {count}");
         painter.text(
             pos2(p.x, p.y + r + 5.0),
@@ -326,7 +347,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
                 }
             }
         }
-        let selected = app.selected.contains(&n.name);
+        let selected = match &app.write_into {
+            Some(ws) => app.ws_selected.as_ref().is_some_and(|(w, x)| w == ws && *x == n.name),
+            None => app.selected.contains(&n.name),
+        };
         if selected {
             painter.circle_stroke(p, r + 6.0, Stroke::new(2.0_f32, ink.accent));
         }
@@ -338,7 +362,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
             hovered = Some(n.name.clone());
             hover_rel = None;
         }
-        if label_all || selected || over {
+        if (label_all && in_focus) || selected || over {
             // its name, and under it how it is: its value and how sure (amber when it is unsure)
             let (health, unsure) = health(n);
             let name = painter.layout_no_wrap(n.name.clone(), egui::FontId::proportional(12.0), ink.text);
@@ -494,7 +518,29 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
         }
     } else if resp.double_clicked() {
         if let Some(net) = over_net.clone() {
-            app.dive(&net);
+            // a network gathered into one node: the view comes close to it, until it unfolds (its nodes fill it)
+            let pts: Vec<[f32; 2]> = pic
+                .nodes
+                .iter()
+                .filter(|n| n.source == net)
+                .filter_map(|n| app.graph.pos.get(&item_of(&n.name)).copied())
+                .collect();
+            if !pts.is_empty() {
+                let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+                for p in &pts {
+                    x0 = x0.min(p[0]);
+                    y0 = y0.min(p[1]);
+                    x1 = x1.max(p[0]);
+                    y1 = y1.max(p[1]);
+                }
+                let zoom = (rect.width() / (x1 - x0 + 120.0))
+                    .min(rect.height() / (y1 - y0 + 120.0))
+                    .clamp(COLLAPSE_FROM + 0.1, 2.0);
+                app.view.zoom = zoom;
+                app.view.offset = vec2(-(x0 + x1) / 2.0 * zoom, -(y0 + y1) / 2.0 * zoom);
+                app.view.fitted = true;
+                app.focus = Some(net);
+            }
         } else if let Some(n) = hovered.as_ref().and_then(|n| pic.node(n)).filter(|_| only.is_none()) {
             let s = n.source.clone();
             app.dive(&s);
@@ -706,6 +752,15 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
         }
     } else if resp.clicked() {
         match &hovered {
+            // in a workshop: the node is taken in hand there (the inspector shows the main network)
+            Some(n) if app.write_into.is_some() => {
+                let ws = app.write_into.clone().unwrap_or_default();
+                app.ws_selected = if app.ws_selected.as_ref() == Some(&(ws.clone(), n.clone())) {
+                    None
+                } else {
+                    Some((ws, n.clone()))
+                };
+            }
             Some(n) => app.select(n, command),
             // a relation clicked opens in the inspector, as a node does
             None if hover_rel.is_some() => app.show_relation(hover_rel.as_deref().unwrap_or_default()),
