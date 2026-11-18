@@ -241,6 +241,11 @@ impl Network {
         self.relations.iter().position(|r| r.name == name)
     }
 
+    /// The index of the relations by name, made again (after relations were taken away in bulk).
+    pub fn reindex_all(&mut self) {
+        self.reindex();
+    }
+
     fn reindex(&mut self) {
         self.rel_index = self.relations.iter().enumerate().map(|(i, r)| (r.name.clone(), i)).collect();
     }

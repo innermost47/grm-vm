@@ -7,61 +7,69 @@
 #   mood      her state itself, as a direction of colour
 #   dream     the colours of moments that pleased her, remembered (four of them), one after another
 # Nothing is drawn by chance; nothing moves fast: the quickest veil takes two seconds to change its colour, the
-# dream fifteen. Its nodes ({name}_x1, _y1, _r1, _l1, _a1, _b1, then 2 and 3) are read by her window.
+# dream fifteen. It runs one sample in 32. Its nodes ({name}_x1, _y1, _r1, _l1, _a1, _b1, then 2 and 3) are read by her window.
 #
 # {of}: her name (her nodes are read: {of}_s1 .. s6, {of}_pleasure, {of}_tot, {of}_clar, {of}_hon); {seen_l},
 # {seen_a}, {seen_b}: the colour of the last picture her eye was given; {seen_n}: how many she was given.
 network reverie(name, of, seen_l, seen_a, seen_b, seen_n)
+  # its pace: one sample in 32 (what drifts over seconds needs no more); only what lasts one sample (a note heard,
+  # a picture given) is caught at every sample
+  var {name}_tc = 0
+  set {name}_tc = {name}_tc + 1
+  set {name}_tc = 0 when {name}_tc in 30.5 .. 99
+  var {name}_tick = 0
+  set {name}_tick = 0
+  set {name}_tick = 1 when {name}_tc in 30.5 .. 99
   # how loud, against what she usually hears (half: as usual; towards 1: louder; towards 0: quieter)
   var {name}_ref = 0.00001
-  set {name}_ref = {name}_ref + 0.0000007 * {of}_tot - 0.0000007 * {name}_ref
+  set {name}_ref = {name}_ref + 0.0000224 * {of}_tot - 0.0000224 * {name}_ref when {name}_tick in 0.5 .. 1.5
   node {name}_gd
   relate {name}_glow_under: {name}_gd = {of}_tot + {name}_ref + 0.000001
   node {name}_glow
   relate {name}_glowing: {name}_glow * {name}_gd = {of}_tot
   var {name}_sglow = 0
-  set {name}_sglow = {name}_sglow + 0.00002 * {name}_glow - 0.00002 * {name}_sglow
+  set {name}_sglow = {name}_sglow + 0.00064 * {name}_glow - 0.00064 * {name}_sglow when {name}_tick in 0.5 .. 1.5
   # a picture given: its colour weighs on the first veil, then less and less (gone in about twenty seconds)
   var {name}_nlast = 0
   set {name}_nlast = {seen_n}
   node {name}_dn signed
   relate {name}_new_picture: {name}_dn = {seen_n} - {name}_nlast
   var {name}_sw = 0
-  set {name}_sw = 0.99999896 * {name}_sw
+  set {name}_sw = 0.9999667 * {name}_sw when {name}_tick in 0.5 .. 1.5
   set {name}_sw = 1 when {name}_dn in 0.5 .. 1000000000
   # her pleasure, slowly (and kept within -1 .. 1)
   var {name}_pl = 0
-  set {name}_pl = {name}_pl + 0.00001 * {of}_pleasure - 0.00001 * {name}_pl
+  set {name}_pl = {name}_pl + 0.00032 * {of}_pleasure - 0.00032 * {name}_pl when {name}_tick in 0.5 .. 1.5
   set {name}_pl = 1 when {name}_pl in 1 .. 99
   set {name}_pl = -1 when {name}_pl in -99 .. -1
 
   # ---- the first veil: now
-  node {name}_t1l signed
-  relate {name}_now_light: {name}_t1l = 0.25 + 0.45 * {name}_sglow - 0.25 * {name}_sw - 0.45 * {name}_sw * {name}_sglow + {name}_sw * {seen_l}
-  node {name}_t1a signed
-  relate {name}_now_red: {name}_t1a = 0.03 + 0.07 * {name}_pl - 0.03 * {name}_sw - 0.07 * {name}_sw * {name}_pl + {name}_sw * {seen_a}
-  node {name}_t1b signed
-  relate {name}_now_yellow: {name}_t1b = 0.02 + 0.09 * {name}_pl - 0.02 * {name}_sw - 0.09 * {name}_sw * {name}_pl + {name}_sw * {seen_b}
+  var {name}_t1l = 0
+  set {name}_t1l = 0.25 + 0.45 * {name}_sglow - 0.25 * {name}_sw - 0.45 * {name}_sw * {name}_sglow + {name}_sw * {seen_l} when {name}_tick in 0.5 .. 1.5
+  var {name}_t1a = 0
+  set {name}_t1a = 0.03 + 0.07 * {name}_pl - 0.03 * {name}_sw - 0.07 * {name}_sw * {name}_pl + {name}_sw * {seen_a} when {name}_tick in 0.5 .. 1.5
+  var {name}_t1b = 0
+  set {name}_t1b = 0.02 + 0.09 * {name}_pl - 0.02 * {name}_sw - 0.09 * {name}_sw * {name}_pl + {name}_sw * {seen_b} when {name}_tick in 0.5 .. 1.5
   var {name}_l1 = 0.3
   var {name}_a1 = 0
   var {name}_b1 = 0
-  set {name}_l1 = {name}_l1 + 0.0000104 * {name}_t1l - 0.0000104 * {name}_l1
-  set {name}_a1 = {name}_a1 + 0.0000104 * {name}_t1a - 0.0000104 * {name}_a1
-  set {name}_b1 = {name}_b1 + 0.0000104 * {name}_t1b - 0.0000104 * {name}_b1
+  set {name}_l1 = {name}_l1 + 0.000333 * {name}_t1l - 0.000333 * {name}_l1 when {name}_tick in 0.5 .. 1.5
+  set {name}_a1 = {name}_a1 + 0.000333 * {name}_t1a - 0.000333 * {name}_a1 when {name}_tick in 0.5 .. 1.5
+  set {name}_b1 = {name}_b1 + 0.000333 * {name}_t1b - 0.000333 * {name}_b1 when {name}_tick in 0.5 .. 1.5
 
   # ---- the second veil: her mood (her state as a direction of colour)
-  node {name}_t2l signed
-  relate {name}_mood_light: {name}_t2l = 0.24 + 0.16 * {name}_sglow
-  node {name}_t2a signed
-  relate {name}_mood_red: {name}_t2a = 0.09 * {of}_s1 + 0.04 * {of}_s5
-  node {name}_t2b signed
-  relate {name}_mood_yellow: {name}_t2b = 0.09 * {of}_s3 - 0.04 * {of}_s6
+  var {name}_t2l = 0
+  set {name}_t2l = 0.24 + 0.16 * {name}_sglow when {name}_tick in 0.5 .. 1.5
+  var {name}_t2a = 0
+  set {name}_t2a = 0.09 * {of}_s1 + 0.04 * {of}_s5 when {name}_tick in 0.5 .. 1.5
+  var {name}_t2b = 0
+  set {name}_t2b = 0.09 * {of}_s3 - 0.04 * {of}_s6 when {name}_tick in 0.5 .. 1.5
   var {name}_l2 = 0.25
   var {name}_a2 = 0
   var {name}_b2 = 0
-  set {name}_l2 = {name}_l2 + 0.00000347 * {name}_t2l - 0.00000347 * {name}_l2
-  set {name}_a2 = {name}_a2 + 0.00000347 * {name}_t2a - 0.00000347 * {name}_a2
-  set {name}_b2 = {name}_b2 + 0.00000347 * {name}_t2b - 0.00000347 * {name}_b2
+  set {name}_l2 = {name}_l2 + 0.000111 * {name}_t2l - 0.000111 * {name}_l2 when {name}_tick in 0.5 .. 1.5
+  set {name}_a2 = {name}_a2 + 0.000111 * {name}_t2a - 0.000111 * {name}_a2 when {name}_tick in 0.5 .. 1.5
+  set {name}_b2 = {name}_b2 + 0.000111 * {name}_t2b - 0.000111 * {name}_b2 when {name}_tick in 0.5 .. 1.5
 
   # ---- the third veil: the dream. A moment that pleased her (a note heard while her pleasure is high) keeps the
   # colour of now in one of four memories, in turn; every sixteen seconds the dream goes to the next memory
@@ -75,41 +83,41 @@ network reverie(name, of, seen_l, seen_a, seen_b, seen_n)
   set {name}_slot = {name}_slot + 1 when {of}_hon in 0.5 .. 1.5 and {of}_pleasure in 0.4 .. 99 and {name}_slot in 0.5 .. 3.5
   set {name}_slot = 1 when {of}_hon in 0.5 .. 1.5 and {of}_pleasure in 0.4 .. 99 and {name}_slot in 3.5 .. 99
   var {name}_rt = 0
-  set {name}_rt = {name}_rt + 1
+  set {name}_rt = {name}_rt + 1 when {name}_tick in 0.5 .. 1.5
   var {name}_rc = 1
-  set {name}_rc = {name}_rc + 1 when {name}_rt in 768000 .. 1000000000 and {name}_rc in 0.5 .. 3.5
-  set {name}_rc = 1 when {name}_rt in 768000 .. 1000000000 and {name}_rc in 3.5 .. 99
-  set {name}_rt = 0 when {name}_rt in 768000 .. 1000000000
+  set {name}_rc = {name}_rc + 1 when {name}_rt in 24000 .. 1000000000 and {name}_rc in 0.5 .. 3.5
+  set {name}_rc = 1 when {name}_rt in 24000 .. 1000000000 and {name}_rc in 3.5 .. 99
+  set {name}_rt = 0 when {name}_rt in 24000 .. 1000000000
   var {name}_t3l = 0.3
   var {name}_t3a = 0
   var {name}_t3b = 0
-  repeat j in 1 .. 4: set {name}_t3l = {name}_m{j}_l when {name}_rc in {j - 0.5} .. {j + 0.5}
-  repeat j in 1 .. 4: set {name}_t3a = {name}_m{j}_a when {name}_rc in {j - 0.5} .. {j + 0.5}
-  repeat j in 1 .. 4: set {name}_t3b = {name}_m{j}_b when {name}_rc in {j - 0.5} .. {j + 0.5}
+  repeat j in 1 .. 4: set {name}_t3l = {name}_m{j}_l when {name}_tick in 0.5 .. 1.5 and {name}_rc in {j - 0.5} .. {j + 0.5}
+  repeat j in 1 .. 4: set {name}_t3a = {name}_m{j}_a when {name}_tick in 0.5 .. 1.5 and {name}_rc in {j - 0.5} .. {j + 0.5}
+  repeat j in 1 .. 4: set {name}_t3b = {name}_m{j}_b when {name}_tick in 0.5 .. 1.5 and {name}_rc in {j - 0.5} .. {j + 0.5}
   var {name}_l3 = 0.3
   var {name}_a3 = 0
   var {name}_b3 = 0
-  set {name}_l3 = {name}_l3 + 0.00000139 * {name}_t3l - 0.00000139 * {name}_l3
-  set {name}_a3 = {name}_a3 + 0.00000139 * {name}_t3a - 0.00000139 * {name}_a3
-  set {name}_b3 = {name}_b3 + 0.00000139 * {name}_t3b - 0.00000139 * {name}_b3
+  set {name}_l3 = {name}_l3 + 0.0000445 * {name}_t3l - 0.0000445 * {name}_l3 when {name}_tick in 0.5 .. 1.5
+  set {name}_a3 = {name}_a3 + 0.0000445 * {name}_t3a - 0.0000445 * {name}_a3 when {name}_tick in 0.5 .. 1.5
+  set {name}_b3 = {name}_b3 + 0.0000445 * {name}_t3b - 0.0000445 * {name}_b3 when {name}_tick in 0.5 .. 1.5
 
   # ---- where the veils are, and how wide: her three pairs, as they turn
-  node {name}_x1 signed
-  relate {name}_where_x1: {name}_x1 = 0.5 + 0.3 * {of}_s1
-  node {name}_y1 signed
-  relate {name}_where_y1: {name}_y1 = 0.5 + 0.3 * {of}_s2
-  node {name}_x2 signed
-  relate {name}_where_x2: {name}_x2 = 0.5 + 0.3 * {of}_s3
-  node {name}_y2 signed
-  relate {name}_where_y2: {name}_y2 = 0.5 + 0.3 * {of}_s4
-  node {name}_x3 signed
-  relate {name}_where_x3: {name}_x3 = 0.5 + 0.3 * {of}_s5
-  node {name}_y3 signed
-  relate {name}_where_y3: {name}_y3 = 0.5 + 0.3 * {of}_s6
-  node {name}_r1 signed
-  relate {name}_wide1: {name}_r1 = 0.22 + 0.2 * {name}_sglow
-  node {name}_r2 signed
-  relate {name}_wide2: {name}_r2 = 0.42 + 0.05 * {of}_s2
-  node {name}_r3 signed
-  relate {name}_wide3: {name}_r3 = 0.34 + 0.05 * {of}_s4
+  var {name}_x1 = 0
+  set {name}_x1 = 0.5 + 0.3 * {of}_s1 when {name}_tick in 0.5 .. 1.5
+  var {name}_y1 = 0
+  set {name}_y1 = 0.5 + 0.3 * {of}_s2 when {name}_tick in 0.5 .. 1.5
+  var {name}_x2 = 0
+  set {name}_x2 = 0.5 + 0.3 * {of}_s3 when {name}_tick in 0.5 .. 1.5
+  var {name}_y2 = 0
+  set {name}_y2 = 0.5 + 0.3 * {of}_s4 when {name}_tick in 0.5 .. 1.5
+  var {name}_x3 = 0
+  set {name}_x3 = 0.5 + 0.3 * {of}_s5 when {name}_tick in 0.5 .. 1.5
+  var {name}_y3 = 0
+  set {name}_y3 = 0.5 + 0.3 * {of}_s6 when {name}_tick in 0.5 .. 1.5
+  var {name}_r1 = 0
+  set {name}_r1 = 0.22 + 0.2 * {name}_sglow when {name}_tick in 0.5 .. 1.5
+  var {name}_r2 = 0
+  set {name}_r2 = 0.42 + 0.05 * {of}_s2 when {name}_tick in 0.5 .. 1.5
+  var {name}_r3 = 0
+  set {name}_r3 = 0.34 + 0.05 * {of}_s4 when {name}_tick in 0.5 .. 1.5
 end

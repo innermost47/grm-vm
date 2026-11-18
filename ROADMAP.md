@@ -41,7 +41,9 @@
       FLAC, OGG by a pure-Rust decoder) whose features come in as nodes, and a screen drawn by the network from
       them, calm. *Player done* (MP3, FLAC, OGG, WAV, M4A by Symphonia, lists, a mixed order without
       chance), heard by her through the room; *her reverie done* (three veils of colour from her state, lit by what
-      she hears and sees). Next: video for her eye, her ear telling her own voice from the room's.
+      she hears and sees). Next: video for her eye, her ear telling her own voice from the room's. *The sound keeps up* (computed ahead, a load meter,
+      what is slow computed slowly). Next for the speed: what does not change not computed again (a cache), and
+      groups seen from afar as their master equation, computed coarsely until looked at.
    3. *Apps of its own, written in GRM*: a spreadsheet (a cell a node with its spread, a formula a relation;
       the result fixed, the input found); a text editor; an SVG maker with nodes (shapes as nodes, geometry as
       relations), and a free paint that keeps what is drawn in the GRM.

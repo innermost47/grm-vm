@@ -431,7 +431,8 @@ impl World {
         let mut net = self.machine.net.clone();
         // what it was living through
         let mut kept: IndexMap<String, (f64, f64)> = IndexMap::new();
-        let written: Vec<String> = net.sets.iter().map(|s| s.target.clone()).collect();
+        // (sets of names, not lists: a network of thousands of nodes made each look-up grow with its size)
+        let written: std::collections::HashSet<&String> = net.sets.iter().map(|s| &s.target).collect();
         for (n, spec) in &net.nodes {
             if spec.origin.source == source && (spec.var || spec.learn || spec.input || written.contains(n)) {
                 if let Some(m) = net.measured.get(n) {
@@ -439,47 +440,68 @@ impl World {
                 }
             }
         }
-        // what it said before, taken away
+        // what it said before, taken away (all at once: one pass over the network, not one per thing taken)
         let (nodes, relations) = net.from_source(source);
-        for r in &relations {
-            let sets: Vec<usize> = net
-                .sets
-                .iter()
-                .enumerate()
-                .filter(|(_, st)| {
-                    st.source
-                        .rsplit_once("__next")
-                        .is_some_and(|(t, k)| t == st.target && *r == format!("set_{}_{}", st.target, k))
-                })
-                .map(|(k, _)| k)
-                .collect();
-            for k in sets.into_iter().rev() {
-                let st = net.sets.remove(k);
-                net.nodes.shift_remove(&st.source);
-                net.measured.shift_remove(&st.source);
+        let relations: std::collections::HashSet<String> = relations.into_iter().collect();
+        let mut gone: std::collections::HashSet<String> = std::collections::HashSet::new();
+        net.sets.retain(|st| {
+            let of_a_relation = st
+                .source
+                .rsplit_once("__next")
+                .is_some_and(|(t, k)| t == st.target && relations.contains(&format!("set_{}_{}", st.target, k)));
+            if of_a_relation {
+                gone.insert(st.source.clone());
             }
-            net.take_relation(r);
-        }
+            !of_a_relation
+        });
+        net.relations.retain(|r| !relations.contains(&r.name));
+        net.reindex_all();
+        // a node no relation holds any more leaves; one still held by another source's relation stays, as nothing
+        // measured it
+        let held: std::collections::HashSet<String> = net.relations.iter().flat_map(|r| r.nodes()).collect();
+        let mut unmeasured: std::collections::HashSet<String> = std::collections::HashSet::new();
         for n in &nodes {
-            if net.degree(n) == 0 {
-                net.nodes.shift_remove(n);
-                net.measured.shift_remove(n);
-                net.sets.retain(|s| s.target != *n && s.source != *n);
+            if held.contains(n) {
+                unmeasured.insert(n.clone());
             } else {
-                // still held by another source's relation: it stays, as nothing measured it
-                net.measured.shift_remove(n);
+                gone.insert(n.clone());
             }
         }
+        net.nodes.retain(|n, _| !gone.contains(n));
+        net.measured.retain(|n, _| !gone.contains(n) && !unmeasured.contains(n));
+        net.sets.retain(|s| !gone.contains(&s.target) && !gone.contains(&s.source));
         let origin = Provenance::of(source);
         let mut out = vec![];
-        for l in lines {
-            let mut trial = net.clone();
-            match lang::statement(&mut trial, l, base, &origin) {
-                Ok(said) => {
-                    net = trial;
-                    out.push(Ok(said));
+        // said line after line, a chunk at a time: the network is copied once a chunk (not once a line), and only a
+        // chunk where a line fails is said again line by line, each on a copy (a line that fails leaves nothing)
+        const CHUNK: usize = 256;
+        for chunk in lines.chunks(CHUNK) {
+            let before = net.clone();
+            let mut said = Vec::with_capacity(chunk.len());
+            let mut failed = false;
+            for l in chunk {
+                match lang::statement(&mut net, l, base, &origin) {
+                    Ok(s) => said.push(Ok(s)),
+                    Err(_) => {
+                        failed = true;
+                        break;
+                    }
                 }
-                Err(e) => out.push(Err(e.message)),
+            }
+            if !failed {
+                out.extend(said);
+                continue;
+            }
+            net = before;
+            for l in chunk {
+                let mut trial = net.clone();
+                match lang::statement(&mut trial, l, base, &origin) {
+                    Ok(said) => {
+                        net = trial;
+                        out.push(Ok(said));
+                    }
+                    Err(e) => out.push(Err(e.message)),
+                }
             }
         }
         // a block left open (network ... without end) is not kept open
@@ -509,7 +531,7 @@ impl World {
     /// The values a source's nodes are living through (what `rebuild` keeps), to open it again where it was.
     pub fn state_of(&self, source: &str) -> IndexMap<String, f64> {
         let net = &self.machine.net;
-        let written: Vec<String> = net.sets.iter().map(|s| s.target.clone()).collect();
+        let written: std::collections::HashSet<&String> = net.sets.iter().map(|s| &s.target).collect();
         net.nodes
             .iter()
             .filter(|(n, s)| s.origin.source == source && (s.var || s.learn || s.input || written.contains(*n)))

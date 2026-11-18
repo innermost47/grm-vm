@@ -157,6 +157,8 @@ pub struct App {
     pub studio_vu: HashMap<String, f32>,
     /// Where each workshop is on its way into the main network.
     pub ws_status: HashMap<String, crate::airlock::WsStatus>,
+    /// How many dry moments of the sound were already shown.
+    dry_seen: u64,
     /// The player: its folder, its lists, what plays.
     pub player: crate::player::Player,
     /// What her network learned (its `memory` nodes), as last taken from the sound: given back when she wakes.
@@ -517,6 +519,7 @@ impl App {
             song: crate::studio::Song::load(&memory_for_song),
             studio_vu: HashMap::new(),
             ws_status: HashMap::new(),
+            dry_seen: 0,
             player: crate::player::Player::default(),
             elle_memory: kept_elle,
             lessons: crate::studio::mind_dir(&memory_for_song).map(|d| crate::studio::lessons(&d)).unwrap_or_default(),
@@ -1918,6 +1921,18 @@ impl App {
                 let (sign, what) = if voice { ("volume-2", "voice_off_d") } else { ("volume-x", "voice_on_d") };
                 if crate::icons::sign(ui, sign, &format!("{} (Ctrl+M)", self.tr(what))).clicked() {
                     self.toggle_voice();
+                }
+                // how hard the sound works (a block's compute over its length) and how often it ran dry: amber when
+                // close to its limit, never flashing
+                let (load, dry) = self.mixer.lock().map(|m| (m.load, m.dry)).unwrap_or((0.0, 0));
+                if load > 0.0 {
+                    let colour = if load > 0.85 || dry > self.dry_seen { ink.amber } else { ink.muted };
+                    let r = ui
+                        .label(RichText::new(format!("{} {:.0} %", self.tr("sound_load"), 100.0 * load)).color(colour));
+                    r.on_hover_text(format!("{} {dry}", self.tr("sound_load_d")));
+                    if load < 0.85 {
+                        self.dry_seen = dry;
+                    }
                 }
                 ui.label(RichText::new(format!("{} {}", self.picture.ticks, self.tr("ticks"))).color(ink.muted));
                 ui.label(

@@ -34,8 +34,17 @@
 #                 it is mastered and bores her, steps back when it is too hard and bores her (her curiosity follows
 #                 her progress: Oudeyer; what is neither too easy nor too hard: Vygotsky); each lesson a context
 #
-# Needs nothing else. Costs about 500 sets a sample.
+# Needs nothing else. Costs about 450 sets a sample (what changes slowly is computed one sample in 32).
 network elle(name, ear, clock_i, clock_f, ctx_song, ctx_human, lessons)
+  # her slow time: one sample in 32 (1.5 kHz). What changes at the pace of a bar, a lesson, a key (her scale, her
+  # chords, what she may play, the key she hears, what she learned in the lesson) is computed then, not at every
+  # sample: what does not need the speed of sound does not take it
+  var {name}_tc = 0
+  set {name}_tc = {name}_tc + 1
+  set {name}_tc = 0 when {name}_tc in 30.5 .. 99
+  var {name}_tick = 0
+  set {name}_tick = 0
+  set {name}_tick = 1 when {name}_tc in 30.5 .. 99
   # named first (other parts read them before their own part)
   var {name}_bore = 0.2
   var {name}_semi = 24
@@ -144,8 +153,8 @@ network elle(name, ear, clock_i, clock_f, ctx_song, ctx_human, lessons)
   relate {name}_not_mine_octave: {name}_bme2 = {name}_band - {name}_semi - 13 + 100 * {name}_gate - 100
   # (her bass: its band, from its pitch: 12 bands an octave from 110 Hz; under 110 Hz, the band of its octave)
   var {name}_bband = 1
-  repeat b in 1 .. 36: set {name}_bband = {b} when {name}_bpitch in {110 * 2^((b - 1.5)/12)} .. {110 * 2^((b - 0.5)/12)}
-  repeat b in 1 .. 12: set {name}_bband = {b} when {name}_bpitch in {55 * 2^((b - 1.5)/12)} .. {55 * 2^((b - 0.5)/12)}
+  repeat b in 1 .. 36: set {name}_bband = {b} when {name}_tick in 0.5 .. 1.5 and {name}_bpitch in {110 * 2^((b - 1.5)/12)} .. {110 * 2^((b - 0.5)/12)}
+  repeat b in 1 .. 12: set {name}_bband = {b} when {name}_tick in 0.5 .. 1.5 and {name}_bpitch in {55 * 2^((b - 1.5)/12)} .. {55 * 2^((b - 0.5)/12)}
   node {name}_bmb signed
   relate {name}_not_my_bass: {name}_bmb = {name}_band - {name}_bband + 100 * {name}_bgate - 100
   var {name}_hoff = -4
@@ -328,6 +337,9 @@ network elle(name, ear, clock_i, clock_f, ctx_song, ctx_human, lessons)
   repeat l in 1 .. 32: set {name}_xl{l} = 0
   repeat l in 1 .. 32: set {name}_xl{l} = 1 when {name}_lesson in {l - 0.5} .. {l + 0.5} and {lessons} in 0.5 .. 999
   repeat k in 1 .. 16: repeat l in 1 .. 32: memory {name}_tl{k}_{l} = 0
+  repeat k in 1 .. 16: var {name}_tlc{k} = 0
+  repeat k in 1 .. 16: repeat l in 1 .. 32: set {name}_tlc{k} = {name}_tl{k}_{l} when {name}_tick in 0.5 .. 1.5 and {name}_xl{l} in 0.5 .. 1.5
+  repeat k in 1 .. 16: set {name}_tlc{k} = 0 when {name}_tick in 0.5 .. 1.5 and {lessons} in -9 .. 0.5
   repeat k in 1 .. 16: repeat l in 1 .. 32: set {name}_tl{k}_{l} = {name}_tl{k}_{l} + 0.05 * {name}_delta * {name}_xl{l} + 0.1 * {name}_delta * {name}_xl{l} * {name}_conc when {name}_ev in 0.5 .. 1.5 and {name}_last in {k - 0.5} .. {k + 0.5}
   # her pace: the notes lived in this lesson; after sixty-four or so, if it bores her and she no longer progresses,
   # on to the next when she makes few errors (if there is a next: {lessons} is how many there are), back to the one
@@ -414,20 +426,20 @@ network elle(name, ear, clock_i, clock_f, ctx_song, ctx_human, lessons)
   var {name}_sc9 = 1
   var {name}_sc10 = 0
   var {name}_sc11 = 1
-  set {name}_sc0 = 1
-  set {name}_sc1 = 0
-  set {name}_sc2 = 1
-  set {name}_sc3 = 0
-  set {name}_sc4 = 1
-  set {name}_sc5 = 1
-  set {name}_sc6 = 0
-  set {name}_sc7 = 1
-  set {name}_sc8 = 0
-  set {name}_sc9 = 1
-  set {name}_sc10 = 0
-  set {name}_sc11 = 1
+  set {name}_sc0 = 1 when {name}_tick in 0.5 .. 1.5
+  set {name}_sc1 = 0 when {name}_tick in 0.5 .. 1.5
+  set {name}_sc2 = 1 when {name}_tick in 0.5 .. 1.5
+  set {name}_sc3 = 0 when {name}_tick in 0.5 .. 1.5
+  set {name}_sc4 = 1 when {name}_tick in 0.5 .. 1.5
+  set {name}_sc5 = 1 when {name}_tick in 0.5 .. 1.5
+  set {name}_sc6 = 0 when {name}_tick in 0.5 .. 1.5
+  set {name}_sc7 = 1 when {name}_tick in 0.5 .. 1.5
+  set {name}_sc8 = 0 when {name}_tick in 0.5 .. 1.5
+  set {name}_sc9 = 1 when {name}_tick in 0.5 .. 1.5
+  set {name}_sc10 = 0 when {name}_tick in 0.5 .. 1.5
+  set {name}_sc11 = 1 when {name}_tick in 0.5 .. 1.5
   repeat p in 0 .. 11: var {name}_ct{p} = 1
-  repeat p in 0 .. 11: set {name}_ct{p} = {name}_sc{p}
+  repeat p in 0 .. 11: set {name}_ct{p} = {name}_sc{p} when {name}_tick in 0.5 .. 1.5
   var {name}_root = 0
   set {name}_root = 0
   # what a lesson may also say: its chords lead (the bass on their roots), the key moves at each form (by
@@ -466,43 +478,43 @@ network elle(name, ear, clock_i, clock_f, ctx_song, ctx_human, lessons)
   repeat p in 0 .. 11: set {name}_used{p} = 1 when {name}_ev1 in 0.5 .. 1.5 and {name}_row in 0.5 .. 9 and {name}_gate in 0.5 .. 9 and {name}_deg in {p - 0.5} .. {p + 0.5}
   node {name}_usedn
   relate {name}_used_all: {name}_usedn = sum(p in 0 .. 11: {name}_used{p}) + 0.001
-  repeat p in 0 .. 11: set {name}_used{p} = 0 when {name}_usedn in 11.5 .. 99
-  repeat p in 0 .. 11: set {name}_used{p} = 0 when {name}_row in -9 .. 0.5
+  repeat p in 0 .. 11: set {name}_used{p} = 0 when {name}_tick in 0.5 .. 1.5 and {name}_usedn in 11.5 .. 99
+  repeat p in 0 .. 11: set {name}_used{p} = 0 when {name}_tick in 0.5 .. 1.5 and {name}_row in -9 .. 0.5
   repeat p in 0 .. 11: var {name}_al{p} = 1
-  repeat p in 0 .. 11: set {name}_al{p} = {name}_sc{p}
-  repeat p in 0 .. 11: set {name}_al{p} = {name}_ct{p} when {name}_tight in 0.5 .. 9
-  repeat p in 0 .. 11: set {name}_al{p} = 1 - {name}_used{p} when {name}_row in 0.5 .. 9
+  repeat p in 0 .. 11: set {name}_al{p} = {name}_sc{p} when {name}_tick in 0.5 .. 1.5
+  repeat p in 0 .. 11: set {name}_al{p} = {name}_ct{p} when {name}_tick in 0.5 .. 1.5 and {name}_tight in 0.5 .. 9
+  repeat p in 0 .. 11: set {name}_al{p} = 1 - {name}_used{p} when {name}_tick in 0.5 .. 1.5 and {name}_row in 0.5 .. 9
   # never a semitone above the bass (a minor ninth: the harshest clash there is)
   var {name}_bdeg = 0
   repeat p in 0 .. 11: var {name}_av{p} = 0
-  repeat p in 0 .. 11: set {name}_av{p} = 0
-  repeat b in 0 .. 11: set {name}_av{(b + 1) - 12 * floor((b + 1) / 12)} = 1 when {name}_bdeg in {b - 0.5} .. {b + 0.5} and {name}_bgate in 0.5 .. 9
+  repeat p in 0 .. 11: set {name}_av{p} = 0 when {name}_tick in 0.5 .. 1.5
+  repeat b in 0 .. 11: set {name}_av{(b + 1) - 12 * floor((b + 1) / 12)} = 1 when {name}_tick in 0.5 .. 1.5 and {name}_bdeg in {b - 0.5} .. {b + 0.5} and {name}_bgate in 0.5 .. 9
   repeat p in 0 .. 11: var {name}_ok{p} = 1
-  repeat p in 0 .. 11: set {name}_ok{p} = {name}_al{p}
-  repeat p in 0 .. 11: set {name}_ok{p} = 0 when {name}_av{p} in 0.5 .. 9
+  repeat p in 0 .. 11: set {name}_ok{p} = {name}_al{p} when {name}_tick in 0.5 .. 1.5
+  repeat p in 0 .. 11: set {name}_ok{p} = 0 when {name}_tick in 0.5 .. 1.5 and {name}_av{p} in 0.5 .. 9
   # each step's landing: allowed or not, from where she is
   repeat k in 1 .. 15: var {name}_in{k} = 1
-  repeat k in 1 .. 15: repeat p in 0 .. 11: set {name}_in{k} = {name}_ok{(p + k - 8) - 12 * floor((p + k - 8) / 12)} when {name}_deg in {p - 0.5} .. {p + 0.5}
+  repeat k in 1 .. 15: repeat p in 0 .. 11: set {name}_in{k} = {name}_ok{(p + k - 8) - 12 * floor((p + k - 8) / 12)} when {name}_tick in 0.5 .. 1.5 and {name}_deg in {p - 0.5} .. {p + 0.5}
 
   # ---- the key she hears (Krumhansl and Kessler's profiles: how well each degree fits a key, by listeners): the
   # energy of each of the twelve notes heard (her cochlea folded on one octave), slowly; each key's fit; the best
   repeat q in 0 .. 11: var {name}_kc{q} = 0
-  repeat q in 0 .. 11: set {name}_kc{q} = {name}_kc{q} + 0.00002 * {name}_e{q + 1} + 0.00002 * {name}_e{q + 13} + 0.00002 * {name}_e{q + 25} - 0.00002 * {name}_kc{q}
-  repeat t in 0 .. 11: node {name}_ks{t}
-  relate {name}_key_fit0: {name}_ks0 = 6.35 * {name}_kc0 + 2.23 * {name}_kc1 + 3.48 * {name}_kc2 + 2.33 * {name}_kc3 + 4.38 * {name}_kc4 + 4.09 * {name}_kc5 + 2.52 * {name}_kc6 + 5.19 * {name}_kc7 + 2.39 * {name}_kc8 + 3.66 * {name}_kc9 + 2.29 * {name}_kc10 + 2.88 * {name}_kc11
-  relate {name}_key_fit1: {name}_ks1 = 2.88 * {name}_kc0 + 6.35 * {name}_kc1 + 2.23 * {name}_kc2 + 3.48 * {name}_kc3 + 2.33 * {name}_kc4 + 4.38 * {name}_kc5 + 4.09 * {name}_kc6 + 2.52 * {name}_kc7 + 5.19 * {name}_kc8 + 2.39 * {name}_kc9 + 3.66 * {name}_kc10 + 2.29 * {name}_kc11
-  relate {name}_key_fit2: {name}_ks2 = 2.29 * {name}_kc0 + 2.88 * {name}_kc1 + 6.35 * {name}_kc2 + 2.23 * {name}_kc3 + 3.48 * {name}_kc4 + 2.33 * {name}_kc5 + 4.38 * {name}_kc6 + 4.09 * {name}_kc7 + 2.52 * {name}_kc8 + 5.19 * {name}_kc9 + 2.39 * {name}_kc10 + 3.66 * {name}_kc11
-  relate {name}_key_fit3: {name}_ks3 = 3.66 * {name}_kc0 + 2.29 * {name}_kc1 + 2.88 * {name}_kc2 + 6.35 * {name}_kc3 + 2.23 * {name}_kc4 + 3.48 * {name}_kc5 + 2.33 * {name}_kc6 + 4.38 * {name}_kc7 + 4.09 * {name}_kc8 + 2.52 * {name}_kc9 + 5.19 * {name}_kc10 + 2.39 * {name}_kc11
-  relate {name}_key_fit4: {name}_ks4 = 2.39 * {name}_kc0 + 3.66 * {name}_kc1 + 2.29 * {name}_kc2 + 2.88 * {name}_kc3 + 6.35 * {name}_kc4 + 2.23 * {name}_kc5 + 3.48 * {name}_kc6 + 2.33 * {name}_kc7 + 4.38 * {name}_kc8 + 4.09 * {name}_kc9 + 2.52 * {name}_kc10 + 5.19 * {name}_kc11
-  relate {name}_key_fit5: {name}_ks5 = 5.19 * {name}_kc0 + 2.39 * {name}_kc1 + 3.66 * {name}_kc2 + 2.29 * {name}_kc3 + 2.88 * {name}_kc4 + 6.35 * {name}_kc5 + 2.23 * {name}_kc6 + 3.48 * {name}_kc7 + 2.33 * {name}_kc8 + 4.38 * {name}_kc9 + 4.09 * {name}_kc10 + 2.52 * {name}_kc11
-  relate {name}_key_fit6: {name}_ks6 = 2.52 * {name}_kc0 + 5.19 * {name}_kc1 + 2.39 * {name}_kc2 + 3.66 * {name}_kc3 + 2.29 * {name}_kc4 + 2.88 * {name}_kc5 + 6.35 * {name}_kc6 + 2.23 * {name}_kc7 + 3.48 * {name}_kc8 + 2.33 * {name}_kc9 + 4.38 * {name}_kc10 + 4.09 * {name}_kc11
-  relate {name}_key_fit7: {name}_ks7 = 4.09 * {name}_kc0 + 2.52 * {name}_kc1 + 5.19 * {name}_kc2 + 2.39 * {name}_kc3 + 3.66 * {name}_kc4 + 2.29 * {name}_kc5 + 2.88 * {name}_kc6 + 6.35 * {name}_kc7 + 2.23 * {name}_kc8 + 3.48 * {name}_kc9 + 2.33 * {name}_kc10 + 4.38 * {name}_kc11
-  relate {name}_key_fit8: {name}_ks8 = 4.38 * {name}_kc0 + 4.09 * {name}_kc1 + 2.52 * {name}_kc2 + 5.19 * {name}_kc3 + 2.39 * {name}_kc4 + 3.66 * {name}_kc5 + 2.29 * {name}_kc6 + 2.88 * {name}_kc7 + 6.35 * {name}_kc8 + 2.23 * {name}_kc9 + 3.48 * {name}_kc10 + 2.33 * {name}_kc11
-  relate {name}_key_fit9: {name}_ks9 = 2.33 * {name}_kc0 + 4.38 * {name}_kc1 + 4.09 * {name}_kc2 + 2.52 * {name}_kc3 + 5.19 * {name}_kc4 + 2.39 * {name}_kc5 + 3.66 * {name}_kc6 + 2.29 * {name}_kc7 + 2.88 * {name}_kc8 + 6.35 * {name}_kc9 + 2.23 * {name}_kc10 + 3.48 * {name}_kc11
-  relate {name}_key_fit10: {name}_ks10 = 3.48 * {name}_kc0 + 2.33 * {name}_kc1 + 4.38 * {name}_kc2 + 4.09 * {name}_kc3 + 2.52 * {name}_kc4 + 5.19 * {name}_kc5 + 2.39 * {name}_kc6 + 3.66 * {name}_kc7 + 2.29 * {name}_kc8 + 2.88 * {name}_kc9 + 6.35 * {name}_kc10 + 2.23 * {name}_kc11
-  relate {name}_key_fit11: {name}_ks11 = 2.23 * {name}_kc0 + 3.48 * {name}_kc1 + 2.33 * {name}_kc2 + 4.38 * {name}_kc3 + 4.09 * {name}_kc4 + 2.52 * {name}_kc5 + 5.19 * {name}_kc6 + 2.39 * {name}_kc7 + 3.66 * {name}_kc8 + 2.29 * {name}_kc9 + 2.88 * {name}_kc10 + 6.35 * {name}_kc11
-  node {name}_ksum
-  relate {name}_key_all: {name}_ksum = sum(q in 0 .. 11: {name}_kc{q}) + 0.000000000001
+  repeat q in 0 .. 11: set {name}_kc{q} = {name}_kc{q} + 0.00064 * {name}_e{q + 1} + 0.00064 * {name}_e{q + 13} + 0.00064 * {name}_e{q + 25} - 0.00064 * {name}_kc{q} when {name}_tick in 0.5 .. 1.5
+  repeat t in 0 .. 11: var {name}_ks{t} = 0
+  set {name}_ks0 = 6.35 * {name}_kc0 + 2.23 * {name}_kc1 + 3.48 * {name}_kc2 + 2.33 * {name}_kc3 + 4.38 * {name}_kc4 + 4.09 * {name}_kc5 + 2.52 * {name}_kc6 + 5.19 * {name}_kc7 + 2.39 * {name}_kc8 + 3.66 * {name}_kc9 + 2.29 * {name}_kc10 + 2.88 * {name}_kc11 when {name}_tick in 0.5 .. 1.5
+  set {name}_ks1 = 2.88 * {name}_kc0 + 6.35 * {name}_kc1 + 2.23 * {name}_kc2 + 3.48 * {name}_kc3 + 2.33 * {name}_kc4 + 4.38 * {name}_kc5 + 4.09 * {name}_kc6 + 2.52 * {name}_kc7 + 5.19 * {name}_kc8 + 2.39 * {name}_kc9 + 3.66 * {name}_kc10 + 2.29 * {name}_kc11 when {name}_tick in 0.5 .. 1.5
+  set {name}_ks2 = 2.29 * {name}_kc0 + 2.88 * {name}_kc1 + 6.35 * {name}_kc2 + 2.23 * {name}_kc3 + 3.48 * {name}_kc4 + 2.33 * {name}_kc5 + 4.38 * {name}_kc6 + 4.09 * {name}_kc7 + 2.52 * {name}_kc8 + 5.19 * {name}_kc9 + 2.39 * {name}_kc10 + 3.66 * {name}_kc11 when {name}_tick in 0.5 .. 1.5
+  set {name}_ks3 = 3.66 * {name}_kc0 + 2.29 * {name}_kc1 + 2.88 * {name}_kc2 + 6.35 * {name}_kc3 + 2.23 * {name}_kc4 + 3.48 * {name}_kc5 + 2.33 * {name}_kc6 + 4.38 * {name}_kc7 + 4.09 * {name}_kc8 + 2.52 * {name}_kc9 + 5.19 * {name}_kc10 + 2.39 * {name}_kc11 when {name}_tick in 0.5 .. 1.5
+  set {name}_ks4 = 2.39 * {name}_kc0 + 3.66 * {name}_kc1 + 2.29 * {name}_kc2 + 2.88 * {name}_kc3 + 6.35 * {name}_kc4 + 2.23 * {name}_kc5 + 3.48 * {name}_kc6 + 2.33 * {name}_kc7 + 4.38 * {name}_kc8 + 4.09 * {name}_kc9 + 2.52 * {name}_kc10 + 5.19 * {name}_kc11 when {name}_tick in 0.5 .. 1.5
+  set {name}_ks5 = 5.19 * {name}_kc0 + 2.39 * {name}_kc1 + 3.66 * {name}_kc2 + 2.29 * {name}_kc3 + 2.88 * {name}_kc4 + 6.35 * {name}_kc5 + 2.23 * {name}_kc6 + 3.48 * {name}_kc7 + 2.33 * {name}_kc8 + 4.38 * {name}_kc9 + 4.09 * {name}_kc10 + 2.52 * {name}_kc11 when {name}_tick in 0.5 .. 1.5
+  set {name}_ks6 = 2.52 * {name}_kc0 + 5.19 * {name}_kc1 + 2.39 * {name}_kc2 + 3.66 * {name}_kc3 + 2.29 * {name}_kc4 + 2.88 * {name}_kc5 + 6.35 * {name}_kc6 + 2.23 * {name}_kc7 + 3.48 * {name}_kc8 + 2.33 * {name}_kc9 + 4.38 * {name}_kc10 + 4.09 * {name}_kc11 when {name}_tick in 0.5 .. 1.5
+  set {name}_ks7 = 4.09 * {name}_kc0 + 2.52 * {name}_kc1 + 5.19 * {name}_kc2 + 2.39 * {name}_kc3 + 3.66 * {name}_kc4 + 2.29 * {name}_kc5 + 2.88 * {name}_kc6 + 6.35 * {name}_kc7 + 2.23 * {name}_kc8 + 3.48 * {name}_kc9 + 2.33 * {name}_kc10 + 4.38 * {name}_kc11 when {name}_tick in 0.5 .. 1.5
+  set {name}_ks8 = 4.38 * {name}_kc0 + 4.09 * {name}_kc1 + 2.52 * {name}_kc2 + 5.19 * {name}_kc3 + 2.39 * {name}_kc4 + 3.66 * {name}_kc5 + 2.29 * {name}_kc6 + 2.88 * {name}_kc7 + 6.35 * {name}_kc8 + 2.23 * {name}_kc9 + 3.48 * {name}_kc10 + 2.33 * {name}_kc11 when {name}_tick in 0.5 .. 1.5
+  set {name}_ks9 = 2.33 * {name}_kc0 + 4.38 * {name}_kc1 + 4.09 * {name}_kc2 + 2.52 * {name}_kc3 + 5.19 * {name}_kc4 + 2.39 * {name}_kc5 + 3.66 * {name}_kc6 + 2.29 * {name}_kc7 + 2.88 * {name}_kc8 + 6.35 * {name}_kc9 + 2.23 * {name}_kc10 + 3.48 * {name}_kc11 when {name}_tick in 0.5 .. 1.5
+  set {name}_ks10 = 3.48 * {name}_kc0 + 2.33 * {name}_kc1 + 4.38 * {name}_kc2 + 4.09 * {name}_kc3 + 2.52 * {name}_kc4 + 5.19 * {name}_kc5 + 2.39 * {name}_kc6 + 3.66 * {name}_kc7 + 2.29 * {name}_kc8 + 2.88 * {name}_kc9 + 6.35 * {name}_kc10 + 2.23 * {name}_kc11 when {name}_tick in 0.5 .. 1.5
+  set {name}_ks11 = 2.23 * {name}_kc0 + 3.48 * {name}_kc1 + 2.33 * {name}_kc2 + 4.38 * {name}_kc3 + 4.09 * {name}_kc4 + 2.52 * {name}_kc5 + 5.19 * {name}_kc6 + 2.39 * {name}_kc7 + 3.66 * {name}_kc8 + 2.29 * {name}_kc9 + 2.88 * {name}_kc10 + 6.35 * {name}_kc11 when {name}_tick in 0.5 .. 1.5
+  var {name}_ksum = 0.000000000001 positive
+  set {name}_ksum = sum(q in 0 .. 11: {name}_kc{q}) + 0.000000000001 when {name}_tick in 0.5 .. 1.5
   var {name}_kscan = 0
   set {name}_kscan = {name}_kscan + 1 when {name}_kscan in -0.5 .. 10.5
   set {name}_kscan = 0 when {name}_kscan in 10.5 .. 99
@@ -553,13 +565,17 @@ network elle(name, ear, clock_i, clock_f, ctx_song, ctx_human, lessons)
   set {name}_mv = {name}_dkm when {name}_formst in 0.5 .. 1.5 and {name}_kwant in 0.5 .. 9 and {name}_dkm in 0.5 .. 11.5
   set {name}_keych = 1 when {name}_formst in 0.5 .. 1.5 and {name}_kwant in 0.5 .. 9 and {name}_dkm in 0.5 .. 11.5
   repeat p in 0 .. 11: repeat m in 1 .. 11: set {name}_deg = {(p - m) - 12 * floor((p - m) / 12)} when {name}_keych in 0.5 .. 1.5 and {name}_mv in {m - 0.5} .. {m + 0.5} and {name}_deg in {p - 0.5} .. {p + 0.5}
+  # a note held across the key's move that the new key does not have ends there (never a held wrong note)
+  var {name}_keych1 = 0
+  set {name}_keych1 = {name}_keych
+  repeat p in 0 .. 11: set {name}_gate = 0 when {name}_keych1 in 0.5 .. 1.5 and {name}_deg in {p - 0.5} .. {p + 0.5} and {name}_sc{p} in -1 .. 0.5
 
   # ---- her wants: read in her state, her tastes and where she is
   repeat k in 1 .. 16: node {name}_want{k} signed
   # a voice is easiest in the middle of its range (its tessitura): the further she is from it, the more a step back
   # towards it is wanted
-  repeat k in 1 .. 15: relate {name}_wanting{k}: {name}_want{k} = sum(j in 1 .. 6: {name}_w{k}_{j} * {name}_s{j}) + {name}_taste{k} + sum(c in 1 .. 4: {name}_ts{k}_{c} * {name}_xs{c}) + sum(h in 1 .. 4: {name}_th{k}_{h} * {name}_xh{h}) - 0.9 * {name}_fat{k} + 0.4 * {name}_conc * {name}_fat{k} + {name}_bnd{k} + 0.3 * {name}_stay{k} - {0.012 * (k - 8)} * {name}_semi + {0.288 * (k - 8)} + 40 * {name}_open{k} - 40 + 40 * {name}_in{k} - 40 - 6 * {name}_offb + sum(l in 1 .. 32: {name}_tl{k}_{l} * {name}_xl{l})
-  relate {name}_wanting16: {name}_want16 = sum(j in 1 .. 6: {name}_w16_{j} * {name}_s{j}) + {name}_taste16 + sum(c in 1 .. 4: {name}_ts16_{c} * {name}_xs{c}) + sum(h in 1 .. 4: {name}_th16_{h} * {name}_xh{h}) - 0.9 * {name}_fat16 + 0.4 * {name}_conc * {name}_fat16 + {name}_bnd16 + 0.3 * {name}_stay16 + 6 * {name}_open16 - 6 + sum(l in 1 .. 32: {name}_tl16_{l} * {name}_xl{l}) + 2 * {name}_breathw - 2 * {name}_breathw * {name}_air
+  repeat k in 1 .. 15: relate {name}_wanting{k}: {name}_want{k} = sum(j in 1 .. 6: {name}_w{k}_{j} * {name}_s{j}) + {name}_taste{k} + sum(c in 1 .. 4: {name}_ts{k}_{c} * {name}_xs{c}) + sum(h in 1 .. 4: {name}_th{k}_{h} * {name}_xh{h}) - 0.9 * {name}_fat{k} + 0.4 * {name}_conc * {name}_fat{k} + {name}_bnd{k} + 0.3 * {name}_stay{k} - {0.012 * (k - 8)} * {name}_semi + {0.288 * (k - 8)} + 40 * {name}_open{k} - 40 + 40 * {name}_in{k} - 40 - 6 * {name}_offb + {name}_tlc{k}
+  relate {name}_wanting16: {name}_want16 = sum(j in 1 .. 6: {name}_w16_{j} * {name}_s{j}) + {name}_taste16 + sum(c in 1 .. 4: {name}_ts16_{c} * {name}_xs{c}) + sum(h in 1 .. 4: {name}_th16_{h} * {name}_xh{h}) - 0.9 * {name}_fat16 + 0.4 * {name}_conc * {name}_fat16 + {name}_bnd16 + 0.3 * {name}_stay16 + 6 * {name}_open16 - 6 + {name}_tlc16 + 2 * {name}_breathw - 2 * {name}_breathw * {name}_air
 
   # ---- choosing: a sweep, one want a sample; the strongest of a whole sweep becomes her choice
   var {name}_scan = 1
@@ -724,22 +740,22 @@ network elle(name, ear, clock_i, clock_f, ctx_song, ctx_human, lessons)
   set {name}_blast = 4 when {name}_hb in 0.5 .. 1.5 and {name}_b14 in -99 .. 0 and {name}_b24 in -99 .. 0 and {name}_b34 in -99 .. 0
   # the tonic under her note, brought down to the bass's octave (55 .. 110 Hz); the root of the chord above it
   var {name}_tp = 220 positive
-  repeat p in 0 .. 11: set {name}_tp = {2^(-p/12)} * {name}_pitch when {name}_deg in {p - 0.5} .. {p + 0.5}
+  repeat p in 0 .. 11: set {name}_tp = {2^(-p/12)} * {name}_pitch when {name}_tick in 0.5 .. 1.5 and {name}_deg in {p - 0.5} .. {p + 0.5}
   var {name}_tf = 110 positive
-  set {name}_tf = {name}_tp when {name}_tp in 55 .. 110
-  set {name}_tf = 0.5 * {name}_tp when {name}_tp in 110 .. 220
-  set {name}_tf = 0.25 * {name}_tp when {name}_tp in 220 .. 440
-  set {name}_tf = 0.125 * {name}_tp when {name}_tp in 440 .. 880
-  set {name}_tf = 0.0625 * {name}_tp when {name}_tp in 880 .. 1760
+  set {name}_tf = {name}_tp when {name}_tick in 0.5 .. 1.5 and {name}_tp in 55 .. 110
+  set {name}_tf = 0.5 * {name}_tp when {name}_tick in 0.5 .. 1.5 and {name}_tp in 110 .. 220
+  set {name}_tf = 0.25 * {name}_tp when {name}_tick in 0.5 .. 1.5 and {name}_tp in 220 .. 440
+  set {name}_tf = 0.125 * {name}_tp when {name}_tick in 0.5 .. 1.5 and {name}_tp in 440 .. 880
+  set {name}_tf = 0.0625 * {name}_tp when {name}_tick in 0.5 .. 1.5 and {name}_tp in 880 .. 1760
   var {name}_rf = 110 positive
-  repeat r in 0 .. 11: set {name}_rf = {2^(r/12 + 1)} * {name}_tf when {name}_root in {r - 0.5} .. {r + 0.5}
+  repeat r in 0 .. 11: set {name}_rf = {2^(r/12 + 1)} * {name}_tf when {name}_tick in 0.5 .. 1.5 and {name}_root in {r - 0.5} .. {r + 0.5}
   # the chord's third (minor or major, as its notes say; 0: none) and its fifth (1: in it)
   var {name}_rthird = 4
-  repeat r in 0 .. 11: set {name}_rthird = 0 when {name}_root in {r - 0.5} .. {r + 0.5}
-  repeat r in 0 .. 11: set {name}_rthird = 3 when {name}_root in {r - 0.5} .. {r + 0.5} and {name}_ct{(r + 3) - 12 * floor((r + 3) / 12)} in 0.5 .. 9
-  repeat r in 0 .. 11: set {name}_rthird = 4 when {name}_root in {r - 0.5} .. {r + 0.5} and {name}_ct{(r + 4) - 12 * floor((r + 4) / 12)} in 0.5 .. 9
+  repeat r in 0 .. 11: set {name}_rthird = 0 when {name}_tick in 0.5 .. 1.5 and {name}_root in {r - 0.5} .. {r + 0.5}
+  repeat r in 0 .. 11: set {name}_rthird = 3 when {name}_tick in 0.5 .. 1.5 and {name}_root in {r - 0.5} .. {r + 0.5} and {name}_ct{(r + 3) - 12 * floor((r + 3) / 12)} in 0.5 .. 9
+  repeat r in 0 .. 11: set {name}_rthird = 4 when {name}_tick in 0.5 .. 1.5 and {name}_root in {r - 0.5} .. {r + 0.5} and {name}_ct{(r + 4) - 12 * floor((r + 4) / 12)} in 0.5 .. 9
   var {name}_rfifth = 1
-  repeat r in 0 .. 11: set {name}_rfifth = {name}_ct{(r + 7) - 12 * floor((r + 7) / 12)} when {name}_root in {r - 0.5} .. {r + 0.5}
+  repeat r in 0 .. 11: set {name}_rfifth = {name}_ct{(r + 7) - 12 * floor((r + 7) / 12)} when {name}_tick in 0.5 .. 1.5 and {name}_root in {r - 0.5} .. {r + 0.5}
   # her bass: the root, the fifth, the third (when the chord has them), or the root an octave down
   var {name}_bsh = 0
   set {name}_bpitch = {name}_rf when {name}_hb in 0.5 .. 1.5 and {name}_b12 in 0 .. 99 and {name}_b13 in 0 .. 99 and {name}_b14 in 0 .. 99
@@ -759,8 +775,8 @@ network elle(name, ear, clock_i, clock_f, ctx_song, ctx_human, lessons)
   # where the bass is among her degrees (what her melody keeps clear of)
   node {name}_braw signed
   relate {name}_bass_degree: {name}_braw = {name}_root + {name}_bsh
-  set {name}_bdeg = {name}_braw when {name}_braw in -0.5 .. 11.5
-  set {name}_bdeg = {name}_braw - 12 when {name}_braw in 11.5 .. 99
+  set {name}_bdeg = {name}_braw when {name}_tick in 0.5 .. 1.5 and {name}_braw in -0.5 .. 11.5
+  set {name}_bdeg = {name}_braw - 12 when {name}_tick in 0.5 .. 1.5 and {name}_braw in 11.5 .. 99
   # the bass breathes with her: it plays a half bar only if she played in the one before, and has breath for it
   var {name}_phr = 0
   set {name}_phr = 1 when {name}_ev in 0.5 .. 1.5 and {name}_choice in 0.5 .. 15.5

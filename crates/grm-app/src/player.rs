@@ -386,31 +386,49 @@ pub fn panel(app: &mut App, ui: &mut egui::Ui) {
                 continue;
             }
             let here = playing_path.as_ref() == Some(path);
+            // the whole row answers the mouse: a lighter ground, the hand, a play sign in place of its number;
+            // a double click plays it, the right button offers the rest
+            let ground = ui.painter().add(egui::Shape::Noop);
             let row = ui.horizontal(|ui| {
-                ui.label(RichText::new(format!("{:>3}", k + 1)).monospace().small().color(ink.muted));
+                ui.set_min_width(ui.available_width());
+                ui.add_space(4.0);
+                let number = ui.label(RichText::new(format!("{:>3}", k + 1)).monospace().small().color(ink.muted));
                 let text = RichText::new(&name).color(if here { ink.accent } else { ink.text });
-                let r = ui.add(egui::Label::new(text).sense(Sense::click()).truncate());
-                if r.double_clicked() || r.clicked() && here {
-                    play = Some(k);
-                }
-                r.context_menu(|ui| {
-                    if ui.button(t(lang, "player_play")).clicked() {
-                        play = Some(k);
-                        ui.close();
-                    }
-                    for (j, l) in lists.iter().enumerate() {
-                        if shown_list != Some(j) && ui.button(format!("{} {l}", t(lang, "player_add_to"))).clicked() {
-                            add_to = Some((j, path.clone()));
-                            ui.close();
-                        }
-                    }
-                    if shown_list.is_some() && ui.button(t(lang, "player_remove")).clicked() {
-                        remove = Some(i);
-                        ui.close();
-                    }
-                });
+                ui.add(egui::Label::new(text).truncate().selectable(false));
+                number.rect
             });
-            let _ = row;
+            let rect = row.response.rect.expand2(vec2(0.0, 2.0));
+            let r = ui.interact(rect, ui.id().with(("player-row", k)), Sense::click());
+            if r.hovered() || here {
+                let tint = if r.hovered() { 0.16 } else { 0.08 };
+                ui.painter().set(ground, egui::Shape::rect_filled(rect, 4.0, ink.accent.gamma_multiply(tint)));
+            }
+            if r.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                let n = row.inner;
+                ui.painter().rect_filled(n, 2.0, ink.panel);
+                crate::icons::image("play", 12.0, ink.accent)
+                    .paint_at(ui, egui::Rect::from_center_size(n.right_center() - vec2(6.0, 0.0), vec2(12.0, 12.0)));
+            }
+            if r.double_clicked() {
+                play = Some(k);
+            }
+            r.on_hover_text(t(lang, "player_row_d")).context_menu(|ui| {
+                if ui.button(t(lang, "player_play")).clicked() {
+                    play = Some(k);
+                    ui.close();
+                }
+                for (j, l) in lists.iter().enumerate() {
+                    if shown_list != Some(j) && ui.button(format!("{} {l}", t(lang, "player_add_to"))).clicked() {
+                        add_to = Some((j, path.clone()));
+                        ui.close();
+                    }
+                }
+                if shown_list.is_some() && ui.button(t(lang, "player_remove")).clicked() {
+                    remove = Some(i);
+                    ui.close();
+                }
+            });
         }
         if ord.is_empty() {
             ui.label(RichText::new(t(lang, "player_empty")).small().color(ink.muted));

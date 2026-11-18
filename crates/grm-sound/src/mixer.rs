@@ -191,6 +191,10 @@ pub struct Mixer {
     /// none of them is heard, while something lives in it).
     world: Option<ReflexSource>,
     world_fused: u64,
+    /// How hard the sound works: what a block takes to compute over how long it lasts (1: just in time), and how
+    /// many times the device found the reserve dry. Written by the sound's thread.
+    pub load: f32,
+    pub dry: u64,
     /// What the room heard at the last block, left and right (what the world hears by `room_l`, `room_r`).
     room: Vec<(f32, f32)>,
     room_slots: (Option<usize>, Option<usize>),
@@ -212,6 +216,8 @@ impl Mixer {
             direct: Default::default(),
             world: None,
             world_fused: 0,
+            load: 0.0,
+            dry: 0,
             room: vec![],
             room_slots: (None, None),
         }

@@ -31,12 +31,12 @@ pub enum Clock {
 enum Expr {
     /// The value of another node.
     Copy(usize),
-    /// -(sum of the other terms) / coefficient of the node: a sum solved for it.
+    /// -(sum of the other terms) / coefficient of the node: a sum solved for it (kept as -1 / coefficient).
     Sum {
         terms: Vec<(f64, Vec<(usize, f64)>)>,
         over: f64,
     },
-    /// (10^rhs / product of the others)^(1/power): a product solved for it.
+    /// (10^rhs / product of the others)^(1/power): a product solved for it (10^rhs and 1/power kept computed).
     Product {
         rhs: f64,
         others: Vec<(usize, f64)>,
@@ -45,6 +45,26 @@ enum Expr {
     /// ln(y) or e^L.
     Ln(usize),
     Exp(usize),
+}
+
+/// x^p, the usual powers without the general (and slow) one.
+#[inline]
+fn pow(x: f64, p: f64) -> f64 {
+    if p == 1.0 {
+        x
+    } else if p == -1.0 {
+        1.0 / x
+    } else if p == 2.0 {
+        x * x
+    } else if p == -2.0 {
+        1.0 / (x * x)
+    } else if p == 0.5 {
+        x.sqrt()
+    } else if p == 3.0 {
+        x * x * x
+    } else {
+        x.powf(p)
+    }
 }
 
 /// A sound file played: its samples (48 000 a second, one channel), where it is in them.
@@ -201,7 +221,7 @@ impl Reflex {
                     }
                 }
                 let Some(over) = over else { bail!("{}: {node} is not in it", rel.name) };
-                Ok(Expr::Sum { terms: rest, over })
+                Ok(Expr::Sum { terms: rest, over: -1.0 / over })
             }
             Kind::Product { terms, rhs } => {
                 let Some(&power) = terms.get(node) else { bail!("{}: {node} is not in it", rel.name) };
@@ -210,7 +230,7 @@ impl Reflex {
                     .filter(|(n, _)| *n != node)
                     .map(|(n, p)| Ok((self.slot(n)?, *p)))
                     .collect::<Result<Vec<_>>>()?;
-                Ok(Expr::Product { rhs: *rhs, others, power })
+                Ok(Expr::Product { rhs: 10f64.powf(*rhs), others, power: 1.0 / power })
             }
             Kind::Log { log, node: y } if log == node => Ok(Expr::Ln(self.slot(y)?)),
             Kind::Log { log, node: y } if y == node => Ok(Expr::Exp(self.slot(log)?)),
@@ -294,24 +314,25 @@ impl Reflex {
                 for (c, parts) in terms {
                     let mut t = *c;
                     for &(i, p) in parts {
-                        t *= if p == 1.0 { v[i] } else { v[i].powf(p) };
+                        t *= pow(v[i], p);
                     }
                     s += t;
                 }
-                -s / over
+                s * over
             }
             Expr::Product { rhs, others, power } => {
                 let mut prod = 1.0;
                 for &(i, p) in others {
-                    prod *= v[i].powf(p);
+                    prod *= pow(v[i], p);
                 }
-                (10f64.powf(*rhs) / prod).powf(1.0 / power)
+                pow(rhs / prod, *power)
             }
             Expr::Ln(i) => v[*i].ln(),
             Expr::Exp(i) => v[*i].exp(),
         }
     }
 
+    #[inline]
     fn holds(&self, when: &[(usize, f64, f64)]) -> bool {
         when.iter().all(|&(i, lo, hi)| lo <= self.values[i] && self.values[i] <= hi)
     }

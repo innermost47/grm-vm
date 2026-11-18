@@ -1001,7 +1001,8 @@ impl Shell {
                 // what follows from the sets, computed at each sample too (as far as a reflex can): every node a
                 // relation gives from what is already computed, in the order it is reached
                 let net = &w.machine.net;
-                let mut known: Vec<String> = net.sets.iter().map(|s| s.target.clone()).collect();
+                // (a set: thousands of nodes are looked up at each pass, a list made it grow with their square)
+                let mut known: std::collections::HashSet<String> = net.sets.iter().map(|s| s.target.clone()).collect();
                 loop {
                     let mut grew = false;
                     for rel in &net.relations {
@@ -1015,7 +1016,7 @@ impl Shell {
                                 && !net.measured.contains_key(n)
                                 && !net.nodes.get(n).is_some_and(|s| s.fixed);
                             if free && r.follow(&w.machine, n).is_ok() {
-                                known.push(n.clone());
+                                known.insert(n.clone());
                                 grew = true;
                             }
                         }
@@ -1031,7 +1032,7 @@ impl Shell {
                                 "{node}: {e} (play a node its sets write, or one a relation gives from them)"
                             ))
                         })?;
-                        known.push(node.clone());
+                        known.insert(node.clone());
                     }
                 }
                 r.prime();
@@ -1428,7 +1429,7 @@ mod tests {
             // never a note a semitone above her bass (a minor ninth), and always in her scale
             if v("elle_gate") > 0.5 && v("elle_ev") < 0.5 {
                 let deg = v("elle_deg").round() as i64;
-                assert!(v(&format!("elle_sc{deg}")) > 0.5, "degree {deg} out of her scale");
+                assert!(v(&format!("elle_sc{deg}")) > 0.5, "degree {deg} out of her scale (tonic {})", v("elle_tonic"));
                 if v("elle_bgate") > 0.5 {
                     let pc = |hz: f64| ((12.0 * (hz / 55.0).log2()).round() as i64).rem_euclid(12);
                     let (m, b) = (pc(v("elle_pitch")), pc(v("elle_bpitch")));

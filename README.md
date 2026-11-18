@@ -903,6 +903,16 @@ its nodes (and for her, even when nothing is heard): two channels are no longer 
 one. Its sets are run faster: the sets a `repeat` writes share their first condition, and when it does not hold
 they are passed all at once.
 
+**The sound keeps up.** It is computed ahead by a thread of its own, into a reserve of about sixteen milliseconds
+the sound device only takes from: the window reading the mixer, or the network made again, no longer makes it wait.
+The top bar says how hard it works (*sound 46 %*: the time a block takes to compute over the time it lasts; amber
+near its limit) and, on hovering, how many times its reserve ran dry. What does not need the speed of sound does not
+take it: her scale, her chords, what she may play, the key she hears, what she learned in her lesson, and all of
+her reverie are computed one sample in 32 (`{name}_tick`, written in GRML), and the usual powers no longer go
+through the general one. Here, four seconds of the studio with her in it take less than two to compute (four
+before). An app of thousands of lines opens in a moment (a quarter of a second for the studio, forty before): the
+network is no longer copied for each line said, and what an app said before is taken away in one pass.
+
 **The player** (an app of the window): the human's Music folder (or another), every MP3, FLAC, OGG, WAV and M4A
 in it (read by Symphonia, made stereo at the mixer's rate, beside the sound), lists of one's own (a right click
 on a piece adds it to one), play, pause, the one before, the next, a progress bar to click, repeat, and *mixed*:

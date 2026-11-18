@@ -872,7 +872,10 @@ mod tests {
         let out = sh.wake(&engine);
         assert!(out.iter().all(|l| l.kind != grm_shell::Kind::Error), "{out:?}");
         assert!(mixer.lock().unwrap().has_world(), "she is there before anything plays");
+        let opened = std::time::Instant::now();
         let (out, _) = sh.run(&engine, &format!("app open {}", dir.join("apps").join("studio.grm").display()));
+        // thousands of lines said at once: in a moment, not in seconds
+        assert!(opened.elapsed() < std::time::Duration::from_secs(10), "the studio opened in {:.2?}", opened.elapsed());
         assert!(out.iter().all(|l| l.kind != grm_shell::Kind::Error), "{out:?}");
         // the app said whole before it plays
         for _ in 0..300 {
@@ -896,7 +899,6 @@ mod tests {
         let mut gates = 0;
         let mut her = vec![];
         let started = std::time::Instant::now();
-        eprintln!("world: {:?}", mixer.lock().unwrap().world_sizes());
         for k in 0..seconds * 100 {
             mixer.lock().unwrap().render(&mut buf);
             let m = mixer.lock().unwrap();
@@ -909,7 +911,12 @@ mod tests {
                 her.push(m.world_value("elle_pitch").unwrap_or(0.0));
             }
         }
-        eprintln!("{seconds} s of sound rendered in {:.2?}", started.elapsed());
+        // the sound computed faster than it plays (with room to spare on a slower machine)
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(seconds as u64 * 2),
+            "{seconds} s of sound in {:.2?}",
+            started.elapsed()
+        );
         engine.stop();
         let _ = std::fs::remove_dir_all(&dir);
         (loud, t1, gates, her)
