@@ -933,6 +933,34 @@ change, the dream fifteen. Her home's window paints it.
 came. The first stone of her vision; video comes later (a decoder, and an eye fast enough for twenty-five pictures a
 second).
 
+### The universe of the GRM
+
+![The universe of the GRM: its quantities on the scale of Planck, the shape the network decides, and the equation it found by itself](docs/universe.png)
+
+**The app *Univers*** (`apps/universe.grm`): a network of grm-core (the constants, the cosmos, the atoms, the
+planets: its JSON store, `data/universe/grm_network.json`) said in GRML the first time the window opens, each name
+given the prefix `u_`, living in the machine like anything else (its relations of products and of sums, its
+measurements; its relations written in Python are not brought). *Import a network of grm-core* says another.
+
+Its surface shows it in three dimensions:
+- **Across**: each quantity's value in Planck units, in decades. c, G, ħ, k_B fall on 0.
+- **Depth and height**: the two slowest ways the network vibrates when its relations are plucked (the slowest modes
+  of its graph, spread by rank). The network decides the shape.
+- **Time**: from the Planck time to today (the age the network holds). Each quantity moves with the cadence H as its
+  relations say: orange follows it, blue goes against it, grey stays, white are the constants. Large: measured;
+  small: computed.
+
+**What she finds by herself.** Nothing is imposed: she looks among her quantities for those that move together
+when the relations hold and the constants stay, two, three at a time, and keeps the combinations where every
+constant cancels. Each is shown with the pure number it gives, the constants that cancelled on the way, and the
+smallest combination of her relations that leads to it (no loop that does not serve). The first she finds in this
+network is **Equant · S = Estock**, cancelling c, G, ħ and k_B through seven of its relations: the Planck length,
+H_end, the vacuum's density, Estock, the floor temperature, Equant and S. With the equation itself, the eight
+equations, found rather than written; if the network changes, what she finds changes with it. Among the others:
+**Rs = Rh** (the horizon is that of a black hole of the energy it holds). Hovering a quantity tells its value, its
+place on Planck's scale, how it goes with the seed, and its generation in the family tree that grows from the
+constants and the seed (H_end by default; any quantity can be the seed).
+
 ### Her lessons: twenty-eight, every note in its place
 
 **A note out of what is allowed she never plays** (it was only unwanted, and what she learned could outweigh it).

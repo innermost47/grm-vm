@@ -23,6 +23,7 @@ pub mod ports;
 pub mod reflex;
 pub mod time;
 pub mod units;
+pub mod universe;
 pub mod vision;
 pub mod wav;
 pub mod witness;

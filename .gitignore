@@ -9,6 +9,7 @@
 !/apps/swing.grm
 !/apps/weather.grm
 !/apps/player.grm
+!/apps/universe.grm
 !/apps/networks/
 /apps/networks/*
 !/apps/networks/*.grm

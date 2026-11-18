@@ -41,6 +41,7 @@ mod surface;
 mod text;
 mod tour;
 mod tree;
+mod universe;
 mod view;
 mod worker;
 mod workshop;

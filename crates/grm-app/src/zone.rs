@@ -96,6 +96,8 @@ pub fn body(app: &mut App, ui: &mut egui::Ui, kind: &Kind, view: &mut crate::vie
                     crate::elle::panel(app, ui);
                 } else if a == crate::player::APP {
                     crate::player::panel(app, ui);
+                } else if a == crate::universe::APP {
+                    crate::universe::panel(app, ui);
                 } else {
                     egui::ScrollArea::vertical()
                         .id_salt(("zone-app", a, small))

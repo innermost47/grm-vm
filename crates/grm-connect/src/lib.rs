@@ -16,6 +16,7 @@
 pub mod api;
 pub mod bias;
 pub mod csv;
+pub mod grm_core;
 pub mod world;
 
 use indexmap::IndexMap;

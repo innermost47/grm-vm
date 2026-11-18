@@ -161,6 +161,8 @@ pub struct App {
     dry_seen: u64,
     /// The player: its folder, its lists, what plays.
     pub player: crate::player::Player,
+    /// The universe of the GRM, seen in three dimensions.
+    pub universe: crate::universe::View,
     /// What her network learned (its `memory` nodes), as last taken from the sound: given back when she wakes.
     pub elle_memory: indexmap::IndexMap<String, f64>,
     /// Her lessons (mind/lessons), as the studio says them.
@@ -421,6 +423,21 @@ impl App {
                 });
             }
         }
+        // the universe's file: said from the grm-core store the first time (the human may import another)
+        {
+            let path = grm_shell::runtime::apps_dir(&memory).join(format!("{}.grm", crate::universe::APP));
+            if !path.exists() {
+                if let Some(store) = crate::universe::store(&memory) {
+                    if let Ok(text) = std::fs::read_to_string(&store)
+                        .map_err(|e| e.to_string())
+                        .and_then(|j| crate::universe::app_text(&j))
+                    {
+                        let _ = std::fs::create_dir_all(grm_shell::runtime::apps_dir(&memory))
+                            .and_then(|_| std::fs::write(&path, text));
+                    }
+                }
+            }
+        }
         let mut shell = Shell::new(memory.clone(), mixer.clone());
         shell.keep_desk = !(args.fresh || args.screenshot.is_some());
         shell.human = Some(settings.human.clone()).filter(|h| !h.trim().is_empty());
@@ -521,6 +538,7 @@ impl App {
             ws_status: HashMap::new(),
             dry_seen: 0,
             player: crate::player::Player::default(),
+            universe: crate::universe::View::default(),
             elle_memory: kept_elle,
             lessons: crate::studio::mind_dir(&memory_for_song).map(|d| crate::studio::lessons(&d)).unwrap_or_default(),
             elle_at: 0.0,
@@ -2839,6 +2857,8 @@ impl App {
                     crate::elle::panel(self, ui);
                 } else if name == crate::player::APP {
                     crate::player::panel(self, ui);
+                } else if name == crate::universe::APP {
+                    crate::universe::panel(self, ui);
                 } else {
                     egui::ScrollArea::vertical().id_salt(("surface", &name)).auto_shrink([false, false]).show(
                         ui,
@@ -2900,6 +2920,10 @@ impl App {
             }
             if name == crate::player::APP {
                 crate::player::panel(self, ui);
+                return;
+            }
+            if name == crate::universe::APP {
+                crate::universe::panel(self, ui);
                 return;
             }
             egui::ScrollArea::vertical().id_salt(("launched", name)).auto_shrink([false, false]).show(ui, |ui| {
