@@ -85,6 +85,10 @@ struct Delay {
     source: usize,
     line: Vec<f64>,
     at: usize,
+    /// How far back it reads, when a node says it (in seconds: a delay that follows a tempo), and the samples in a
+    /// second; else as far back as the line is long.
+    by: Option<usize>,
+    rate: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -241,13 +245,23 @@ impl Reflex {
             }
             // a delay: a line of so many samples (one at a slower clock)
             if let Some(by) = st.text.starts_with("delay ").then(|| st.text.rsplit_once(" by ")).flatten() {
-                let seconds = crate::lang::seconds_of(by.1).unwrap_or(0.0);
-                let n = match clock {
-                    Clock::Audio { rate } => ((seconds * rate as f64).round() as usize).max(1),
-                    _ => 1,
+                // `by SECONDS`, or `by NODE up to SECONDS` (as far back as the node says, the line as long as at most)
+                let (node, most) = match by.1.split_once(" up to ") {
+                    Some((n, m)) => (Some(n.trim()), m),
+                    None => (None, by.1),
                 };
+                let seconds = crate::lang::seconds_of(most).unwrap_or(0.0);
+                let rate = match clock {
+                    Clock::Audio { rate } => rate as f64,
+                    _ => 0.0,
+                };
+                let n = ((seconds * rate).round() as usize).max(1);
                 let (target, source) = (r.slot(&st.target)?, r.slot(&st.source)?);
-                r.delays.push(Delay { target, source, line: vec![0.0; n], at: 0 });
+                let by = match node {
+                    Some(n) => Some(r.slot(n)?),
+                    None => None,
+                };
+                r.delays.push(Delay { target, source, line: vec![0.0; n], at: 0, by, rate });
                 continue;
             }
             let expr = if let Some((_, k)) = st.source.rsplit_once("__next") {
@@ -626,7 +640,12 @@ impl Reflex {
         }
         // what each line remembers comes out first (the sets and what follows may read it)
         for d in &self.delays {
-            self.values[d.target] = d.line[d.at];
+            let len = d.line.len();
+            let back = match d.by {
+                Some(s) => ((self.values[s] * d.rate).round().max(1.0) as usize).min(len),
+                None => len,
+            };
+            self.values[d.target] = d.line[(d.at + len - back) % len];
         }
         for f in &mut self.sounds {
             let on = f.run.is_none_or(|r| self.values[r] > 0.5);
@@ -850,8 +869,10 @@ impl Reflex {
         for d in &base.delays {
             *cost.entry(group[d.target]).or_default() += 512;
             let e = reads.entry(group[d.target]).or_default();
-            if group[d.source] != group[d.target] && written[d.source] {
-                e.insert(group[d.source]);
+            for s in std::iter::once(d.source).chain(d.by) {
+                if group[s] != group[d.target] && written[s] {
+                    e.insert(group[s]);
+                }
             }
         }
         for f in &base.sounds {
@@ -975,7 +996,7 @@ impl Reflex {
                 st.expr.reads(&mut all);
                 all.extend(st.when.iter().map(|c| c.0));
             }
-            all.extend(r.delays.iter().map(|d| d.source));
+            all.extend(r.delays.iter().flat_map(|d| std::iter::once(d.source).chain(d.by)));
             all.into_iter().collect()
         };
         let mut imports = vec![vec![]; np];
@@ -1250,6 +1271,29 @@ mod tests {
         let (c, s) = (reflex.value("cos_val").unwrap(), reflex.value("sine_wave").unwrap());
         let want = 1.0001f64.powi(48000);
         assert!(((c * c + s * s) / want - 1.0).abs() < 1e-6, "{} vs {want}", c * c + s * s);
+    }
+
+    #[test]
+    fn a_delay_follows_a_node_that_says_how_far_back() {
+        // a click at 0 and one at 15: heard 10 samples later, then (the node now says 20) the first again at 20
+        // and the second at 35
+        let mut w = World::new();
+        w.say_all(&["var x = 0", "var back = 0.0002", "delay y = x by back up to 0.001"], &Provenance::default())
+            .unwrap();
+        let mut r = Reflex::of(&w.machine, Clock::Audio { rate: 50_000 }).unwrap();
+        let (x, y, back) = (r.slot_of("x").unwrap(), r.slot_of("y").unwrap(), r.slot_of("back").unwrap());
+        r.audio_input(x);
+        r.audio_input(back);
+        let mut heard = vec![];
+        for k in 0..40 {
+            r.values[x] = if k == 0 || k == 15 { 1.0 } else { 0.0 };
+            if k == 12 {
+                r.values[back] = 0.0004;
+            }
+            heard.push(r.step_read(y));
+        }
+        let at: Vec<usize> = heard.iter().enumerate().filter(|(_, v)| **v > 0.5).map(|(k, _)| k).collect();
+        assert_eq!(at, [10, 20, 35], "{heard:?}");
     }
 
     #[test]

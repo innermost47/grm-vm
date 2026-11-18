@@ -87,7 +87,15 @@ end
 
 `row`, `column`, `grid N`, `stack`, `scroll`, `tabs`, `card` hold others; every widget can say `tip "words"` and
 `when NODE`. `choice NODE "a|b|c"` and `field NODE` (a number written with a comma or a point) are written as the
-others are.
+others are. The kinds everyone uses live in the widgets' library, `widgets/` (GRML, beside `apps/`), taken with
+`use widgets/mixer.grm`.
+
+The studio itself is such a file (`apps/studio.grm`). Lists make what grows: `list synths = t1 t2`, `repeat t in synths: call synth(name={t})`,
+`relate mix: out = sum(t in synths: {t}_out)`, and a button that grows it:
+`widget add: button "+ synth" say "list {app} synths add next"`.
+
+The mathematical constants are known everywhere, the same way: `pi`, `tau`, `e`, `phi`, `sqrt2`, `ln2`, `ln10`,
+`c0`, `inf` (`node turn = tau`, `relate circle: c = 2 * pi * r`); no node is called as one of them.
 
 On Linux, the sound needs ALSA's development files to build (`libasound2-dev` on Debian and Ubuntu); the window
 needs nothing more than a graphics driver (OpenGL).

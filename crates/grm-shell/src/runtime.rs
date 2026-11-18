@@ -32,6 +32,8 @@ pub struct AppView {
     /// (line, why): what it could not say.
     pub errors: Vec<(usize, String)>,
     pub widgets: Vec<Widget>,
+    /// Its lists (`list tracks = synths drums`), their items and their line.
+    pub lists: IndexMap<String, (Vec<String>, usize)>,
     /// Its own names given to a copy (an app opened while another running one holds the same network).
     pub prefix: IndexMap<String, String>,
     pub apis: Vec<String>,
@@ -144,6 +146,7 @@ impl Shell {
                 text: a.text.clone(),
                 errors: a.errors.clone(),
                 widgets: a.parsed.widgets.clone(),
+                lists: a.parsed.lists.clone(),
                 prefix: a.prefix.clone(),
                 apis: a.parsed.apis.iter().map(|x| x.name.clone()).collect(),
                 can_undo: !a.undo.is_empty(),
@@ -407,6 +410,25 @@ impl Shell {
 
     /// A new text for a running app (edited from its code, its network or its surface): said again at once,
     /// written to its file at once.
+    /// `list APP LIST add ITEM | add next [PREFIX] | remove ITEM`: a list of an app's file changed, the app said
+    /// again from it (what the list makes follows: its networks, its widgets, its sums).
+    pub fn list_command(&mut self, engine: &Engine, rest: &str) -> Vec<Line> {
+        let mut w = rest.splitn(3, char::is_whitespace);
+        let (Some(name), Some(list), Some(how)) = (w.next(), w.next(), w.next()) else {
+            return vec![Line::warn("? list APP LIST add ITEM | add next [PREFIX] | remove ITEM")];
+        };
+        let Some(app) = self.rt.apps.get(name) else { return vec![Line::warn(format!("? {name} does not run"))] };
+        let base = app.path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."));
+        match apps::change_list(&app.text, &base, list, how) {
+            Ok((text, said)) => {
+                let mut out = vec![Line::said(said)];
+                out.extend(self.edit_app(engine, name, text));
+                out
+            }
+            Err(e) => vec![Line::warn(format!("? {e}"))],
+        }
+    }
+
     pub fn edit_app(&mut self, engine: &Engine, name: &str, text: String) -> Vec<Line> {
         let Some(app) = self.rt.apps.get_mut(name) else { return vec![Line::warn(format!("? {name} does not run"))] };
         if app.text == text {

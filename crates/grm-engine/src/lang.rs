@@ -110,14 +110,31 @@ pub fn g(v: f64) -> String {
     fmt_g(v, 6)
 }
 
-fn constant(t: &str) -> Option<f64> {
-    match t {
-        "pi" => Some(std::f64::consts::PI),
-        "e" => Some(std::f64::consts::E),
-        "tau" => Some(std::f64::consts::TAU),
-        "inf" => Some(f64::INFINITY),
-        _ => None,
+/// The mathematical constants, known everywhere the same way (a number, a node's value, a relation, what
+/// follows); no node is called as one of them is.
+pub const CONSTANTS: [(&str, f64); 9] = [
+    ("pi", std::f64::consts::PI),
+    ("tau", std::f64::consts::TAU),
+    ("e", std::f64::consts::E),
+    ("phi", 1.618_033_988_749_895),
+    ("sqrt2", std::f64::consts::SQRT_2),
+    ("ln2", std::f64::consts::LN_2),
+    ("ln10", std::f64::consts::LN_10),
+    ("c0", 299_792_458.0),
+    ("inf", f64::INFINITY),
+];
+
+/// A constant's value, by its name.
+pub fn constant(t: &str) -> Option<f64> {
+    CONSTANTS.iter().find(|(n, _)| *n == t).map(|(_, v)| *v)
+}
+
+/// A node's name is its own: not a constant's.
+fn own_name(name: &str) -> Result<()> {
+    if constant(name).is_some() {
+        bail!("{name} is a constant ({}): a node is called otherwise", g(constant(name).unwrap_or(0.0)));
     }
+    Ok(())
 }
 
 /// A number: a literal, pi / e / tau / inf, or a little arithmetic on numbers (as a call writes "{top} - 0.25").
@@ -827,6 +844,7 @@ fn node(net: &mut Network, rest: &str, origin: &Provenance) -> Result<String> {
     let (dim, rest) = dim_of(rest)?;
     let Some(m) = re_node().captures(&rest) else { bail!("node NAME [= value] [fixed] [signed]") };
     let name = m[1].to_string();
+    own_name(&name)?;
     let flags: Vec<&str> = m.get(3).map(|f| f.as_str().split_whitespace().collect()).unwrap_or_default();
     let old = net.nodes.get(&name).cloned();
     let signed = flags.contains(&"signed") || old.as_ref().is_some_and(|o| o.signed);
@@ -971,6 +989,7 @@ fn role(net: &mut Network, word: &str, rest: &str, origin: &Provenance) -> Resul
     let (dim, rest) = dim_of(rest)?;
     let Some(m) = re_role().captures(&rest) else { bail!("{word} NAME [= value] [positive] [M L T Q K]") };
     let name = m[1].to_string();
+    own_name(&name)?;
     let old = net.nodes.get(&name).cloned();
     let positive = m.get(3).is_some() || old.as_ref().is_some_and(|o| !o.signed);
     let guess = match m.get(2) {
@@ -1232,8 +1251,8 @@ pub fn arithmetic(text: &str, env: &[(String, f64)]) -> Option<f64> {
                     if let Some((_, v)) = self.env.iter().rev().find(|(n, _)| n == word) {
                         return Some(*v);
                     }
-                    if word == "pi" {
-                        return Some(std::f64::consts::PI);
+                    if let Some(v) = constant(word) {
+                        return Some(v);
                     }
                     let f: fn(f64) -> f64 = match word {
                         "sin" => f64::sin,
@@ -1304,7 +1323,19 @@ fn set(net: &mut Network, rest: &str, origin: &Provenance) -> Result<String> {
 /// sound it is exact to the sample; at the machine's pace it is one tick late. An echo is one delay and one
 /// relation that brings it back; a reverb a few of them feeding each other.
 fn delay(net: &mut Network, rest: &str, origin: &Provenance) -> Result<String> {
-    let Some((body, by)) = rest.rsplit_once(" by ") else { bail!("delay NAME = SOURCE by SECONDS") };
+    let usage = "delay NAME = SOURCE by SECONDS (or by NODE up to SECONDS: as far back as the node says)";
+    // `by NODE up to SECONDS`: a delay that follows a node (an echo on the tempo)
+    let (rest, follows) = match rest.split_once(" up to ") {
+        Some((r, most)) => match r.rsplit_once(" by ") {
+            Some((body, node)) if is_name(node.trim()) => {
+                (format!("{body} by {}", most.trim()), Some(node.trim().to_string()))
+            }
+            _ => bail!("{usage}"),
+        },
+        None => (rest.to_string(), None),
+    };
+    let rest = rest.as_str();
+    let Some((body, by)) = rest.rsplit_once(" by ") else { bail!("{usage}") };
     let Some(m) = re_set().captures(body.trim()) else { bail!("delay NAME = SOURCE by SECONDS") };
     let (target, source) = (m[1].to_string(), m[2].trim().to_string());
     if !is_name(&source) {
@@ -1324,7 +1355,15 @@ fn delay(net: &mut Network, rest: &str, origin: &Provenance) -> Result<String> {
         role(net, "var", &format!("{target} = 0"), origin)?;
     }
     net.sets.retain(|st| !(st.target == target && st.text.starts_with("delay ")));
-    let text = format!("delay {target} = {source} by {}", crate::lang::g(seconds));
+    let text = match &follows {
+        Some(n) => {
+            if !net.nodes.contains_key(n) {
+                role(net, "var", &format!("{n} = {}", crate::lang::g(seconds)), origin)?;
+            }
+            format!("delay {target} = {source} by {n} up to {}", crate::lang::g(seconds))
+        }
+        None => format!("delay {target} = {source} by {}", crate::lang::g(seconds)),
+    };
     net.sets.push(SetRule { target: target.clone(), source: source.clone(), when: vec![], text, carry: false });
     Ok(format!("{target} is {source} as it was {} s before", crate::lang::g(seconds)))
 }

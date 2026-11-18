@@ -43,7 +43,7 @@ impl Home {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        for d in ["apps", "mind", "data"] {
+        for d in ["apps", "mind", "data", "widgets"] {
             copy_dir(&root.join(d), &dir.join(d));
         }
         // the visit is not made again: it was made
@@ -438,5 +438,98 @@ fn a_choice_and_a_field_in_an_app() {
     frames_until(&mut h, "level 2.5", |a| a.picture.node("level").is_some_and(|n| (n.value - 2.5).abs() < 1e-6));
     frames_for(&mut h, 300);
     assert_eq!(shown(&h), ["high"], "the choice follows its node (2,5 is the third)");
+    close(h);
+}
+
+/// A list in an app's file grows from a button: the line it says changes the list in the file, and what the list
+/// makes follows at once (a node and a widget for the new one).
+#[test]
+fn a_button_adds_to_a_list_and_what_the_list_makes_follows() {
+    let home = Home::new("lists");
+    let file = home.dir.join("apps").join("rows.grm");
+    std::fs::write(
+        &file,
+        "app Rows\nlist rows = r1 r2\nrepeat r in rows: input {r}_v = {r.k}\n\
+         widget col: column at 0 0 size 6 6\n  repeat r in rows: widget {r}w: value {r}_v \"{r}\"\nend\n\
+         widget add: button \"one more\" icon plus say \"list {app} rows add next\" at 6 0 size 3 1\n",
+    )
+    .unwrap();
+    let mut h = open(&home);
+    say(&mut h, &format!("app open {}", file.display()));
+    frames_until(&mut h, "the app", |a| a.apps.iter().any(|x| x.name == "rows"));
+    h.state_mut().modes.insert("rows".into(), super::Mode::App);
+    h.state_mut().go(crate::front::Front::App("rows".into()));
+    frames_until(&mut h, "r2_v", |a| a.picture.node("r2_v").is_some());
+    click(&mut h, "one more");
+    frames_until(&mut h, "r3_v", |a| a.picture.node("r3_v").is_some_and(|n| (n.value - 3.0).abs() < 1e-9));
+    let written = std::fs::read_to_string(&file).unwrap();
+    assert!(written.contains("list rows = r1 r2 r3"), "{written}");
+    frames_for(&mut h, 300);
+    let col = h.state().apps.iter().find(|x| x.name == "rows").map(|x| x.widgets[0].children.len());
+    assert_eq!(col, Some(3), "the new one's widget is not there");
+    close(h);
+}
+
+/// The studio is its file: « + synth » adds a synthesiser to its list, and its network, its panel, its strip and
+/// its place in the mix follow (no song of the window, no file written by it).
+#[test]
+fn the_studio_grows_a_synthesiser_from_its_own_file() {
+    let home = Home::new("studio");
+    let mut h = open(&home);
+    let file = home.dir.join("apps").join("studio.grm");
+    say(&mut h, &format!("app open {}", file.display()));
+    frames_until(&mut h, "the studio", |a| a.picture.node("t3_out").is_some());
+    h.state_mut().modes.insert("studio".into(), super::Mode::App);
+    h.state_mut().go(crate::front::Front::App("studio".into()));
+    frames_for(&mut h, 500);
+    click(&mut h, "synth");
+    frames_until(&mut h, "t4", |a| a.picture.node("t4_out").is_some() && a.picture.node("t4_l").is_some());
+    frames_for(&mut h, 500);
+    let at = h.state().apps.iter().find(|x| x.name == "studio").map(|x| x.path.clone());
+    assert_eq!(at.as_ref(), Some(&file));
+    let written = std::fs::read_to_string(&file).unwrap();
+    assert!(
+        written.contains("list my_synths = t1 t4"),
+        "{:?}",
+        written.lines().filter(|l| l.starts_with("list")).collect::<Vec<_>>()
+    );
+    let studio = h.state().apps.iter().find(|x| x.name == "studio").cloned().unwrap();
+    let names: Vec<String> = grm_shell::apps::all_widgets(&studio.widgets).iter().map(|w| w.name.clone()).collect();
+    assert!(names.iter().any(|n| n == "t4sec") && names.iter().any(|n| n == "t4mix_level"), "{names:?}");
+    assert!(h.state().synth_names().iter().any(|s| s == "studio|t4_"));
+    close(h);
+}
+
+/// The studio's transport and her band are GRML (widgets/transport.grm, widgets/her.grm): the space bar plays and
+/// stops; a key given to her is written to her node, and shown as given.
+#[test]
+fn the_studio_plays_by_the_space_bar_and_her_key_is_given_by_its_choice() {
+    let home = Home::new("transport");
+    let mut h = open(&home);
+    say(&mut h, &format!("app open {}", home.dir.join("apps").join("studio.grm").display()));
+    frames_until(&mut h, "the studio", |a| a.picture.node("elle_key_pick").is_some());
+    h.state_mut().modes.insert("studio".into(), super::Mode::App);
+    h.state_mut().go(crate::front::Front::App("studio".into()));
+    frames_for(&mut h, 500);
+    let playing = |a: &App| a.mixer.lock().map(|m| m.playing().iter().any(|p| p == "out")).unwrap_or(false);
+    assert!(!playing(h.state()), "nothing plays before play: she does not either");
+    // nothing being typed (the prompt let go, as a click elsewhere does)
+    h.ctx.memory_mut(|m| m.stop_text_input());
+    frames_for(&mut h, 100);
+    h.key_press(egui::Key::Space);
+    frames_until(&mut h, "playing", playing);
+    h.key_press(egui::Key::Space);
+    frames_until(&mut h, "stopped", |a| !playing(a));
+    frames_for(&mut h, 250);
+    h.query_all_by_role(egui::accesskit::Role::ComboBox)
+        .find(|n| n.value().as_deref() == Some("key: hers"))
+        .expect("her key's choice")
+        .click();
+    // the first ones of the list are in view (the list scrolls)
+    frames_for(&mut h, 250);
+    h.get_all_by_label("key: C").next().unwrap().click();
+    frames_until(&mut h, "her key", |a| a.picture.node("elle_key_pick").is_some_and(|n| (n.value - 3.0).abs() < 1e-9));
+    let shown: Vec<String> = h.query_all_by_role(egui::accesskit::Role::ComboBox).filter_map(|n| n.value()).collect();
+    assert!(shown.iter().any(|s| s == "key: C"), "{shown:?}");
     close(h);
 }

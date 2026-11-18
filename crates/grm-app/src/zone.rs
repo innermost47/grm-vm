@@ -91,9 +91,7 @@ pub fn body(app: &mut App, ui: &mut egui::Ui, kind: &Kind, view: &mut crate::vie
         Kind::App(a) => {
             if app.apps.iter().any(|x| &x.name == a) {
                 let editing = if small { std::mem::replace(&mut app.editing, false) } else { app.editing };
-                if a == crate::studio::APP && !small {
-                    crate::studio::panel(app, ui);
-                } else if a == crate::elle::APP {
+                if a == crate::elle::APP {
                     crate::elle::panel(app, ui);
                 } else if a == crate::player::APP {
                     crate::player::panel(app, ui);

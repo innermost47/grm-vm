@@ -86,6 +86,8 @@ pub struct State {
     /// Each set of tabs' chosen one, and how far each scroll is down (by app and widget).
     pub tabs: HashMap<String, usize>,
     pub scrolls: HashMap<String, f32>,
+    /// What each meter of a sound shows (it falls slowly), by app and widget.
+    pub meters: HashMap<String, f64>,
     /// What is being written in each field (by app and widget), until Enter gives it to its node.
     pub fields: HashMap<String, String>,
 }
@@ -192,6 +194,26 @@ fn lay<'a>(
         }
         _ => {}
     }
+}
+
+/// Whether a widget's key (`key space`) was pressed now: taken, so that nothing else takes it too; never while words
+/// are being typed.
+fn pressed_by(ui: &egui::Ui, w: &Widget) -> bool {
+    let Some(k) = w.key.as_deref() else { return false };
+    let key = match k {
+        "space" => Some(egui::Key::Space),
+        "enter" => Some(egui::Key::Enter),
+        "escape" => Some(egui::Key::Escape),
+        "tab" => Some(egui::Key::Tab),
+        other => egui::Key::from_name(&other.to_uppercase()),
+    };
+    let Some(key) = key else { return false };
+    !ui.ctx().wants_keyboard_input() && ui.ctx().input_mut(|i| i.consume_key(egui::Modifiers::NONE, key))
+}
+
+/// What a node is now: as the sound has it when the sound computes it (a transport's bar), else as the world has it.
+fn now_of(app: &App, n: &crate::model::NodeView) -> f64 {
+    app.mixer.lock().ok().and_then(|m| m.sounding(&n.name)).unwrap_or(n.value)
 }
 
 /// Whether a widget is shown (`when NODE`: while the node is not 0).
@@ -581,13 +603,57 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                     });
                 }
             }
+            WidgetKind::Bars => {
+                // each bar as tall as its node among the others; the one the first node says, lit
+                let lit = node(0).map(|n| now_of(app, &n).round() as i64).unwrap_or(0);
+                let values: Vec<f64> =
+                    (1..w.nodes.len()).map(|k| node(k).map(|n| now_of(app, &n)).unwrap_or(0.0)).collect();
+                let lo = values.iter().cloned().fold(f64::MAX, f64::min);
+                let hi = values.iter().cloned().fold(f64::MIN, f64::max).max(lo + 1e-9);
+                let words_h = if label.is_empty() { 0.0 } else { 14.0 };
+                painter.text(
+                    rect.left_top(),
+                    egui::Align2::LEFT_TOP,
+                    &label,
+                    crate::style::font(crate::style::Size::Tiny),
+                    ink.muted,
+                );
+                let area = Rect::from_min_max(rect.left_top() + vec2(0.0, words_h), rect.right_bottom());
+                let wide = area.width() / values.len().max(1) as f32;
+                for (k, v) in values.iter().enumerate() {
+                    let h = 3.0 + (area.height() - 3.0) * ((v - lo) / (hi - lo)) as f32;
+                    let x = area.left() + k as f32 * wide;
+                    let bar = Rect::from_min_max(pos2(x + 1.0, area.bottom() - h), pos2(x + wide - 1.0, area.bottom()));
+                    let colour = if lit == k as i64 + 1 { ink.accent } else { ink.muted.gamma_multiply(0.6) };
+                    painter.rect_filled(bar, crate::style::corner(), colour);
+                }
+                let r = ui.interact(rect, id, Sense::hover());
+                r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, true, &label));
+            }
             WidgetKind::Choice => {
                 if let Some(n) = node(0) {
-                    let options: Vec<String> = w.text.split('|').map(|s| s.trim().to_string()).collect();
-                    let mut k = (n.value.round().max(0.0) as usize).min(options.len().saturating_sub(1));
+                    // each choice its words, and its value when written (`1/8.=0.75`; else its place from 0)
+                    let mut options = vec![];
+                    let mut values = vec![];
+                    for (k, o) in w.text.split('|').enumerate() {
+                        match o.rsplit_once('=').and_then(|(l, v)| v.trim().parse::<f64>().ok().map(|v| (l, v))) {
+                            Some((l, v)) => {
+                                options.push(l.trim().to_string());
+                                values.push(v);
+                            }
+                            None => {
+                                options.push(o.trim().to_string());
+                                values.push(k as f64);
+                            }
+                        }
+                    }
+                    // the one shown: the nearest to what the node is
+                    let near = |v: f64| (v - n.value).abs();
+                    let mut k =
+                        (0..values.len()).min_by(|a, b| near(values[*a]).total_cmp(&near(values[*b]))).unwrap_or(0);
                     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));
                     if crate::widgets::choice(&mut child, id, &mut k, &options, w.tip.as_deref().unwrap_or("")) {
-                        observe(app, &n.name, k as f64);
+                        observe(app, &n.name, values[k]);
                     }
                 }
             }
@@ -623,6 +689,20 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                     }
                 }
             }
+            // a button that says a line: pressed, its line is said as typed at the prompt (`{app}`: its app)
+            WidgetKind::Button if w.say.is_some() => {
+                let words = RichText::new(&label).size(crate::style::size(crate::style::Size::Text) * lk.size);
+                let b = match &w.icon {
+                    Some(i) => egui::Button::image_and_text(crate::icons::image(i, 15.0, ink.text), words),
+                    None => egui::Button::new(words),
+                };
+                let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+                if child.add(b).clicked() || pressed_by(ui, w) {
+                    if let Some(line) = &w.say {
+                        app.say(line.replace("{app}", name));
+                    }
+                }
+            }
             WidgetKind::Button => {
                 if let Some(n) = node(0) {
                     let r = ui.put(
@@ -652,7 +732,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                         .color(on_colour),
                 )
                 .selected(playing);
-                if ui.put(rect, b).clicked() {
+                if ui.put(rect, b).clicked() || pressed_by(ui, w) {
                     app.say(if playing { format!("stop {}", w.nodes[0]) } else { format!("play {}", w.nodes[0]) });
                 }
             }
@@ -680,19 +760,42 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
             WidgetKind::Meter => {
                 if let Some(n) = node(0) {
                     let r = ui.interact(rect, id, Sense::hover());
-                    let bar = Rect::from_min_size(rect.left_center() + vec2(0.0, 2.0), vec2(rect.width(), 10.0));
-                    painter.rect_filled(bar, crate::style::corner(), ink.faint);
-                    let k = ((n.value - w.lo) / (w.hi - w.lo)).clamp(0.0, 1.0) as f32;
-                    let mut full = bar;
-                    full.set_width(bar.width() * k);
-                    painter.rect_filled(full, crate::style::corner(), ink.accent);
-                    painter.text(
-                        rect.left_top(),
-                        egui::Align2::LEFT_TOP,
-                        &label,
-                        crate::style::font(crate::style::Size::Text),
-                        ink.muted,
-                    );
+                    // a node the sound computes is read from the sound (what passes now), and falls slowly: it
+                    // rises and falls, it does not flash
+                    let heard = app.mixer.lock().ok().and_then(|m| m.sounding(&n.name));
+                    let now = match heard {
+                        Some(v) => {
+                            let key = format!("{name}/{}", w.name);
+                            let was = app.surface.meters.get(&key).copied().unwrap_or(0.0);
+                            let v = (was * 0.9).max(v.abs());
+                            app.surface.meters.insert(key, v);
+                            v
+                        }
+                        None => n.value,
+                    };
+                    let k = ((now - w.lo) / (w.hi - w.lo)).clamp(0.0, 1.0) as f32;
+                    let colour = if heard.is_some() && k > 0.9 { ink.amber } else { ink.accent };
+                    if rect.height() > rect.width() * 1.5 {
+                        // standing: it fills from the bottom
+                        let bar =
+                            Rect::from_center_size(rect.center(), vec2(10.0_f32.min(rect.width()), rect.height()));
+                        painter.rect_filled(bar, crate::style::corner(), ink.faint);
+                        let full = Rect::from_min_max(pos2(bar.left(), bar.bottom() - bar.height() * k), bar.max);
+                        painter.rect_filled(full, crate::style::corner(), colour);
+                    } else {
+                        let bar = Rect::from_min_size(rect.left_center() + vec2(0.0, 2.0), vec2(rect.width(), 10.0));
+                        painter.rect_filled(bar, crate::style::corner(), ink.faint);
+                        let mut full = bar;
+                        full.set_width(bar.width() * k);
+                        painter.rect_filled(full, crate::style::corner(), colour);
+                        painter.text(
+                            rect.left_top(),
+                            egui::Align2::LEFT_TOP,
+                            &label,
+                            crate::style::font(crate::style::Size::Text),
+                            ink.muted,
+                        );
+                    }
                     r.widget_info(|| {
                         egui::WidgetInfo::labeled(
                             egui::WidgetType::ProgressIndicator,
@@ -869,27 +972,48 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
             }
             WidgetKind::Value => {
                 if let Some(n) = node(0) {
+                    // what the sound computes is exact (no ± to it): a counter, a bar
+                    let heard = app.mixer.lock().ok().and_then(|m| m.sounding(&n.name));
+                    let now = heard.unwrap_or(n.value);
+                    let shown = match heard {
+                        Some(v) => grm_engine::lang::g(v),
+                        None => reading(now, n.sigma, n.signed),
+                    };
                     let r = ui.interact(rect, id, Sense::hover());
-                    painter.text(
-                        rect.left_top(),
-                        egui::Align2::LEFT_TOP,
-                        &label,
-                        crate::style::font(crate::style::Size::Text),
-                        ink.muted,
-                    );
-                    painter.text(
-                        rect.left_bottom(),
-                        egui::Align2::LEFT_BOTTOM,
-                        reading(n.value, n.sigma, n.signed),
-                        crate::style::font(crate::style::Size::Subtitle),
-                        ink.text,
-                    );
+                    if rect.height() < 44.0 {
+                        // short: its words and its value on one line
+                        let words = painter.layout_no_wrap(
+                            label.clone(),
+                            crate::style::font(crate::style::Size::Small),
+                            ink.muted,
+                        );
+                        let w0 = words.size().x;
+                        painter.galley(pos2(rect.left(), rect.center().y - words.size().y / 2.0), words, ink.muted);
+                        painter.text(
+                            pos2(rect.left() + w0 + if w0 > 0.0 { 6.0 } else { 0.0 }, rect.center().y),
+                            egui::Align2::LEFT_CENTER,
+                            &shown,
+                            crate::style::font(crate::style::Size::Subtitle),
+                            ink.text,
+                        );
+                    } else {
+                        painter.text(
+                            rect.left_top(),
+                            egui::Align2::LEFT_TOP,
+                            &label,
+                            crate::style::font(crate::style::Size::Text),
+                            ink.muted,
+                        );
+                        painter.text(
+                            rect.left_bottom(),
+                            egui::Align2::LEFT_BOTTOM,
+                            &shown,
+                            crate::style::font(crate::style::Size::Subtitle),
+                            ink.text,
+                        );
+                    }
                     r.widget_info(|| {
-                        egui::WidgetInfo::labeled(
-                            egui::WidgetType::Label,
-                            true,
-                            format!("{label}: {}", reading(n.value, n.sigma, n.signed)),
-                        )
+                        egui::WidgetInfo::labeled(egui::WidgetType::Label, true, format!("{label}: {shown}"))
                     });
                 }
             }
@@ -1118,7 +1242,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                     // an on/off switch and its light
                     let on = n.value > 0.5;
                     let r = ui.interact(rect, id, Sense::click());
-                    if r.clicked() {
+                    if r.clicked() || pressed_by(ui, w) {
                         observe(app, &n.name, if on { 0.0 } else { 1.0 });
                     }
                     let h = rect.height().min(22.0);

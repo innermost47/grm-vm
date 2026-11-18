@@ -158,9 +158,6 @@ pub struct App {
     human_hands: [Option<(i32, f64)>; 4],
     /// How many times the sound ran away, as last said.
     fused_seen: u64,
-    /// The studio's song (its tracks), and each strip's meter.
-    pub song: crate::studio::Song,
-    pub studio_vu: HashMap<String, f32>,
     /// Where each workshop is on its way into the main network.
     /// How many dry moments of the sound were already shown.
     dry_seen: u64,
@@ -170,8 +167,6 @@ pub struct App {
     pub universe: crate::universe::View,
     /// What her network learned (its `memory` nodes), as last taken from the sound: given back when she wakes.
     pub elle_memory: indexmap::IndexMap<String, f64>,
-    /// Her lessons (mind/lessons), as the studio says them.
-    pub lessons: Vec<crate::studio::Lesson>,
     /// When her own network was last written (what she feels, in it).
     elle_at: f64,
     /// Her note sounding now (when it began, which), drawn on the roll when it ends.
@@ -307,8 +302,6 @@ pub struct App {
     /// its line.
     pub side_open: bool,
     pub prompt_open: bool,
-    /// The studio's mixer unfolded (folded, its strips give their room to the instruments).
-    pub mixer_open: bool,
     /// What went wrong, said softly in a corner for a few seconds (and kept in the prompt's lines).
     toasts: Vec<(LineKind, String, Instant)>,
     /// The window was full screen when it was left.
@@ -404,20 +397,6 @@ impl App {
             }
         }
         let silent = if output.is_none() { Some(grm_sound::silent(mixer.clone())) } else { None };
-        // the studio's file, written from its song before anything opens it (the desk opens it again at once: it
-        // must find this version, not the one of before)
-        {
-            let mut song = crate::studio::Song::load(&memory);
-            let human = song.human(&settings.human);
-            song.save(&memory);
-            let dir = grm_shell::runtime::apps_dir(&memory);
-            let path = dir.join(format!("{}.grm", crate::studio::APP));
-            let lessons = crate::studio::mind_dir(&memory).map(|d| crate::studio::lessons(&d)).unwrap_or_default();
-            let text = song.grm(human, &lessons);
-            if std::fs::read_to_string(&path).ok().as_deref() != Some(text.as_str()) {
-                let _ = std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&path, text));
-            }
-        }
         // the player's file (its surface is the window's): written once, the human may add to it
         {
             let path = grm_shell::runtime::apps_dir(&memory).join(format!("{}.grm", crate::player::APP));
@@ -496,7 +475,6 @@ impl App {
         apply_look(&cc.egui_ctx, &settings);
         // her music, as she left it (her ear, her tastes, her lessons, her mood)
         let kept = if args.fresh { None } else { crate::notes::Kept::load(&memory) }.unwrap_or_default();
-        let memory_for_song = memory.clone();
         let kept_elle = kept.elle.clone();
         App {
             engine,
@@ -543,13 +521,10 @@ impl App {
             beat_clock: None,
             gates_closed: false,
             fused_seen: 0,
-            song: crate::studio::Song::load(&memory_for_song),
-            studio_vu: HashMap::new(),
             dry_seen: 0,
             player: crate::player::Player::default(),
             universe: crate::universe::View::default(),
             elle_memory: kept_elle,
-            lessons: crate::studio::mind_dir(&memory_for_song).map(|d| crate::studio::lessons(&d)).unwrap_or_default(),
             elle_at: 0.0,
             elle_note: [None; 3],
             roll_frozen: None,
@@ -649,7 +624,6 @@ impl App {
             collide: None,
             side_open: true,
             prompt_open: true,
-            mixer_open: true,
             toasts: vec![],
             fullscreen_back: false,
             maximized_back: false,
@@ -709,7 +683,6 @@ impl App {
         self.zone_center = w.zone_center.as_deref().and_then(crate::space::kind_of);
         self.detached = w.detached.iter().filter_map(|d| crate::space::kind_of(d)).collect();
         self.prompt_open = w.prompt_open;
-        self.mixer_open = w.mixer_open;
         self.fullscreen_back = w.fullscreen || w.launched;
         self.maximized_back = w.maximized;
         let kind = |c: char| match c {
@@ -755,7 +728,6 @@ impl App {
             zone_center: self.zone_center.as_ref().map(|k| k.word()),
             detached: self.detached.iter().map(|k| k.word()).collect(),
             prompt_open: self.prompt_open,
-            mixer_open: self.mixer_open,
             fullscreen: ctx.input(|i| i.viewport().fullscreen.unwrap_or(false)),
             maximized: ctx.input(|i| i.viewport().maximized.unwrap_or(false)),
             history: self.history.iter().rev().take(500).rev().cloned().collect(),
@@ -933,25 +905,6 @@ impl App {
         r
     }
 
-    /// The studio's file written again from its song, and opened again (its sound goes on).
-    pub fn studio_rewrite(&mut self) {
-        // her lessons read again (one may have been written meanwhile)
-        if let Some(d) = crate::studio::mind_dir(&self.memory) {
-            self.lessons = crate::studio::lessons(&d);
-        }
-        let human = self.song.human(&self.settings.human.clone());
-        self.song.save(&self.memory);
-        let dir = grm_shell::runtime::apps_dir(&self.memory);
-        let path = dir.join(format!("{}.grm", crate::studio::APP));
-        if let Err(e) =
-            std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&path, self.song.grm(human, &self.lessons)))
-        {
-            self.toast(format!("{}: {e}", path.display()));
-            return;
-        }
-        self.say(format!("app open {}", path.display()));
-    }
-
     /// A sound that ran away and started again by itself is said (once each time).
     fn fuses(&mut self) {
         let fused = self.mixer.lock().map(|m| m.fused()).unwrap_or(0);
@@ -1099,8 +1052,9 @@ impl App {
         let mut out = vec![];
         for a in &self.apps {
             if a.name == crate::studio::APP {
-                for t in self.song.tracks.iter().filter(|t| t.kind == crate::studio::Kind::Synth) {
-                    out.push(format!("{}|t{}_", a.name, t.id));
+                // each synthesiser of its lists
+                for t in a.lists.get("synths").map(|l| l.0.clone()).unwrap_or_default() {
+                    out.push(format!("{}|{t}_", a.name));
                 }
             } else if a.widgets.iter().any(|w| w.nodes.iter().any(|n| n.ends_with("auto_on"))) {
                 out.push(format!("{}|", a.name));
@@ -1656,6 +1610,13 @@ impl App {
             crate::model::free_later(old);
             self.picture_frame += 1;
             self.follow_world();
+            // she is told who plays with her (her own elle_ctx_human: what she learns with each is kept apart)
+            if let Some(n) = self.picture.node("elle_ctx_human").map(|n| n.value) {
+                let who = self.settings.human_number() as f64;
+                if (n - who).abs() > 0.5 {
+                    self.write("elle_ctx_human", who);
+                }
+            }
             crate::hover::remember(self);
             self.selected.retain(|s| self.picture.node(s).is_some());
             if !self.pending_select.is_empty() {
@@ -2884,9 +2845,7 @@ impl App {
                         crate::surface::edit_panel(self, ui, &name);
                     });
                 }
-                if name == crate::studio::APP {
-                    crate::studio::panel(self, ui);
-                } else if name == crate::elle::APP {
+                if name == crate::elle::APP {
                     crate::elle::panel(self, ui);
                 } else if name == crate::player::APP {
                     crate::player::panel(self, ui);
@@ -2936,10 +2895,6 @@ impl App {
             }
         });
         egui::CentralPanel::default().show(ctx, |ui| {
-            if name == crate::studio::APP {
-                crate::studio::panel(self, ui);
-                return;
-            }
             if name == crate::elle::APP {
                 crate::elle::panel(self, ui);
                 return;

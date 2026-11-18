@@ -456,6 +456,11 @@ impl Mixer {
         self.channels.iter().filter(|(_, c)| c.tap.is_some() && !c.stopping).map(|(n, _)| n.clone()).collect()
     }
 
+    /// A node as the sound has it now, wherever it is computed (the world's network, or a channel's).
+    pub fn sounding(&self, node: &str) -> Option<f64> {
+        self.world_value(node).or_else(|| self.channels.values().find_map(|c| c.source.value(node)))
+    }
+
     /// A node of the world's network, as the sound has it now.
     pub fn world_value(&self, node: &str) -> Option<f64> {
         self.world.as_ref().and_then(|w| w.value(node))

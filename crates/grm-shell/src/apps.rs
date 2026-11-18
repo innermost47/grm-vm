@@ -78,6 +78,9 @@ pub enum WidgetKind {
     /// A drum machine's steps (its words: the machine's name, `t3`): a row per drum, its pad, its steps on the
     /// transport, the one playing lit.
     Drums,
+    /// Bars side by side, each as tall as its node is among the others; the first node says which one is lit (from
+    /// 1): `bars elle_choice elle_want1 .. elle_want16`.
+    Bars,
     /// One among a few, its words the choices (`"low|middle|high"`): the node is the one chosen (0, 1, 2...).
     Choice,
     /// A number written by hand (`9,81` as well as `9.81`): the node takes it when Enter is pressed.
@@ -126,6 +129,7 @@ impl WidgetKind {
             "range" => WidgetKind::Range,
             "drums" => WidgetKind::Drums,
             "choice" => WidgetKind::Choice,
+            "bars" => WidgetKind::Bars,
             "field" => WidgetKind::Field,
             "row" => WidgetKind::Row,
             "column" => WidgetKind::Column,
@@ -164,6 +168,7 @@ impl WidgetKind {
             WidgetKind::Range => "range",
             WidgetKind::Drums => "drums",
             WidgetKind::Choice => "choice",
+            WidgetKind::Bars => "bars",
             WidgetKind::Field => "field",
             WidgetKind::Row => "row",
             WidgetKind::Column => "column",
@@ -210,6 +215,7 @@ impl WidgetKind {
             | WidgetKind::Tabs
             | WidgetKind::Card => (12, 4),
             WidgetKind::Choice | WidgetKind::Field => (3, 1),
+            WidgetKind::Bars => (4, 2),
             WidgetKind::Slider => (4, 1),
             WidgetKind::Toggle | WidgetKind::Button | WidgetKind::Play | WidgetKind::Rec => (2, 1),
             WidgetKind::Meter => (3, 1),
@@ -233,7 +239,7 @@ impl WidgetKind {
         }
     }
 
-    pub const ALL: [WidgetKind; 32] = [
+    pub const ALL: [WidgetKind; 33] = [
         WidgetKind::Slider,
         WidgetKind::Toggle,
         WidgetKind::Button,
@@ -258,6 +264,7 @@ impl WidgetKind {
         WidgetKind::Range,
         WidgetKind::Drums,
         WidgetKind::Choice,
+        WidgetKind::Bars,
         WidgetKind::Field,
         WidgetKind::Row,
         WidgetKind::Column,
@@ -284,6 +291,9 @@ pub struct Widget {
     /// not said).
     pub at: (i32, i32),
     pub size: (i32, i32),
+    /// Whether its size is written (`size W H`); what holds others and says none is as tall as what it holds.
+    #[serde(default)]
+    pub sized: bool,
     pub placed: bool,
     /// Its words (a text, or a label).
     pub text: String,
@@ -301,6 +311,12 @@ pub struct Widget {
     /// `when NODE`: shown only while the node is not 0.
     #[serde(default)]
     pub when: Option<String>,
+    /// `key K`: a key of the keyboard that presses it too (space, enter, a letter...), when nothing is being typed.
+    #[serde(default)]
+    pub key: Option<String>,
+    /// `say "LINE"`: the line it says when it is pressed (`{app}` is its app's name), as typed at the prompt.
+    #[serde(default)]
+    pub say: Option<String>,
     /// `grid N`: its columns.
     #[serde(default)]
     pub columns: Option<i32>,
@@ -344,6 +360,12 @@ impl Widget {
         if let Some(w) = &self.when {
             s.push_str(&format!(" when {w}"));
         }
+        if let Some(k) = &self.key {
+            s.push_str(&format!(" key {k}"));
+        }
+        if let Some(l) = &self.say {
+            s.push_str(&format!(" say \"{l}\""));
+        }
         if let Some(i) = &self.icon {
             s.push_str(&format!(" icon {i}"));
         }
@@ -362,6 +384,13 @@ pub fn parse_widget(rest: &str, line: usize) -> Result<Widget, String> {
         let after = &body[k + 5..];
         let end = after.find('"').ok_or("tip \"words\": its words end with a quote")?;
         tip = Some(after[..end].to_string());
+        body = format!("{}{}", &body[..k], &after[end + 1..]);
+    }
+    let mut say = None;
+    if let Some(k) = body.find("say \"") {
+        let after = body[k + 5..].to_string();
+        let end = after.find('"').ok_or("say \"line\": its line ends with a quote")?;
+        say = Some(after[..end].to_string());
         body = format!("{}{}", &body[..k], &after[end + 1..]);
     }
     let body = body.as_str();
@@ -392,6 +421,7 @@ pub fn parse_widget(rest: &str, line: usize) -> Result<Widget, String> {
     let mut look = None;
     let mut icon = None;
     let mut when = None;
+    let mut key = None;
     let mut columns = None;
     let num = |s: Option<&&str>| -> Result<f64, String> {
         s.ok_or_else(|| usage.to_string())?.parse::<f64>().map_err(|_| format!("{} is not a number", s.unwrap()))
@@ -415,6 +445,11 @@ pub fn parse_widget(rest: &str, line: usize) -> Result<Widget, String> {
                 icon = words.get(k + 1).map(|w| w.to_string());
                 k += 2;
             }
+            // `key K`: only a key's name (a node may be called key)
+            "key" if words.get(k + 1).is_some_and(|w| is_key(w)) => {
+                key = words.get(k + 1).map(|w| w.to_string());
+                k += 2;
+            }
             "when" => {
                 when = Some(words.get(k + 1).filter(|w| is_name(w)).ok_or("when NODE")?.to_string());
                 k += 2;
@@ -435,7 +470,9 @@ pub fn parse_widget(rest: &str, line: usize) -> Result<Widget, String> {
             w => return Err(format!("{w}: {usage}")),
         }
     }
-    if nodes.len() < kind.nodes() {
+    // a button that says a line needs no node: what it does is its line
+    let needs = if kind == WidgetKind::Button && say.is_some() { 0 } else { kind.nodes() };
+    if nodes.len() < needs {
         return Err(format!("a {} is bound to {} node(s)", kind.word(), kind.nodes()));
     }
     if kind == WidgetKind::Keys && lo == 0.0 && hi == 1.0 {
@@ -450,6 +487,7 @@ pub fn parse_widget(rest: &str, line: usize) -> Result<Widget, String> {
         lo,
         hi,
         at: at.unwrap_or((0, 0)),
+        sized: size.is_some(),
         size: size.unwrap_or(kind.size()),
         placed: at.is_some(),
         text,
@@ -458,6 +496,8 @@ pub fn parse_widget(rest: &str, line: usize) -> Result<Widget, String> {
         icon,
         tip,
         when,
+        key,
+        say,
         columns,
         children: vec![],
     })
@@ -520,10 +560,38 @@ pub struct Parsed {
     pub looks: Vec<(usize, String)>,
     /// Its kinds of widget (`kind NAME(param, ...): KIND ... end`): their parameters, their first line, their body.
     pub kinds: IndexMap<String, (Vec<String>, String, Vec<String>)>,
+    /// Its lists (`list tracks = synths drums`: a list in a list is its items), their items in their order, and the
+    /// line each is written on.
+    pub lists: IndexMap<String, (Vec<String>, usize)>,
     /// The widgets that hold others, open while their lines are read (closed by `end`).
     open: Vec<Widget>,
     /// While a kind is unfolded: the line of the app's file everything comes from.
     at_line: Option<usize>,
+}
+
+/// The keys a widget can be pressed by: space, enter, escape, tab, a letter or a digit, f1 .. f12.
+pub fn is_key(w: &str) -> bool {
+    matches!(w, "space" | "enter" | "escape" | "tab")
+        || (w.len() == 1 && w.chars().all(|c| c.is_ascii_alphanumeric()))
+        || w.strip_prefix('f').and_then(|n| n.parse::<u8>().ok()).is_some_and(|n| (1..=12).contains(&n))
+}
+
+/// How many rows what holds others takes, from what it holds (one under another: their sum; side by side: the
+/// tallest; a grid: the tallest of each of its rows; a card's title and tabs' tabs: one more).
+fn natural_rows(w: &Widget) -> i32 {
+    let rows = |c: &Widget| c.size.1.max(1);
+    let shown = &w.children;
+    match w.kind {
+        WidgetKind::Column | WidgetKind::Scroll => shown.iter().map(rows).sum(),
+        WidgetKind::Card => shown.iter().map(rows).sum::<i32>() + i32::from(!w.text.is_empty()),
+        WidgetKind::Row | WidgetKind::Stack => shown.iter().map(rows).max().unwrap_or(1),
+        WidgetKind::Tabs => shown.iter().map(rows).max().unwrap_or(1) + 1,
+        WidgetKind::Grid => {
+            let n = w.columns.unwrap_or(2).max(1) as usize;
+            shown.chunks(n).map(|r| r.iter().map(rows).max().unwrap_or(1)).sum()
+        }
+        _ => w.size.1,
+    }
 }
 
 /// Every widget's name, those held included.
@@ -552,7 +620,11 @@ impl Parsed {
         }
     }
 
-    fn held(&mut self, w: Widget) {
+    fn held(&mut self, mut w: Widget) {
+        // what holds others and says no size: as tall as what it holds (a list that grows grows it)
+        if w.kind.holds() && !w.sized {
+            w.size.1 = natural_rows(&w).max(1);
+        }
         match self.open.last_mut() {
             Some(o) => o.children.push(w),
             None => self.widgets.push(w),
@@ -681,9 +753,49 @@ fn unfold(
         if text.is_empty() {
             continue;
         }
+        // a sum over a list is the sum of its terms, written out
+        let expanded;
+        let text = if text.contains(" in ") && text.contains("sum(") {
+            match sums_over_lists(text, &p.lists) {
+                Ok(t) => {
+                    expanded = t;
+                    expanded.as_str()
+                }
+                Err(e) => {
+                    p.errors.push((line_no, e));
+                    continue;
+                }
+            }
+        } else {
+            text
+        };
         let (word, rest) = text.split_once(char::is_whitespace).map(|(a, b)| (a, b.trim())).unwrap_or((text, ""));
+        // `repeat t in LIST: line`: the line said for each of its items ({t} the item, {t.k} its place from 1, {t.i} from 0)
+        if word.eq_ignore_ascii_case("repeat") {
+            if let Some(lines) = repeat_over_list(rest, &p.lists) {
+                match lines {
+                    Ok(lines) => {
+                        let (errors, flat) = (p.errors.len(), p.flat.len());
+                        let before = p.at_line.replace(line_no);
+                        unfold(&lines, base, templates, p, outer.clone(), depth + 1);
+                        p.at_line = before;
+                        p.errors[errors..].iter_mut().for_each(|e| e.0 = line_no);
+                        p.flat[flat..].iter_mut().for_each(|f| f.line = line_no);
+                    }
+                    Err(e) => p.errors.push((line_no, e)),
+                }
+                continue;
+            }
+        }
         match word.to_lowercase().as_str() {
-            "kind" if outer.is_none() => match parse_kind_head(rest) {
+            "list" => match parse_list(rest, &p.lists) {
+                Ok((name, items)) => {
+                    p.lists.insert(name, (items, line_no));
+                }
+                Err(e) => p.errors.push((line_no, e)),
+            },
+            // kinds are made anywhere (an app's own, or a library's: `use widgets/mixer.grm`)
+            "kind" => match parse_kind_head(rest) {
                 Ok((name, params, head)) => kind_rec = Some((name, params, head, vec![], 0)),
                 Err(e) => p.errors.push((line_no, e)),
             },
@@ -754,15 +866,39 @@ fn unfold(
                 unfold(&lines, base, templates, p, Some((line_no, label)), depth + 1);
             }
             "use" => {
+                // `use FILE (k=v, ...)`: the file said with each {k} written v (a lesson: her name, where it holds)
+                let (rest, given) = match rest.split_once(" (") {
+                    Some((f, args)) if args.ends_with(')') => (f.trim(), args.trim_end_matches(')').to_string()),
+                    _ => (rest, String::new()),
+                };
+                let given: Vec<(String, String)> = given
+                    .split(',')
+                    .filter_map(|kv| kv.split_once('=').map(|(k, v)| (k.trim().to_string(), v.trim().to_string())))
+                    .collect();
                 let mut path = PathBuf::from(rest);
                 if !path.is_absolute() {
                     path = base.join(rest);
+                    // the widgets' library stands beside the apps (`widgets/` next to `apps/`)
+                    if !path.exists() && rest.starts_with("widgets/") {
+                        if let Some(up) = base.parent() {
+                            path = up.join(rest);
+                        }
+                    }
                 }
                 match std::fs::read_to_string(&path) {
                     Ok(t) => {
-                        let lines: Vec<String> = t.lines().map(|s| s.to_string()).collect();
+                        let said =
+                            |l: &str| given.iter().fold(l.to_string(), |t, (k, v)| t.replace(&format!("{{{k}}}"), v));
+                        let lines: Vec<String> = t.lines().map(said).collect();
                         let folder = path.parent().map(|f| f.to_path_buf()).unwrap_or_else(|| base.to_path_buf());
-                        unfold(&lines, &folder, templates, p, Some((line_no, rest.to_string())), depth + 1);
+                        if given.is_empty() || outer.is_some() {
+                            unfold(&lines, &folder, templates, p, Some((line_no, rest.to_string())), depth + 1);
+                        } else {
+                            // said with its words given: the app's own lines, written here (not a network it shares)
+                            let before = p.at_line.replace(line_no);
+                            unfold(&lines, &folder, templates, p, None, depth + 1);
+                            p.at_line = before;
+                        }
                     }
                     Err(e) => p.errors.push((line_no, format!("{rest}: {e}"))),
                 }
@@ -823,6 +959,147 @@ fn unfold(
             p.close_widget(0);
         }
     }
+}
+
+/// `list NAME = ITEM ...`: its name and its items (a list named among them gives its own items).
+fn parse_list(rest: &str, lists: &IndexMap<String, (Vec<String>, usize)>) -> Result<(String, Vec<String>), String> {
+    let usage = "list NAME = ITEM ITEM ... (a list among them gives its items)";
+    let (name, items) = rest.split_once('=').ok_or(usage)?;
+    let name = name.trim();
+    if !is_name(name) {
+        return Err(format!("{usage}: {name} is not a name"));
+    }
+    let mut out = vec![];
+    for w in items.split_whitespace() {
+        // an item is a word (letters, digits, _: a file's name may begin with a digit, 01_one_note)
+        if w.is_empty() || !w.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            return Err(format!("{usage}: {w} is not a word"));
+        }
+        match lists.get(w) {
+            Some((inner, _)) => out.extend(inner.iter().cloned()),
+            None => out.push(w.to_string()),
+        }
+    }
+    Ok((name.to_string(), out))
+}
+
+/// `repeat t in LIST: line` (None: not over a list; `repeat k in 1 .. 3` is the language's).
+fn repeat_over_list(rest: &str, lists: &IndexMap<String, (Vec<String>, usize)>) -> Option<Result<Vec<String>, String>> {
+    let (head, line) = rest.split_once(':')?;
+    let mut w = head.split_whitespace();
+    let (var, inw, list) = (w.next()?, w.next()?, w.next()?);
+    if inw != "in" || w.next().is_some() || !is_name(list) {
+        return None;
+    }
+    let Some((items, _)) = lists.get(list) else {
+        return Some(Err(format!("repeat {var} in {list}: no list {list} (a list is written before it is used)")));
+    };
+    let one = |k: usize, it: &String| {
+        line.trim()
+            .replace(&format!("{{{var}.k}}"), &(k + 1).to_string())
+            .replace(&format!("{{{var}.i}}"), &k.to_string())
+            .replace(&format!("{{{var}}}"), it)
+    };
+    Some(Ok(items.iter().enumerate().map(|(k, it)| one(k, it)).collect()))
+}
+
+/// Each `sum(t in LIST: term)` of a line written out: `(term1 + term2 ...)`, `0` for an empty list.
+pub fn sums_over_lists(text: &str, lists: &IndexMap<String, (Vec<String>, usize)>) -> Result<String, String> {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(k) = rest.find("sum(") {
+        let after = &rest[k + 4..];
+        let head = after.split(':').next().unwrap_or("");
+        let mut w = head.split_whitespace();
+        let over = match (w.next(), w.next(), w.next(), w.next()) {
+            (Some(var), Some("in"), Some(list), None) if lists.contains_key(list) => Some((var, list)),
+            _ => None,
+        };
+        let Some((var, list)) = over else {
+            out.push_str(&rest[..k + 4]);
+            rest = after;
+            continue;
+        };
+        // its term, to the parenthesis that closes the sum
+        let body_at = head.len() + 1;
+        let mut depth = 1;
+        let mut end = None;
+        for (i, c) in after[body_at..].char_indices() {
+            match c {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = Some(body_at + i);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let end = end.ok_or(format!("sum({var} in {list}: ...): its parenthesis is not closed"))?;
+        let term = after[body_at..end].trim();
+        let items = &lists[list].0;
+        let written = if items.is_empty() {
+            "0".to_string()
+        } else {
+            let terms: Vec<String> = items.iter().map(|it| term.replace(&format!("{{{var}}}"), it)).collect();
+            format!("({})", terms.join(" + "))
+        };
+        out.push_str(&rest[..k]);
+        out.push_str(&written);
+        rest = &after[end + 1..];
+    }
+    out.push_str(rest);
+    Ok(out)
+}
+
+/// A list of an app's file changed: `add ITEM`, `add next [PREFIX]` (the next name free among all its lists:
+/// t1 t2 t3 → t4), `remove ITEM`. The file's text after it, and what was done.
+pub fn change_list(text: &str, base: &Path, list: &str, how: &str) -> Result<(String, String), String> {
+    let p = parse(text, base);
+    let Some((items, line)) = p.lists.get(list).cloned() else { return Err(format!("no list {list}")) };
+    let written_line = text.lines().nth(line - 1).unwrap_or("");
+    let own: Vec<String> = written_line
+        .split_once('=')
+        .map(|(_, r)| r.split_whitespace().map(str::to_string).collect())
+        .unwrap_or_default();
+    let words: Vec<&str> = how.split_whitespace().collect();
+    let (new, said) = match words.as_slice() {
+        ["add", "next", prefix @ ..] => {
+            let prefix = match prefix.first() {
+                Some(p) => p.to_string(),
+                None => items
+                    .first()
+                    .map(|i| i.trim_end_matches(|c: char| c.is_ascii_digit()).to_string())
+                    .ok_or(format!("list {list} is empty: add next PREFIX (t: t1, t2...)"))?,
+            };
+            let all = p.lists.values().flat_map(|(i, _)| i.iter());
+            let top = all.filter_map(|i| i.strip_prefix(prefix.as_str())?.parse::<u32>().ok()).max().unwrap_or(0);
+            let item = format!("{prefix}{}", top + 1);
+            let mut o = own.clone();
+            o.push(item.clone());
+            (o, format!("{item} added to {list}"))
+        }
+        ["add", item] if is_name(item) => {
+            if items.iter().any(|i| i == item) {
+                return Err(format!("{item} is already in {list}"));
+            }
+            let mut o = own.clone();
+            o.push(item.to_string());
+            (o, format!("{item} added to {list}"))
+        }
+        ["remove", item] => {
+            if !own.iter().any(|i| i == item) {
+                return Err(format!("{item} is not written in {list}"));
+            }
+            (own.iter().filter(|i| i != item).cloned().collect(), format!("{item} taken from {list}"))
+        }
+        _ => return Err("list APP LIST add ITEM | add next [PREFIX] | remove ITEM".into()),
+    };
+    let indent: String = written_line.chars().take_while(|c| c.is_whitespace()).collect();
+    let line_now = format!("{indent}list {list} = {}", new.join(" "));
+    Ok((with_line(text, line, Some(&line_now)), said))
 }
 
 /// `kind NAME(param, ...): KIND ...`: its name, its parameters, its first line (what it is, its words, its look).
@@ -1144,6 +1421,72 @@ mod tests {
         let b = &mixer.children[2].children[1];
         assert_eq!((b.kind, b.columns, b.children.len()), (WidgetKind::Grid, Some(3), 1));
         assert_eq!(all_widgets(&p.widgets).len(), 12);
+    }
+
+    /// The widgets' library (`widgets/`, beside `apps/`): its kinds are used by any app, with no error.
+    #[test]
+    fn the_widgets_library_is_used_from_an_app() {
+        let apps = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps");
+        let text = "app M\nuse widgets/mixer.grm\nwidget mixer: row at 0 0 size 12 7\n  widget a: strip(ch=t1, label=synth)\n  widget out: master\nend\n";
+        let p = parse(text, &apps);
+        assert!(p.errors.is_empty(), "{:?}", p.errors);
+        let names: Vec<&str> = all_widgets(&p.widgets).iter().map(|w| w.name.as_str()).collect();
+        assert!(names.contains(&"a_level") && names.contains(&"a_pan") && names.contains(&"out_room"), "{names:?}");
+    }
+
+    /// Lists: one in another gives its items; a line repeated for each item, a sum over them written out; a button
+    /// that says a line; the list changed in the file (the next name free among all the lists).
+    #[test]
+    fn lists_make_lines_sums_and_widgets_and_change_in_the_file() {
+        let text = "app S\n\
+            list synths = t1 t2\n\
+            list drums = t3\n\
+            list tracks = synths drums\n\
+            repeat t in tracks: node {t}_out = {t.k}\n\
+            node out\n\
+            relate mix: out = sum(t in tracks: 2 * {t}_out) + sum(j in 1 .. 2: j)\n\
+            widget col: column at 0 0 size 12 4\n\
+              repeat t in synths: widget {t}v: value {t}_out\n\
+            end\n\
+            widget add: button \"+ synth\" icon plus say \"list {app} synths add next\" at 0 5 size 2 1\n";
+        let p = parse(text, Path::new("."));
+        assert!(p.errors.is_empty(), "{:?}", p.errors);
+        assert_eq!(p.lists["tracks"].0, ["t1", "t2", "t3"]);
+        let lines: Vec<&str> = p.flat.iter().map(|f| f.text.as_str()).collect();
+        assert!(lines.contains(&"node t3_out = 3"), "{lines:?}");
+        assert!(
+            lines.iter().any(|l| l.contains("(2 * t1_out + 2 * t2_out + 2 * t3_out) + sum(j in 1 .. 2: j)")),
+            "{lines:?}"
+        );
+        assert_eq!(p.widgets[0].children.len(), 2);
+        assert_eq!(p.widgets[1].say.as_deref(), Some("list {app} synths add next"));
+        let (after, said) = change_list(text, Path::new("."), "synths", "add next").unwrap();
+        assert!(after.contains("list synths = t1 t2 t4"), "t3 is taken by the drums: {after}");
+        assert_eq!(said, "t4 added to synths");
+        let (after, _) = change_list(&after, Path::new("."), "synths", "remove t1").unwrap();
+        assert!(after.contains("list synths = t2 t4"));
+        assert!(change_list(&after, Path::new("."), "tracks", "remove t2").is_err(), "t2 is written in synths");
+        let p = parse("repeat t in nothing: node {t}\n", Path::new("."));
+        assert!(p.errors[0].1.contains("no list nothing"), "{:?}", p.errors);
+    }
+
+    /// The studio is its file: its lists make its instruments, their panels, the mixer, the mix; no error.
+    #[test]
+    fn the_studio_is_written_in_grml_with_no_error() {
+        let apps = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps");
+        let text = std::fs::read_to_string(apps.join("studio.grm")).unwrap();
+        let p = parse(&text, &apps);
+        assert!(p.errors.is_empty(), "{:?}", &p.errors[..p.errors.len().min(5)]);
+        assert_eq!(p.lists["tracks"].0, ["t1", "t2", "t3"]);
+        let names: Vec<&str> = all_widgets(&p.widgets).iter().map(|w| w.name.as_str()).collect();
+        for n in ["t1sec", "t2sec_keys", "t3sec_grid", "t3mix_level", "out_room"] {
+            assert!(names.contains(&n), "{n} not in {names:?}");
+        }
+        let flat: Vec<&str> = p.flat.iter().map(|f| f.text.as_str()).collect();
+        assert!(flat
+            .iter()
+            .any(|l| l.starts_with("relate master_left: out = (master * t1_l + master * t2_l + master * t3_l)")));
+        assert!(flat.iter().any(|l| l.contains("elle_lesson in 27.5 .. 28.5")), "the lessons, each where it holds");
     }
 
     #[test]

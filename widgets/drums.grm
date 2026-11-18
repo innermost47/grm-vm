@@ -1,0 +1,27 @@
+# A drum machine's panel: each drum's level, pitch and decay, whether she plays it, and its steps.
+#   use widgets/drums.grm
+#   widget t3sec: drums_panel(t=t3, label=drums)
+
+kind drums_panel(t, label): card "{label} · {t}" size 12 8 icon drum
+  widget knobs: grid 12 size 12 2
+    widget kl: knob {t}_k_level 0 .. 1 size 1 2 "kick"
+    widget kt: knob {t}_k_tune 30 .. 120 size 1 2 "pitch"
+    widget kd: knob {t}_k_decay 0.01 .. 1.5 size 1 2 "decay"
+    widget sl: knob {t}_s_level 0 .. 1 size 1 2 "snare"
+    widget st: knob {t}_s_tune 100 .. 400 size 1 2 "pitch"
+    widget sd: knob {t}_s_decay 0.01 .. 1.5 size 1 2 "decay"
+    widget hl: knob {t}_h_level 0 .. 1 size 1 2 "hat"
+    widget ht: knob {t}_h_tune 0.5 .. 2 size 1 2 "pitch"
+    widget hd: knob {t}_h_decay 0.01 .. 1.5 size 1 2 "decay"
+    widget tl: knob {t}_t_level 0 .. 1 size 1 2 "tom"
+    widget tt: knob {t}_t_tune 60 .. 300 size 1 2 "pitch"
+    widget td: knob {t}_t_decay 0.01 .. 1.5 size 1 2 "decay"
+  end
+  widget hers: grid 4 size 12 1
+    widget kw: switch {t}_k_hers size 3 1 "hers: kick" icon hand
+    widget sw: switch {t}_s_hers size 3 1 "hers: snare" icon hand
+    widget hw: switch {t}_h_hers size 3 1 "hers: hat" icon hand
+    widget tw: switch {t}_t_hers size 3 1 "hers: tom" icon hand
+  end
+  widget grid: drums size 12 4 "{t}"
+end

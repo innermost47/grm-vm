@@ -1,0 +1,16 @@
+# A transport: play and stop (the space bar too), where it is (the bar, the beat), the tempo, the metronome, the
+# echo's time in beats, and the sound set going again. Its nodes: out (the sound), tr_bars, tr_beats, bpm,
+# metro_on, metro_level, echo_beats.
+#   use widgets/transport.grm
+#   widget top: transport at 0 0
+
+kind transport: row size 12 1
+  widget play: play out size 2 1 "play" key space tip "play and stop (the space bar)"
+  widget bar: value tr_bars size 1 1 "bar"
+  widget beat: value tr_beats size 1 1 "beat"
+  widget tempo: field bpm size 2 1 "120" tip "beats a minute"
+  widget metro: toggle metro_on size 2 1 "metronome"
+  widget click: slider metro_level 0 .. 1 size 1 1 tip "how loud the click"
+  widget echo: choice echo_beats size 2 1 "echo 1/16=0.25|echo 1/8=0.5|echo 1/8.=0.75|echo 1/4=1|echo 1/4.=1.5|echo 1/2=2" tip "the echo's time, in beats"
+  widget again: button "sound again" icon rotate-ccw size 2 1 say "sound again" tip "the sound unplugged and plugged in again"
+end

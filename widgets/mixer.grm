@@ -1,0 +1,30 @@
+# A mixer: a strip for each channel, and the master. A channel CH has its nodes CH_out (what passes),
+# CH_level, CH_pan, CH_echo, CH_rev, CH_on; the master has master, echo_return, echo_back, rev_return, room.
+#   use widgets/mixer.grm
+#   widget mix: row at 0 20 size 12 7
+#     widget t1: strip(ch=t1, label=synth)
+#     widget out: master
+#   end
+
+kind strip(ch, label): card "{label}" size 3 7 tip "{ch}"
+  widget sound: row size 3 3
+    widget vu: meter {ch}_out 0 .. 1 size 1 3 tip "what passes"
+    widget level: fader {ch}_level 0 .. 1 size 2 3 "level" tip "how loud"
+  end
+  widget sends: grid 3 size 3 2
+    widget pan: knob {ch}_pan 0 .. 1 size 1 2 "pan" tip "left or right"
+    widget echo: knob {ch}_echo 0 .. 1 size 1 2 "echo" tip "how much goes to the echo"
+    widget rev: knob {ch}_rev 0 .. 1 size 1 2 "reverb" tip "how much goes to the reverb"
+  end
+  widget on: toggle {ch}_on size 3 1 "on" tip "heard or not"
+end
+
+kind master: card "master" size 3 7
+  widget knobs: grid 3 size 3 4
+    widget out: knob master 0 .. 1 size 1 2 "master" tip "how loud, all together"
+    widget echo: knob echo_return 0 .. 1 size 1 2 "echo" tip "how loud the echo comes back"
+    widget again: knob echo_back 0 .. 0.97 size 1 2 "echo again" tip "how much of the echo goes round again"
+    widget reverb: knob rev_return 0 .. 1 size 1 2 "reverb" tip "how loud the reverb comes back"
+    widget room: knob room 0 .. 0.97 size 1 2 "room" tip "how big the room is"
+  end
+end

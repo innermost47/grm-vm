@@ -1,0 +1,67 @@
+# A synthesiser's panel: its sound (oscillators, filter), its envelopes and its lfo, who plays it, its sequencer
+# and its arpeggiator, its keys. Its nodes are {t}_... (see networks/synth.grm).
+#   use widgets/synth.grm
+#   widget t1sec: synth_panel(t=t1, label=synth)
+
+kind synth_panel(t, label): card "{label} · {t}" size 12 12 icon audio-waveform
+  widget sound: grid 12 size 12 2
+    widget a0: knob {t}_shape 0 .. 1 size 1 2 "saw · square"
+    widget a1: knob {t}_o1_level 0 .. 1 size 1 2 "osc 1"
+    widget a2: knob {t}_o2_level 0 .. 1 size 1 2 "osc 2"
+    widget a3: knob {t}_o2_ratio 0.25 .. 4 size 1 2 "2: tune"
+    widget a4: knob {t}_o3_level 0 .. 1 size 1 2 "osc 3"
+    widget a5: knob {t}_o3_ratio 0.5 .. 8 size 1 2 "3: ratio"
+    widget a6: knob {t}_fm 0 .. 1 size 1 2 "fm"
+    widget a7: knob {t}_noise 0 .. 1 size 1 2 "noise"
+    widget a8: knob {t}_cutoff 0.005 .. 0.32 size 1 2 "cutoff"
+    widget a9: knob {t}_env_amount 0 .. 0.3 size 1 2 "env"
+    widget a10: knob {t}_resonance 0 .. 3.5 size 1 2 "resonance"
+    widget a11: knob {t}_glide 0.001 .. 2 size 1 2 "glide"
+  end
+  widget shape: grid 12 size 12 2
+    widget b0: knob {t}_aa_time 0.001 .. 4 size 1 2 "attack"
+    widget b1: knob {t}_ad_time 0.001 .. 4 size 1 2 "decay"
+    widget b2: knob {t}_a_sustain 0 .. 1 size 1 2 "sustain"
+    widget b3: knob {t}_ar_time 0.001 .. 4 size 1 2 "release"
+    widget b4: knob {t}_fa_time 0.001 .. 4 size 1 2 "f attack"
+    widget b5: knob {t}_fd_time 0.001 .. 4 size 1 2 "f decay"
+    widget b6: knob {t}_f_sustain 0 .. 1 size 1 2 "f sustain"
+    widget b7: knob {t}_fr_time 0.001 .. 4 size 1 2 "f release"
+    widget b8: knob {t}_pitch_env 0 .. 4 size 1 2 "to pitch"
+    widget b9: knob {t}_lfo_rate 0.05 .. 12 size 1 2 "lfo speed"
+    widget b10: knob {t}_lfo_cut 0 .. 0.5 size 1 2 "lfo filter"
+    widget b11: knob {t}_lfo_pitch 0 .. 0.03 size 1 2 "vibrato"
+  end
+  widget who: grid 5 size 12 1
+    widget w0: switch {t}_hers size 2 1 "hers" icon hand
+    widget w1: switch {t}_seq_on size 2 1 "sequencer" icon layout-grid
+    widget w2: switch {t}_arp_on size 2 1 "arpeggiator" icon list-music
+    widget w3: switch {t}_arp_latch size 2 1 "latch" icon lock
+    widget w4: switch {t}_seq_exact size 2 1 "exact notes" icon magnet
+  end
+  widget steps: grid 12 size 12 3
+    widget st0: step {t}_s_n1 {t}_at 55 .. 880 size 1 3 "1"
+    widget st1: step {t}_s_n2 {t}_at 55 .. 880 size 1 3 "2"
+    widget st2: step {t}_s_n3 {t}_at 55 .. 880 size 1 3 "3"
+    widget st3: step {t}_s_n4 {t}_at 55 .. 880 size 1 3 "4"
+    widget st4: step {t}_s_n5 {t}_at 55 .. 880 size 1 3 "5"
+    widget st5: step {t}_s_n6 {t}_at 55 .. 880 size 1 3 "6"
+    widget st6: step {t}_s_n7 {t}_at 55 .. 880 size 1 3 "7"
+    widget st7: step {t}_s_n8 {t}_at 55 .. 880 size 1 3 "8"
+    widget am: knob {t}_arp_mode 0 .. 1 size 1 2 "up · down"
+    widget ao: knob {t}_arp_oct 1 .. 3 size 1 2 "octaves"
+    widget ar: knob {t}_arp_rate 0.25 .. 4 size 1 2 "arp speed"
+    widget la: knob {t}_lfo_amp 0 .. 1 size 1 2 "tremolo"
+  end
+  widget ons: grid 12 size 12 1
+    widget so0: switch {t}_s_on1 size 1 1 "on"
+    widget so1: switch {t}_s_on2 size 1 1 "on"
+    widget so2: switch {t}_s_on3 size 1 1 "on"
+    widget so3: switch {t}_s_on4 size 1 1 "on"
+    widget so4: switch {t}_s_on5 size 1 1 "on"
+    widget so5: switch {t}_s_on6 size 1 1 "on"
+    widget so6: switch {t}_s_on7 size 1 1 "on"
+    widget so7: switch {t}_s_on8 size 1 1 "on"
+  end
+  widget keys: keys {t}_pitch {t}_hold size 12 2
+end

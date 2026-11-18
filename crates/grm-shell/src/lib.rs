@@ -97,6 +97,7 @@ the world:      connect meteo LAT LON [DAYS]    the weather of a place, hour by 
 apps:           apps                            those running, those that can be opened
                 app new NAME                    a new app (a file in the apps' folder)
                 app open FILE|NAME              it runs: its network in the world, its surface, its APIs
+                list APP LIST add ITEM|next     a list of an app's file grows (remove ITEM: shrinks); what it makes follows
                 app close NAME                  it stops (its file stays; what it lived through is kept)
                 app undo|redo NAME              its last edit taken back, or given again
                 (an app's file: the language, `widget NAME: KIND NODE..`, `api ...`, `read ...`, `clock S`,
@@ -801,6 +802,7 @@ impl Shell {
                 }))
             }
             "app" => self.app_command(engine, &rest),
+            "list" => self.list_command(engine, &rest),
             "apps" => self.app_command(engine, ""),
             "api" | "read" => self.desk_api(engine, &line),
             "sound" | "voice" | "volume" | "play" | "stop" | "mute" | "unmute" | "solo" | "gain" | "pan" | "mixer"

@@ -1538,6 +1538,37 @@ mod tests {
         w
     }
 
+    /// The mathematical constants, known everywhere the same way: in a number, in a node's value, in a relation
+    /// (a product, a sum), in what follows (`set`, `follow`).
+    #[test]
+    fn the_constants_are_known_everywhere() {
+        use std::f64::consts::{E, PI, TAU};
+        let phi = (1.0 + 5f64.sqrt()) / 2.0;
+        let mut w = world(&[
+            "node r = 2",
+            "node turn = tau",
+            "node gold = phi",
+            "node c",
+            "relate circle: c = 2 * pi * r",
+            "observe r = 2",
+            "node grow",
+            "relate g: grow = e * r + sqrt2",
+            "observe gold = phi",
+        ]);
+        let close = |a: f64, b: f64| (a - b).abs() < 1e-6 * b.abs().max(1.0);
+        assert!(close(w.machine.value_si("turn"), TAU), "tau as a value: {}", w.machine.value_si("turn"));
+        assert!(close(w.machine.value_si("gold"), phi), "phi as a value");
+        assert!(close(w.machine.value_si("c"), 2.0 * PI * 2.0), "pi in a product: {}", w.machine.value_si("c"));
+        // in a sum, a constant is the very number written out (and never a node of its name)
+        let literal =
+            world(&["node r = 2", "node grow", &format!("relate g: grow = {E:.17} * r + {:.17}", 2f64.sqrt())]);
+        let said = |w: &World| format!("{:?}", w.net().relations.iter().find(|r| r.name == "g").map(|r| &r.kind));
+        assert_eq!(said(&w), said(&literal), "e and sqrt2 in a sum are not the numbers they are");
+        assert!(!w.net().nodes.contains_key("e") && !w.net().nodes.contains_key("sqrt2"));
+        // a node is not called as a constant is
+        assert!(w.say("node pi = 3", &Provenance::of("base")).is_err());
+    }
+
     #[test]
     fn a_simulation_changes_a_copy_never_reality() {
         let mut w = world(&[

@@ -28,6 +28,17 @@ network transport(name, step, run)
   rail {name}_bar2 32
   rail {name}_bar3 32
   rail {name}_bar4 32
+  # where it is, as a human counts: the bar (from 1), the beat in it (1 .. 4)
+  var {name}_beat = 0
+  set {name}_beat = {name}_beat + 1 when {name}_f in 1 .. 3 and {name}_i in 2.5 .. 3.5
+  set {name}_beat = {name}_beat + 1 when {name}_f in 1 .. 3 and {name}_i in 6.5 .. 7.5
+  set {name}_beat = {name}_beat + 1 when {name}_f in 1 .. 3 and {name}_i in 10.5 .. 11.5
+  set {name}_beat = 0 when {name}_f in 1 .. 3 and {name}_i in 14.5 .. 99
+  rail {name}_beat 8
+  node {name}_beats
+  relate {name}_beat_counted: {name}_beats = {name}_beat + 1
+  node {name}_bars
+  relate {name}_bars_counted: {name}_bars = 4096 * {name}_bar4 + 256 * {name}_bar3 + 16 * {name}_bar2 + {name}_bar + 1
   var {name}_h = 0
   set {name}_h = 1 - {name}_h when {name}_f in 1 .. 3 and {name}_i in 14.5 .. 99
   var {name}_e = 0

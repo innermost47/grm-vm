@@ -175,14 +175,13 @@ mod tests {
         assert_eq!(written(Need::Number, "9,81"), "9.81");
     }
 
-    /// Played again: « le symbole # ne marche pas dans la liste des tonalités » (the fonts have no ♯ nor ♭).
+    /// Played again: « le symbole # ne marche pas dans la liste des tonalités » (the fonts have no ♯ nor ♭): her
+    /// keys are written with # and b.
     #[test]
     fn the_keys_are_named_with_signs_the_fonts_have() {
-        for lang in [Lang::Fr, Lang::En] {
-            for n in crate::studio::key_names(lang) {
-                assert!(!n.contains(['♯', '♭']), "{n}");
-            }
-        }
+        let her = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../widgets/her.grm")).unwrap();
+        assert!(her.contains("key: C#=4") && her.contains("key: Bb=1"));
+        assert!(!her.contains(['♯', '♭']));
     }
 
     #[test]

@@ -27,4 +27,6 @@ space.grm
 *.studio.json
 *.player.json
 
+# Kept here, never pushed: the notes of each lot and the rules the work follows.
+RELEASE_NOTES.md
 CLAUDE.md

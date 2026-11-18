@@ -65,6 +65,9 @@ pub struct Settings {
     pub human: String,
     /// Her name, chosen by the human (empty: Her).
     pub her: String,
+    /// The names of those who played with her (she keeps apart what she learned with each, up to four; nothing
+    /// of them but their place here).
+    pub humans: Vec<String>,
     /// What the MIDI controllers drive (learned).
     pub midi: Vec<crate::midi::Binding>,
 }
@@ -88,6 +91,7 @@ impl Default for Settings {
             follow_hour: false,
             human: String::new(),
             her: String::new(),
+            humans: vec![],
             tips: Tips::default(),
             midi: vec![],
             at: None,
@@ -104,6 +108,19 @@ fn path() -> Option<PathBuf> {
 }
 
 impl Settings {
+    /// Who plays with her now, as she knows them apart (1 .. 4; a name not given is "someone", the first).
+    pub fn human_number(&mut self) -> u32 {
+        let name = if self.human.trim().is_empty() { "someone".to_string() } else { self.human.trim().to_string() };
+        if let Some(k) = self.humans.iter().position(|h| *h == name) {
+            return k as u32 + 1;
+        }
+        if self.humans.len() < 4 {
+            self.humans.push(name);
+            return self.humans.len() as u32;
+        }
+        4
+    }
+
     /// Her name: the one chosen, else Her.
     pub fn her_name(&self) -> String {
         Some(self.her.trim()).filter(|n| !n.is_empty()).unwrap_or("Her").to_string()
