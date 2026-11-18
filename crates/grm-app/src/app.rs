@@ -155,12 +155,20 @@ pub struct App {
     /// The studio's song (its tracks), and each strip's meter.
     pub song: crate::studio::Song,
     pub studio_vu: HashMap<String, f32>,
+    /// Where each workshop is on its way into the main network.
+    pub ws_status: HashMap<String, crate::airlock::WsStatus>,
+    /// The player: its folder, its lists, what plays.
+    pub player: crate::player::Player,
     /// What her network learned (its `memory` nodes), as last taken from the sound: given back when she wakes.
     pub elle_memory: indexmap::IndexMap<String, f64>,
+    /// Her lessons (mind/lessons), as the studio says them.
+    pub lessons: Vec<crate::studio::Lesson>,
     /// When her own network was last written (what she feels, in it).
     elle_at: f64,
     /// Her note sounding now (when it began, which), drawn on the roll when it ends.
-    elle_note: Option<(f64, i32)>,
+    elle_note: [Option<(f64, i32)>; 3],
+    /// The roll's time, stopped with the song (when it was stopped).
+    pub roll_frozen: Option<f64>,
     /// A take played again: (when it began, its notes, the next to play, the notes to let go: when, which voice).
     pub replay: Option<Replay>,
     started: Instant,
@@ -393,9 +401,22 @@ impl App {
             song.save(&memory);
             let dir = grm_shell::runtime::apps_dir(&memory);
             let path = dir.join(format!("{}.grm", crate::studio::APP));
-            let text = song.grm(human);
+            let lessons = crate::studio::mind_dir(&memory).map(|d| crate::studio::lessons(&d)).unwrap_or_default();
+            let text = song.grm(human, &lessons);
             if std::fs::read_to_string(&path).ok().as_deref() != Some(text.as_str()) {
                 let _ = std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&path, text));
+            }
+        }
+        // the player's file (its surface is the window's): written once, the human may add to it
+        {
+            let path = grm_shell::runtime::apps_dir(&memory).join(format!("{}.grm", crate::player::APP));
+            if !path.exists() {
+                let _ = std::fs::create_dir_all(grm_shell::runtime::apps_dir(&memory)).and_then(|_| {
+                    std::fs::write(
+                        &path,
+                        "app Player\nicon disc-3\n# The player: the music of a folder, lists of one's own. Its surface is the window's;\n# she hears what it plays (the room is her ear).\n",
+                    )
+                });
             }
         }
         let mut shell = Shell::new(memory.clone(), mixer.clone());
@@ -403,6 +424,8 @@ impl App {
         shell.human = Some(settings.human.clone()).filter(|h| !h.trim().is_empty());
         shell.french = settings.lang == Lang::Fr;
         shell.window = true;
+        // her home: always there, opened before the desk
+        shell.always = crate::studio::mind_dir(&memory).map(|d| d.join("home.grm")).filter(|p| p.exists());
         let mut worker = Worker::start(engine.clone(), shell);
         let mut log: Vec<(LineKind, String)> =
             crate::style::BANNER.lines().map(|l| (LineKind::Said, format!("\u{1}{l}"))).collect();
@@ -493,9 +516,13 @@ impl App {
             fused_seen: 0,
             song: crate::studio::Song::load(&memory_for_song),
             studio_vu: HashMap::new(),
+            ws_status: HashMap::new(),
+            player: crate::player::Player::default(),
             elle_memory: kept_elle,
+            lessons: crate::studio::mind_dir(&memory_for_song).map(|d| crate::studio::lessons(&d)).unwrap_or_default(),
             elle_at: 0.0,
-            elle_note: None,
+            elle_note: [None; 3],
+            roll_frozen: None,
             replay: None,
             started: Instant::now(),
             hand_range: Default::default(),
@@ -794,11 +821,17 @@ impl App {
 
     /// The studio's file written again from its song, and opened again (its sound goes on).
     pub fn studio_rewrite(&mut self) {
+        // her lessons read again (one may have been written meanwhile)
+        if let Some(d) = crate::studio::mind_dir(&self.memory) {
+            self.lessons = crate::studio::lessons(&d);
+        }
         let human = self.song.human(&self.settings.human.clone());
         self.song.save(&self.memory);
         let dir = grm_shell::runtime::apps_dir(&self.memory);
         let path = dir.join(format!("{}.grm", crate::studio::APP));
-        if let Err(e) = std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&path, self.song.grm(human))) {
+        if let Err(e) =
+            std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&path, self.song.grm(human, &self.lessons)))
+        {
             self.toast(format!("{}: {e}", path.display()));
             return;
         }
@@ -1148,8 +1181,11 @@ impl App {
     fn clock(&mut self) {
         // one clock for both: the human's synthesiser's (hers follows its tempo)
         let Some(view) = self.human_synth().or_else(|| self.her_synth()) else { return };
-        // the studio: its transport is the clock (a beat is four sixteenths)
+        // the studio: its transport is the clock (a beat is four sixteenths); stopped, the clock is left as it was
         if !Self::split_key(&view).1.is_empty() {
+            if self.roll_frozen.is_some() {
+                return;
+            }
             let (i, f) = match self.mixer.lock() {
                 Ok(m) => (m.value("out", "tr_i"), m.value("out", "tr_f")),
                 Err(_) => (None, None),
@@ -1186,25 +1222,40 @@ impl App {
         self.beat_clock = None;
     }
 
-    /// What her network plays, drawn on the piano roll (read from the sound: the window only shows it).
+    /// What her network plays, drawn on the piano roll (read from the sound: the window only shows it). What sounds,
+    /// not what she holds: stopped, her note ends there (not at the next start, a long note across the pause).
     fn elle_roll(&mut self) {
-        let (gate, semi) = match self.mixer.lock() {
-            Ok(m) => (m.value("out", "elle_gate"), m.value("out", "elle_semi")),
+        // the song stopped, the roll stops where it is (and goes on from there when it plays again)
+        let playing = self.picture.node("playing").is_none_or(|n| n.value > 0.5);
+        match (playing, self.roll_frozen) {
+            (false, None) => self.roll_frozen = Some(self.ear_now()),
+            (true, Some(_)) => self.roll_frozen = None,
+            _ => {}
+        }
+        // her melody, her bass, her harmony: what sounds, and which note (from her melody's semitones, from the
+        // others' pitches)
+        let read = match self.mixer.lock() {
+            Ok(m) => [
+                (m.world_value("elle_sounding"), m.world_value("elle_semi").map(|s| s.round() as i32 + 12), 4u8),
+                (m.world_value("elle_bsounding"), m.world_value("elle_bpitch").map(note_of), 5),
+                (m.world_value("elle_hsounding"), m.world_value("elle_hpitch").map(note_of), 6),
+            ],
             Err(_) => return,
         };
-        let (Some(gate), Some(semi)) = (gate, semi) else { return };
         let now = self.ear_now();
-        let note = semi.round() as i32 + 12;
-        match self.elle_note {
-            Some((t0, n)) if gate < 0.5 || n != note => {
-                self.played.roll.push_back((t0, now - t0, n, 4));
-                while self.played.roll.front().is_some_and(|r| r.0 + r.1 < now - 20.0) {
-                    self.played.roll.pop_front();
+        for (k, (gate, note, voice)) in read.into_iter().enumerate() {
+            let (Some(gate), Some(note)) = (gate, note) else { continue };
+            match self.elle_note[k] {
+                Some((t0, n)) if gate < 0.5 || n != note => {
+                    self.played.roll.push_back((t0, now - t0, n, voice));
+                    self.elle_note[k] = (gate >= 0.5).then_some((now, note));
                 }
-                self.elle_note = (gate >= 0.5).then_some((now, note));
+                None if gate >= 0.5 => self.elle_note[k] = Some((now, note)),
+                _ => {}
             }
-            None if gate >= 0.5 => self.elle_note = Some((now, note)),
-            _ => {}
+        }
+        while self.played.roll.front().is_some_and(|r| r.0 + r.1 < now - 20.0) {
+            self.played.roll.pop_front();
         }
     }
 
@@ -1246,15 +1297,15 @@ impl App {
             return;
         }
         let Ok(mut m) = self.mixer.lock() else { return };
-        match m.value("out", "elle_born") {
+        match m.world_value("elle_born") {
             Some(b) if b < 0.5 => {
                 // she wakes: what she learned before is given back to her network
                 let mut back = self.elle_memory.clone();
                 back.insert("elle_born".into(), 1.0);
-                m.restore("out", &back);
+                m.world_restore(&back);
             }
             Some(_) => {
-                let learned = m.memories("out");
+                let learned = m.world_memories();
                 if !learned.is_empty() {
                     self.elle_memory = learned;
                 }
@@ -2492,6 +2543,7 @@ impl App {
                     }
                 });
             }
+            let mut close_file: Option<(usize, bool)> = None;
             for k in 0..self.files.len() {
                 let on = self.current_file == Some(k);
                 let mut title = self.files[k].name();
@@ -2505,12 +2557,35 @@ impl App {
                 } else {
                     "file-text"
                 };
-                if crate::icons::toggle(ui, sign, title, on)
-                    .on_hover_text(self.files[k].path.display().to_string())
-                    .clicked()
-                {
+                let r =
+                    crate::icons::toggle(ui, sign, title, on).on_hover_text(self.files[k].path.display().to_string());
+                if r.clicked() {
                     self.current_file = Some(k);
                     self.sandbox_shown = None;
+                }
+                r.context_menu(|ui| {
+                    if crate::menu::item(ui, "x", t(lang, "close_file"), t(lang, "close_file_d")) {
+                        close_file = Some((k, false));
+                        ui.close();
+                    }
+                    if crate::menu::item(ui, "trash-2", t(lang, "trash_file"), t(lang, "trash_file_d")) {
+                        close_file = Some((k, true));
+                        ui.close();
+                    }
+                });
+            }
+            if let Some((k, trash)) = close_file.take() {
+                if trash {
+                    // what it brought into the network goes to the trash (kept, it can be given back); the file stays
+                    let stem =
+                        self.files[k].path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+                    self.say(format!("trash file:{stem}"));
+                }
+                self.files.remove(k);
+                if self.current_file == Some(k) {
+                    self.current_file = None;
+                } else if self.current_file.is_some_and(|c| c > k) {
+                    self.current_file = self.current_file.map(|c| c - 1);
                 }
             }
             let plus = egui::Button::image(crate::icons::image("plus", 16.0, ui.visuals().text_color()));
@@ -2745,6 +2820,10 @@ impl App {
                 }
                 if name == crate::studio::APP {
                     crate::studio::panel(self, ui);
+                } else if name == crate::elle::APP {
+                    crate::elle::panel(self, ui);
+                } else if name == crate::player::APP {
+                    crate::player::panel(self, ui);
                 } else {
                     egui::ScrollArea::vertical().id_salt(("surface", &name)).auto_shrink([false, false]).show(
                         ui,
@@ -2798,6 +2877,14 @@ impl App {
         egui::CentralPanel::default().show(ctx, |ui| {
             if name == crate::studio::APP {
                 crate::studio::panel(self, ui);
+                return;
+            }
+            if name == crate::elle::APP {
+                crate::elle::panel(self, ui);
+                return;
+            }
+            if name == crate::player::APP {
+                crate::player::panel(self, ui);
                 return;
             }
             egui::ScrollArea::vertical().id_salt(("launched", name)).auto_shrink([false, false]).show(ui, |ui| {
@@ -2924,7 +3011,7 @@ impl App {
             let start = Instant::now();
             let dialog = rfd::FileDialog::new().set_directory(here).set_title(title);
             let chosen = match what {
-                Pick::Eye => dialog.add_filter("PNG", &["png"]).pick_files(),
+                Pick::Eye => dialog.add_filter("pictures", &["png", "jpg", "jpeg"]).pick_files(),
                 Pick::Open => dialog.pick_files(),
             };
             let _ = tx.send((chosen.unwrap_or_default(), start.elapsed()));
@@ -3082,7 +3169,7 @@ impl App {
 
     /// What went wrong, in a corner: it blocks nothing, comes and goes slowly, can be closed.
     /// Her consciousness speaks by itself when something in her asks for it (what she feels, what she lacks):
-    /// softly, in a corner, not more than once in a while, and never twice the same words in a row.
+    /// softly, in the journal, not more than once in a while, and never twice the same words in a row.
     fn witness_speaks(&mut self) {
         let fr = self.settings.lang == Lang::Fr;
         let human = grm_engine::witness::human(Some(self.settings.human.as_str()), fr);
@@ -3091,11 +3178,8 @@ impl App {
             Some((last, at)) => *last != words && at.elapsed().as_secs_f32() > 45.0,
             None => true,
         };
+        // said in the journal only: no notification that interrupts (the harmony is in the top bar already)
         if fresh {
-            self.toasts.push((LineKind::Said, brief(&words), Instant::now()));
-            if self.toasts.len() > 3 {
-                self.toasts.remove(0);
-            }
             self.log.push((LineKind::Said, format!("◌ {words}")));
             self.spoken = Some((words, Instant::now()));
         }
@@ -3500,4 +3584,9 @@ impl App {
         self.seeing.push(line.clone());
         self.say(line);
     }
+}
+
+/// A pitch as a note of the roll: semitones from A1 (55 Hz).
+fn note_of(hz: f64) -> i32 {
+    (12.0 * (hz.max(1.0) / 55.0).log2()).round() as i32
 }

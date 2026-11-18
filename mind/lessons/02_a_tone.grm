@@ -1,0 +1,13 @@
+# Lesson: a tone
+# Leçon : un ton
+# Her tonic and the tone above it.
+set {name}_open6 = 1 when {here}
+set {name}_open8 = 1 when {here}
+set {name}_open10 = 1 when {here}
+set {name}_open16 = 1 when {here}
+set {name}_beats = 1 when {here}
+set {name}_quarter = 1 when {here}
+set {name}_breathw = 0.4 when {here}
+repeat p in 0 .. 11: set {name}_sc{p} = 0 when {here}
+set {name}_sc0 = 1 when {here}
+set {name}_sc2 = 1 when {here}

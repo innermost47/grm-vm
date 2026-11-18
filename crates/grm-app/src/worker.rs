@@ -66,7 +66,9 @@ impl Worker {
             .name("grm-prompt".into())
             .spawn(move || {
                 // the desk as it was left
-                let lines = shell.restore_desk(&engine);
+                // she wakes first (her home), then the desk as it was left
+                let mut lines = shell.wake(&engine);
+                lines.extend(shell.restore_desk(&engine));
                 let mut first = news(&mut shell, Answer { lines, ..Default::default() });
                 first.apps = Some(shell.app_views());
                 first.files = Some(shell.app_files());

@@ -7,6 +7,7 @@ pub mod ambient;
 pub mod mixer;
 #[cfg(feature = "device")]
 pub mod output;
+pub mod player;
 
 use std::io::Write;
 use std::path::Path;

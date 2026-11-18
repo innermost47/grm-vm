@@ -70,6 +70,13 @@ pub enum WidgetKind {
     Step,
     /// Records what is played and turned (notes, knobs, by hand or by her), to play it again and to keep as MIDI.
     Rec,
+    /// The sky, as a weather code says it (WMO: clear, clouds, fog, drizzle, rain, snow, storm), by day or night
+    /// (nodes: the code, and 1 by day / 0 by night).
+    Sky,
+    /// A curve through its nodes, one after another (the next hours, say), on LO .. HI.
+    Series,
+    /// Its nodes two by two (a low and a high: a day's coldest and warmest), each pair a bar on LO .. HI.
+    Range,
 }
 
 impl WidgetKind {
@@ -95,6 +102,9 @@ impl WidgetKind {
             "step" => WidgetKind::Step,
             "roll" => WidgetKind::Roll,
             "rec" | "record" => WidgetKind::Rec,
+            "sky" => WidgetKind::Sky,
+            "series" => WidgetKind::Series,
+            "range" => WidgetKind::Range,
             _ => return None,
         })
     }
@@ -121,6 +131,9 @@ impl WidgetKind {
             WidgetKind::Step => "step",
             WidgetKind::Roll => "roll",
             WidgetKind::Rec => "rec",
+            WidgetKind::Sky => "sky",
+            WidgetKind::Series => "series",
+            WidgetKind::Range => "range",
         }
     }
 
@@ -128,7 +141,7 @@ impl WidgetKind {
     pub fn nodes(self) -> usize {
         match self {
             WidgetKind::Text | WidgetKind::Section | WidgetKind::Roll | WidgetKind::Rec => 0,
-            WidgetKind::Pad | WidgetKind::Keys | WidgetKind::Step => 2,
+            WidgetKind::Pad | WidgetKind::Keys | WidgetKind::Step | WidgetKind::Range => 2,
             _ => 1,
         }
     }
@@ -153,10 +166,13 @@ impl WidgetKind {
             WidgetKind::Section => (6, 3),
             WidgetKind::Step => (1, 4),
             WidgetKind::Roll => (12, 3),
+            WidgetKind::Sky => (3, 3),
+            WidgetKind::Series => (12, 3),
+            WidgetKind::Range => (12, 4),
         }
     }
 
-    pub const ALL: [WidgetKind; 20] = [
+    pub const ALL: [WidgetKind; 23] = [
         WidgetKind::Slider,
         WidgetKind::Toggle,
         WidgetKind::Button,
@@ -177,6 +193,9 @@ impl WidgetKind {
         WidgetKind::Step,
         WidgetKind::Roll,
         WidgetKind::Rec,
+        WidgetKind::Sky,
+        WidgetKind::Series,
+        WidgetKind::Range,
     ];
 }
 
@@ -635,7 +654,18 @@ pub fn defined(flat: &[Flat]) -> Vec<String> {
         // a delay is a node too: two copies sharing one would pour the sound of one into the other's echo
         if matches!(
             word.as_str(),
-            "node" | "var" | "learn" | "input" | "output" | "memory" | "relate" | "keep" | "rel" | "kp" | "delay"
+            "node"
+                | "var"
+                | "learn"
+                | "input"
+                | "output"
+                | "memory"
+                | "relate"
+                | "keep"
+                | "rel"
+                | "kp"
+                | "delay"
+                | "audio"
         ) {
             if let Some(name) = words.find(|w| !w.is_empty()) {
                 if is_name(name) && !out.iter().any(|o| o == name) {
@@ -650,6 +680,18 @@ pub fn defined(flat: &[Flat]) -> Vec<String> {
 #[cfg(test)]
 mod defined_tests {
     use super::*;
+
+    #[test]
+    fn the_weather_app_reads_its_hours_and_its_week() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps");
+        let text = std::fs::read_to_string(root.join("weather.grm")).unwrap();
+        let p = parse(&text, &root);
+        assert!(p.errors.is_empty(), "{:?}", p.errors);
+        let reads: usize = p.apis.iter().map(|a| a.reads.len()).sum();
+        assert_eq!(reads, 11 + 24 * 2 + 7 * 3);
+        assert!(p.widgets.iter().any(|w| w.kind == WidgetKind::Range && w.nodes.len() == 14));
+        assert!(p.widgets.iter().any(|w| w.kind == WidgetKind::Sky));
+    }
 
     #[test]
     fn a_delay_is_defined_as_a_node_is() {

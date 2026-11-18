@@ -10,17 +10,36 @@ use crate::text::t;
 
 /// One thing to do: its sign, its name, what it does. True when chosen.
 pub fn item(ui: &mut egui::Ui, sign: &str, title: &str, what: &str) -> bool {
+    item_if(ui, true, sign, title, what)
+}
+
+/// One thing to do, greyed when there is nothing for it to do (it says so, it cannot be chosen). The whole of it
+/// (its name and its line) answers the mouse: the hand, and a lighter ground under it.
+pub fn item_if(ui: &mut egui::Ui, enabled: bool, sign: &str, title: &str, what: &str) -> bool {
     let ink = Ink::of(ui.ctx());
-    let r = ui.add(
-        egui::Button::image_and_text(crate::icons::image(sign, 16.0, ink.accent), RichText::new(title).strong())
-            .frame(false)
-            .min_size(egui::vec2(260.0, 0.0)),
-    );
-    egui::Frame::new().inner_margin(egui::Margin { left: 24, ..Default::default() }).show(ui, |ui| {
-        ui.label(RichText::new(what).small().color(ink.muted));
+    let colour = if enabled { ink.accent } else { ink.faint };
+    let ground = ui.painter().add(egui::Shape::Noop);
+    let inner = ui.scope(|ui| {
+        ui.add_enabled(
+            enabled,
+            egui::Button::image_and_text(crate::icons::image(sign, 16.0, colour), RichText::new(title).strong())
+                .frame(false)
+                .min_size(egui::vec2(260.0, 0.0)),
+        );
+        egui::Frame::new().inner_margin(egui::Margin { left: 24, ..Default::default() }).show(ui, |ui| {
+            ui.label(RichText::new(what).small().color(ink.muted));
+        });
     });
+    let rect = inner.response.rect.expand2(egui::vec2(4.0, 1.0));
+    let id = ui.id().with(("menu-item", title));
+    let sense = if enabled { egui::Sense::click() } else { egui::Sense::hover() };
+    let r = ui.interact(rect, id, sense);
+    if enabled && r.hovered() {
+        ui.painter().set(ground, egui::Shape::rect_filled(rect, 4.0, ink.accent.gamma_multiply(0.14)));
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
     ui.add_space(2.0);
-    r.clicked()
+    enabled && r.clicked()
 }
 
 /// The menu of a node.
@@ -114,11 +133,13 @@ pub fn background_menu(app: &mut App, ui: &mut egui::Ui, at: [f32; 2]) {
         }
         ui.close();
     }
-    if item(ui, "scan-search", t(lang, "fit"), t(lang, "m_fit_d")) {
+    let any = !app.picture.nodes.is_empty();
+    if item_if(ui, any, "scan-search", t(lang, "fit"), t(lang, "m_fit_d")) {
         app.view.fitted = false;
         ui.close();
     }
-    if item(ui, "chart-line", t(lang, "m_plots"), t(lang, "m_plots_d")) {
+    let traced = any && app.picture.nodes.iter().any(|n| app.traces.get(&n.name).is_some_and(|t| !t.is_empty()));
+    if item_if(ui, traced, "chart-line", t(lang, "m_plots"), t(lang, "m_plots_d")) {
         app.show_plot();
         ui.close();
     }

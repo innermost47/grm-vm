@@ -9,6 +9,8 @@ authors.workspace = true
 [dependencies]
 grm-engine = { path = "../grm-engine" }
 indexmap = "2"
+# reading sound files (MP3, FLAC, OGG Vorbis, WAV, AAC in MP4) for the player
+symphonia = { version = "0.5", default-features = false, features = ["mp3", "flac", "ogg", "vorbis", "wav", "pcm", "isomp4", "aac"] }
 cpal = { version = "0.18", optional = true }
 
 [features]

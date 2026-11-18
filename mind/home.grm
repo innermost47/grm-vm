@@ -1,0 +1,27 @@
+app Elle
+icon sparkles
+# Her home: she is always there (opened before anything else, never closed). One network for her, the same in every
+# app: she hears the room (what the speakers give, every channel and the machine's voice), she sees what her eye is
+# given, she dreams (her reverie), and when an app gives her its time (the studio: its transport) she plays in it.
+#
+# What the room hears, given to her by the sound at each sample (a block late: five milliseconds)
+input room_l = 0
+input room_r = 0
+node elle_ear signed
+relate elle_hearing: elle_ear = room_l + room_r
+# the time of the place: written by an app that has one (the studio's transport); without one, she does not play
+var elle_clock_i = 0
+var elle_clock_f = 0
+# where she is (the song, the human: one of four each), and how many lessons she has: written by the app she plays in
+var elle_ctx_song = 1
+var elle_ctx_human = 1
+var elle_lessons = 0
+use elle.grm
+call elle(name=elle, ear=elle_ear, clock_i=elle_clock_i, clock_f=elle_clock_f, ctx_song=elle_ctx_song, ctx_human=elle_ctx_human, lessons=elle_lessons)
+# what her eye was given last: its colour (OKLab: lightness, green to red, blue to yellow), and how many pictures
+input elle_seen_l = 0.5
+input elle_seen_a = 0
+input elle_seen_b = 0
+input elle_seen_n = 0
+use reverie.grm
+call reverie(name=rv, of=elle, seen_l=elle_seen_l, seen_a=elle_seen_a, seen_b=elle_seen_b, seen_n=elle_seen_n)

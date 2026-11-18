@@ -92,14 +92,29 @@ pub fn body(app: &mut App, ui: &mut egui::Ui, kind: &Kind, view: &mut crate::vie
                 let editing = if small { std::mem::replace(&mut app.editing, false) } else { app.editing };
                 if a == crate::studio::APP && !small {
                     crate::studio::panel(app, ui);
+                } else if a == crate::elle::APP {
+                    crate::elle::panel(app, ui);
+                } else if a == crate::player::APP {
+                    crate::player::panel(app, ui);
                 } else {
                     egui::ScrollArea::vertical()
                         .id_salt(("zone-app", a, small))
                         .show(ui, |ui| crate::surface::show(app, ui, a));
                 }
                 app.editing = editing;
-            } else if crate::icons::button(ui, "play", t(lang, "space_open_app")).clicked() {
-                app.say(format!("app open {a}"));
+            } else {
+                // a closed app: said so, quietly, in the middle, with what opens it again (or takes it off the space)
+                let ink = crate::app::Ink::of(ui.ctx());
+                ui.add_space((ui.available_height() / 2.0 - 50.0).max(8.0));
+                ui.vertical_centered(|ui| {
+                    crate::icons::show(ui, "app-window", 26.0, ink.faint);
+                    ui.label(egui::RichText::new(a).strong().color(ink.muted));
+                    ui.label(egui::RichText::new(t(lang, "space_app_closed")).small().color(ink.faint));
+                    ui.add_space(6.0);
+                    if crate::icons::button(ui, "play", t(lang, "space_open_app")).clicked() {
+                        app.say(format!("app open {a}"));
+                    }
+                });
             }
         }
         Kind::Network(n) => {

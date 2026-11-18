@@ -3,9 +3,10 @@
 # in it), eight steps of an eighth, each on or off. Its four voices: the first plays the keys or the sequencer, the
 # second the melody, the third and fourth chords. {name}_glide: how long a voice takes to slide to a new pitch
 # (portamento; a note held while the pitch changes is legato: its envelope goes on).
-# {her_pitch}, {her_gate}: what she plays on it when it is hers (her network's choice).
+# {her_pitch}, {her_gate}: what she plays on it when it is hers (her network's choice); {her_harm}, {her_harm_gate}:
+# a note of harmony under it; {her_bass}, {her_bass_gate}: her bass.
 # Needs: arpeggiator, saw, square, lfo, ladder, adsr, noise, voice.
-network synth(name, clock_i, clock_f, hers, her_pitch, her_gate)
+network synth(name, clock_i, clock_f, hers, her_pitch, her_gate, her_bass, her_bass_gate, her_harm, her_harm_gate, her_tone)
   input {name}_poly = 4
   input {name}_hers = {hers}
   input {name}_pitch = 220 positive
@@ -93,9 +94,14 @@ network synth(name, clock_i, clock_f, hers, her_pitch, her_gate)
   relate {name}_open: {name}_gate0 = {name}_hold + {name}_seq_on * {name}_sg
   relate {name}_arp_open: {name}_gate = {name}_gate0 + {name}_arp_on * {name}_arp_gate - {name}_arp_on * {name}_gate0
   node {name}_c1g signed
-  relate {name}_c1_open: {name}_c1g = {name}_c1_gate - {name}_arp_on * {name}_c1_gate
+  relate {name}_c1_open: {name}_c1g = {name}_c1_gate - {name}_arp_on * {name}_c1_gate + {name}_hers * {her_harm_gate}
   node {name}_c2g signed
-  relate {name}_c2_open: {name}_c2g = {name}_c2_gate - {name}_arp_on * {name}_c2_gate
+  relate {name}_c2_open: {name}_c2g = {name}_c2_gate - {name}_arp_on * {name}_c2_gate + {name}_hers * {her_bass_gate}
+  # her harmony on the third voice, her bass on the fourth, when the synthesiser is hers
+  node {name}_c1p signed
+  relate {name}_her_harm: {name}_c1p = {name}_c1_pitch + {name}_hers * {her_harm} - {name}_hers * {name}_c1_pitch
+  node {name}_c2p signed
+  relate {name}_her_bass: {name}_c2p = {name}_c2_pitch + {name}_hers * {her_bass} - {name}_hers * {name}_c2_pitch
   input {name}_glide = 0.001 positive
   node {name}_gr
   relate {name}_glide_rate: {name}_gr * {name}_glide = 0.0000208333333
@@ -104,9 +110,9 @@ network synth(name, clock_i, clock_f, hers, her_pitch, her_gate)
   var {name}_g2 = 440
   set {name}_g2 = {name}_g2 + {name}_gr * {name}_lp - {name}_gr * {name}_g2
   var {name}_g3 = 330
-  set {name}_g3 = {name}_g3 + {name}_gr * {name}_c1_pitch - {name}_gr * {name}_g3
+  set {name}_g3 = {name}_g3 + {name}_gr * {name}_c1p - {name}_gr * {name}_g3
   var {name}_g4 = 392
-  set {name}_g4 = {name}_g4 + {name}_gr * {name}_c2_pitch - {name}_gr * {name}_g4
+  set {name}_g4 = {name}_g4 + {name}_gr * {name}_c2p - {name}_gr * {name}_g4
   input {name}_lfo_rate = 4 positive
   input {name}_lfo_shape = 0
   input {name}_lfo_cut = 0
@@ -152,7 +158,8 @@ network synth(name, clock_i, clock_f, hers, her_pitch, her_gate)
   input {name}_env_amount = 0.2
   input {name}_resonance = 1
   node {name}_cut_now signed
-  relate {name}_cut_lfo: {name}_cut_now = {name}_cutoff + {name}_lfo_cut * {name}_cutoff * {name}_lfo_out
+  # her hand on its brightness, when it is hers ({her_tone}: how much she opens or closes the filter, -0.5 .. 1)
+  relate {name}_cut_lfo: {name}_cut_now = {name}_cutoff + {name}_lfo_cut * {name}_cutoff * {name}_lfo_out + {name}_hers * {her_tone} * {name}_cutoff
   call voice(name={name}_v1, pitch={name}_g1, gate={name}_gate, vib={name}_vib, shape={name}_shape, l1={name}_o1_level, l2={name}_o2_level, r2={name}_o2_ratio, l3={name}_o3_level, r3={name}_o3_ratio, fm={name}_fm, cut={name}_cut_now, env={name}_env_amount, res={name}_resonance, fa={name}_f_attack, fd={name}_f_decay, fs={name}_f_sustain, fr={name}_f_release, aa={name}_a_attack, ad={name}_a_decay, as={name}_a_sustain, ar={name}_a_release, amp={name}_trem, noise={name}_noise, penv={name}_pitch_env, seed=0.31)
   call voice(name={name}_v2, pitch={name}_g2, gate={name}_lg, vib={name}_vib, shape={name}_shape, l1={name}_o1_level, l2={name}_o2_level, r2={name}_o2_ratio, l3={name}_o3_level, r3={name}_o3_ratio, fm={name}_fm, cut={name}_cut_now, env={name}_env_amount, res={name}_resonance, fa={name}_f_attack, fd={name}_f_decay, fs={name}_f_sustain, fr={name}_f_release, aa={name}_a_attack, ad={name}_a_decay, as={name}_a_sustain, ar={name}_a_release, amp={name}_trem, noise={name}_noise, penv={name}_pitch_env, seed=0.37)
   call voice(name={name}_v3, pitch={name}_g3, gate={name}_c1g, vib={name}_vib, shape={name}_shape, l1={name}_o1_level, l2={name}_o2_level, r2={name}_o2_ratio, l3={name}_o3_level, r3={name}_o3_ratio, fm={name}_fm, cut={name}_cut_now, env={name}_env_amount, res={name}_resonance, fa={name}_f_attack, fd={name}_f_decay, fs={name}_f_sustain, fr={name}_f_release, aa={name}_a_attack, ad={name}_a_decay, as={name}_a_sustain, ar={name}_a_release, amp={name}_trem, noise={name}_noise, penv={name}_pitch_env, seed=0.41)

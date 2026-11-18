@@ -323,6 +323,8 @@ pub struct Shell {
     pub(crate) rt: runtime::Runtime,
     /// Whether the desk is kept beside the world's memory (not in a test run).
     pub keep_desk: bool,
+    /// The app that is always there, opened before the desk and never closed (her: `mind/home.grm`).
+    pub always: Option<PathBuf>,
     /// What it asks of the window.
     pub orders: Vec<Order>,
     /// Whether a window is there to answer (to choose a table's columns, to open a file).
@@ -360,6 +362,7 @@ impl Shell {
             sights: IndexMap::new(),
             rt: Default::default(),
             keep_desk: true,
+            always: None,
             orders: vec![],
             window: false,
             before_cd: None,
@@ -833,6 +836,7 @@ impl Shell {
         let smaller = (picture.width, picture.height) != (w0, h0);
         let eye = name.clone();
         let size = (picture.width, picture.height, picture.channels);
+        let colour = picture.mean_oklab();
         let Some(sight) = engine.query(move |w| w.see(&eye, &picture, Duration::from_secs(20))) else {
             return vec![Line::error("! the engine has stopped")];
         };
@@ -872,6 +876,30 @@ impl Shell {
             sight.glance.0, sight.glance.1
         )));
         self.sights.insert(name, sight);
+        // her eye: she is given the picture too (its colour, and that one more came), when she is there
+        let (l, a, b) = colour;
+        let given = engine
+            .query(move |w| -> grm_engine::Result<String> {
+                if !w.machine.net.nodes.contains_key("elle_seen_n") {
+                    return Ok(String::new());
+                }
+                let n = w.machine.value_si("elle_seen_n").round() + 1.0;
+                let origin = grm_engine::Provenance::of("eye:elle");
+                for line in [
+                    format!("observe elle_seen_l = {l:.4}"),
+                    format!("observe elle_seen_a = {a:.4}"),
+                    format!("observe elle_seen_b = {b:.4}"),
+                    format!("observe elle_seen_n = {n}"),
+                ] {
+                    w.say(&line, &origin)?;
+                }
+                Ok(format!("she sees it too ({l:.2}, {a:+.2}, {b:+.2})"))
+            })
+            .and_then(|r| r.ok())
+            .unwrap_or_default();
+        if !given.is_empty() {
+            out.push(Line::dim(given));
+        }
         out
     }
 
@@ -897,12 +925,30 @@ impl Shell {
                 let sandbox = name.clone();
                 out.extend(said(engine.ask(move |w| {
                     let nodes = grm_connect::into_sandbox(w, &sandbox, &t)?;
-                    Ok(format!(
+                    let mut text = format!(
                         "sandbox {sandbox}: {} ({} rows, by {}) — trial {sandbox}, then merge {sandbox}, then feed {sandbox}",
                         nodes.join(", "),
                         t.time.len(),
                         t.time_unit
-                    ))
+                    );
+                    // as with a table from a file, she looks by herself for what holds in it (between its columns,
+                    // and each against its time: a line, a power, a swing...), and says it into the same sandbox
+                    let rows: Vec<IndexMap<String, f64>> = (0..t.time.len())
+                        .map(|k| {
+                            std::iter::once(("time".to_string(), t.time[k]))
+                                .chain(t.numbers.iter().filter_map(|(n, v)| v.get(k).copied().flatten().map(|v| (n.clone(), v))))
+                                .collect()
+                        })
+                        .collect();
+                    for (k, law) in grm_engine::discover::find_laws(&rows, &[]).iter().enumerate() {
+                        let name = format!("{sandbox}_found_{}", k + 1);
+                        let lines = law.statements(&name, &|n| w.machine.net.nodes.get(n).is_some_and(|s| !s.signed));
+                        let said: Result<(), GrmError> = lines.iter().try_for_each(|l| w.say_in(&sandbox, l).map(|_| ()));
+                        if said.is_ok() {
+                            text.push_str(&format!("\nfound by itself: {}", law.text()));
+                        }
+                    }
+                    Ok(text)
                 })));
                 self.tables.insert(name, table);
                 out
@@ -924,7 +970,18 @@ impl Shell {
         node: &str,
         rate: u32,
     ) -> grm_engine::Result<Reflex> {
-        let node = node.to_string();
+        Self::reflex_following(engine, workshop, &[node.to_string()], rate)
+    }
+
+    /// The reflex of a world's whole network, following these nodes too (none: only what its sets write and what
+    /// follows from them).
+    pub(crate) fn reflex_following(
+        engine: &Engine,
+        workshop: Option<&str>,
+        nodes: &[String],
+        rate: u32,
+    ) -> grm_engine::Result<Reflex> {
+        let nodes = nodes.to_vec();
         let workshop = workshop.map(String::from);
         engine
             .query(move |main| -> grm_engine::Result<Reflex> {
@@ -935,8 +992,10 @@ impl Shell {
                     },
                     None => main,
                 };
-                if !w.machine.net.nodes.contains_key(&node) {
-                    grm_engine::bail!("no node {node}");
+                for node in &nodes {
+                    if !w.machine.net.nodes.contains_key(node) {
+                        grm_engine::bail!("no node {node}");
+                    }
                 }
                 let mut r = Reflex::of(&w.machine, Clock::Audio { rate })?;
                 // what follows from the sets, computed at each sample too (as far as a reflex can): every node a
@@ -965,14 +1024,17 @@ impl Shell {
                         break;
                     }
                 }
-                r.prime();
-                if !known.contains(&node) {
-                    r.follow(&w.machine, &node).map_err(|e| {
-                        GrmError::new(format!(
-                            "{node}: {e} (play a node its sets write, or one a relation gives from them)"
-                        ))
-                    })?;
+                for node in &nodes {
+                    if !known.contains(node) {
+                        r.follow(&w.machine, node).map_err(|e| {
+                            GrmError::new(format!(
+                                "{node}: {e} (play a node its sets write, or one a relation gives from them)"
+                            ))
+                        })?;
+                        known.push(node.clone());
+                    }
                 }
+                r.prime();
                 Ok(r)
             })
             .unwrap_or_else(|| Err(GrmError::new("the engine has stopped")))
@@ -1006,6 +1068,10 @@ impl Shell {
                 let rate = mixer.rate;
                 let volume = mixer.ambient.volume;
                 mixer.ambient = grm_sound::ambient::Ambient::new(kind, volume, rate);
+                // the new voice is heard at once if the voice was on (not after it is turned on again)
+                if mixer.ambient_on {
+                    mixer.ambient.fade_in();
+                }
                 vec![Line::said(format!("its voice: {first}"))]
             }
             "volume" => match first.parse::<f64>() {
@@ -1017,16 +1083,21 @@ impl Shell {
             },
             "play" => {
                 let rate = mixer.rate;
+                let mut taps = mixer.taps();
                 drop(mixer);
-                match Self::reflex_of(engine, &first, rate) {
-                    Ok(r) => match ReflexSource::new(r, &first) {
-                        Some(source) => {
-                            let mut m = self.mixer.lock().unwrap();
-                            m.play(&first, Box::new(source), number.unwrap_or(0.5).clamp(0.0, 2.0));
+                // the world's network plays it: one network for all that plays (one time, one of her)
+                if !taps.contains(&first) {
+                    taps.push(first.clone());
+                }
+                match self.refresh_world(engine, &taps) {
+                    Ok(()) => {
+                        let mut m = self.mixer.lock().unwrap();
+                        if m.tap(&first, number.unwrap_or(0.5).clamp(0.0, 2.0)) {
                             vec![Line::said(format!("{first} plays, {} times a second (it rises from silence)", rate))]
+                        } else {
+                            vec![Line::error(format!("! {first} is not in its network"))]
                         }
-                        None => vec![Line::error(format!("! {first} is not in its network"))],
-                    },
+                    }
                     Err(e) => vec![Line::error(format!("! {e}"))],
                 }
             }
@@ -1253,6 +1324,12 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Someone else playing beside her: a tone going a tone up and down, a note each half second.
+    const OTHER: &str = "var oc = 0\nset oc = oc + 1\nset oc = 0 when oc in 24000 .. 1000000000\nvar op = 220 positive\n\
+        set op = 246.94 when oc in 23999.5 .. 24000.5 and op in 0 .. 230\nset op = 220 when oc in 23999.5 .. 24000.5 and op in 230 .. 999\n\
+        var og = 0\nset og = 1 when oc in 0 .. 18000\nset og = 0 when oc in 18000 .. 1000000000\nnode ostep\nrelate os: ostep * 12000 = op\n\
+        call lfo(name=ov, step=ostep, shape=0)\n";
+
     /// Her network (mind/elle.grm) played with a tone of her own: what she chooses, eighth after eighth.
     fn her_notes(seconds: usize, tag: &str, lessons: u8) -> Vec<(f64, f64, f64, f64)> {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -1262,12 +1339,30 @@ mod tests {
             "app Her\ninput bpm = 120 positive\ninput playing = 1\nnode tr_step\nrelate s: tr_step = 0.00000138888889 * bpm\n\
              use {r}/apps/networks/lfo.grm\nuse {r}/apps/networks/transport.grm\ncall transport(name=tr, step=tr_step, run=playing)\n\
              input hp = 220 positive\ninput hg = 0\ninput cs = 1\ninput ch = 1\ninput lz = {lessons}\nnode ear signed\nvar elle_pitch = 440 positive\nvar elle_gate = 0\n\
-             node vstep\nrelate vs: vstep * 48000 = elle_pitch\ncall lfo(name=v, step=vstep, shape=0)\n\
-             relate hearing: ear = 0.3 * elle_gate * v_out\n\
-             use {r}/mind/elle.grm\ncall elle(name=elle, ear=ear, clock_i=tr_i, clock_f=tr_f, other_pitch=hp, other_gate=hg, ctx_song=cs, ctx_human=ch, lessons=lz)\n",
+             node vstep\nrelate vs: vstep * 12000 = elle_pitch\ncall lfo(name=v, step=vstep, shape=0)\n\
+             {other}relate hearing: ear = 0.3 * elle_gate * v_out{other_sum}\n\
+             use {r}/mind/elle.grm\ncall elle(name=elle, ear=ear, clock_i=tr_i, clock_f=tr_f, ctx_song=cs, ctx_human=ch, lessons=lz)\n",
             r = root.display(),
-            lessons = lessons
+            lessons = lessons,
+            other = if tag == "hear" { OTHER } else { "" },
+            other_sum = if tag == "hear" { " - 0.3 * elle_gate * v_out + 0.4 * og * ov_out" } else { "" }
         );
+        // her first lesson, from its file, when she has lessons
+        let mut app = app;
+        if lessons > 0 {
+            let lesson = match tag {
+                "scale" => "04_major.grm",
+                "chords" => "07_four_chords.grm",
+                _ => "01_one_note.grm",
+            };
+            let text = std::fs::read_to_string(root.join("mind/lessons").join(lesson)).unwrap();
+            for line in text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
+                app.push_str(
+                    &line.replace("{name}", "elle").replace("{here}", "elle_lesson in 0.5 .. 1.5 and lz in 0.5 .. 999"),
+                );
+                app.push('\n');
+            }
+        }
         let file = dir.join("her.grm");
         std::fs::write(&file, app).unwrap();
         let engine = Engine::start(World::new(), Duration::from_millis(4));
@@ -1295,14 +1390,24 @@ mod tests {
                 .take(12)
                 .collect();
             assert!(differ.is_empty(), "they start apart: {differ:?}");
+            let (mut bass, mut harmony) = (0, 0);
             for k in 0..(48000 * 6) {
                 one.step();
                 two.step();
+                if one.value("elle_bgate").unwrap_or(0.0) > 0.5 {
+                    bass += 1;
+                    assert!(one.value("elle_bpitch") < one.value("elle_pitch"), "her bass under her note");
+                }
+                if one.value("elle_hgate").unwrap_or(0.0) > 0.5 {
+                    harmony += 1;
+                }
                 if k % 240 == 0 {
                     assert_eq!(one.value("elle_choice"), two.value("elle_choice"), "at sample {k}");
                     assert_eq!(one.value("elle_dhit1"), two.value("elle_dhit1"), "at sample {k}");
                 }
             }
+            // lessons off: a bass under her, and now and then a third below her notes
+            assert!(bass > 0 && harmony > 0, "bass {bass} harmony {harmony}");
         }
         let (out, _) = sh.run(&engine, "play ear");
         assert!(out[0].text.contains("plays"), "{out:?}");
@@ -1312,12 +1417,87 @@ mod tests {
             mixer.lock().unwrap().render(&mut buf);
             let m = mixer.lock().unwrap();
             let v = |n: &str| m.value("ear", n).unwrap_or(f64::NAN);
-            let kick = if v("elle_dhit1") > 0.5 { v("tr_i") } else { -1.0 };
+            let kick = if tag == "hear" {
+                v("elle_hint")
+            } else if v("elle_dhit1") > 0.5 {
+                v("tr_i")
+            } else {
+                -1.0
+            };
             notes.push((v("elle_semi"), v("elle_choice"), v("elle_gate"), kick));
+            // never a note a semitone above her bass (a minor ninth), and always in her scale
+            if v("elle_gate") > 0.5 && v("elle_ev") < 0.5 {
+                let deg = v("elle_deg").round() as i64;
+                assert!(v(&format!("elle_sc{deg}")) > 0.5, "degree {deg} out of her scale");
+                if v("elle_bgate") > 0.5 {
+                    let pc = |hz: f64| ((12.0 * (hz / 55.0).log2()).round() as i64).rem_euclid(12);
+                    let (m, b) = (pc(v("elle_pitch")), pc(v("elle_bpitch")));
+                    assert!((m - b).rem_euclid(12) != 1, "a minor ninth over her bass: {m} over {b}");
+                }
+            }
+        }
+        if tag == "hear" {
+            // notes heard on a steady beat: her pulse falls in with them
+            let sync = mixer.lock().unwrap().value("ear", "elle_sync").unwrap_or(0.0);
+            assert!(sync > 0.7, "her pulse and what she hears: {sync}");
         }
         engine.stop();
         let _ = std::fs::remove_dir_all(&dir);
         notes
+    }
+
+    #[test]
+    fn she_is_always_there_hears_the_room_sees_and_dreams() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let dir = std::env::temp_dir().join(format!("grm-home-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let engine = Engine::start(World::new(), Duration::from_millis(4));
+        let mixer = Arc::new(Mutex::new(Mixer::new(48000)));
+        let mut sh = Shell::new(dir.join("w.world"), mixer.clone());
+        sh.always = Some(root.join("mind/home.grm"));
+        let out = sh.wake(&engine);
+        assert!(out.iter().all(|l| l.kind != Kind::Error && l.kind != Kind::Warning), "{out:?}");
+        assert!(mixer.lock().unwrap().has_world(), "she runs with nothing played");
+        // she does not close
+        let (out, _) = sh.run(&engine, "app close home");
+        assert!(out[0].text.contains("always"), "{out:?}");
+        // a tone in the room, from another app
+        let app = format!(
+            "app Tone\nuse {r}/apps/networks/lfo.grm\ninput tstep = 0.0183333 positive\ncall lfo(name=tl, step=tstep, shape=0)\nnode tone signed\nrelate t: tone = 0.3 * tl_out\n",
+            r = root.display()
+        );
+        let file = dir.join("tone.grm");
+        std::fs::write(&file, app).unwrap();
+        let (out, _) = sh.run(&engine, &format!("app open {}", file.display()));
+        assert!(out.iter().all(|l| l.kind != Kind::Error), "{out:?}");
+        let (out, _) = sh.run(&engine, "play tone");
+        assert!(out[0].text.contains("plays"), "{out:?}");
+        let mut buf = vec![0.0f32; 2 * 480];
+        let glow0 = mixer.lock().unwrap().world_value("rv_glow").unwrap_or(0.0);
+        for _ in 0..300 {
+            mixer.lock().unwrap().render(&mut buf);
+        }
+        let m = mixer.lock().unwrap();
+        assert!(m.world_value("elle_tot").unwrap_or(0.0) > 1e-6, "she hears nothing");
+        assert!(m.world_value("rv_glow").unwrap_or(0.0) > glow0 + 0.1, "her reverie is not lit by it");
+        let l1 = m.world_value("rv_l1").unwrap();
+        assert!(l1.is_finite() && (0.0..=1.0).contains(&l1));
+        drop(m);
+        // a picture for her eye: a red one
+        let pic = dir.join("red.png");
+        let mut p = grm_engine::vision::Picture::new(8, 8, 3);
+        for y in 0..8 {
+            for x in 0..8 {
+                p.set(x, y, 0, 1.0);
+                p.set(x, y, 1, 0.0);
+                p.set(x, y, 2, 0.0);
+            }
+        }
+        grm_connect::write_picture(&pic, &p).unwrap();
+        let (out, _) = sh.run(&engine, &format!("see {}", pic.display()));
+        assert!(out.iter().any(|l| l.text.contains("she sees it too")), "{out:?}");
+        engine.stop();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -1373,6 +1553,68 @@ mod tests {
         assert!(listen(&mixer, 160).is_empty());
         engine.stop();
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_sound_file_plays_as_a_node() {
+        let dir = std::env::temp_dir().join(format!("grm-sound-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let wav = dir.join("tone.wav");
+        let tone: Vec<f32> =
+            (0..48000).map(|k| (k as f32 * 220.0 * std::f32::consts::TAU / 48000.0).sin() * 0.5).collect();
+        // written as two channels (left and right the same): read as one
+        let both: Vec<f32> = tone.iter().flat_map(|v| [*v, *v]).collect();
+        grm_sound::write_wav(&wav, &both, 48000).unwrap();
+        let app = format!(
+            "app Pl\ninput go = 1\naudio pl from {} when go\nnode heard signed\nrelate h: heard = pl\n",
+            wav.display()
+        );
+        let file = dir.join("pl.grm");
+        std::fs::write(&file, app).unwrap();
+        let engine = Engine::start(World::new(), Duration::from_millis(4));
+        let mixer = Arc::new(Mutex::new(Mixer::new(48000)));
+        let mut sh = Shell::new(dir.join("w.world"), mixer.clone());
+        let (out, _) = sh.run(&engine, &format!("app open {}", file.display()));
+        assert!(out.iter().all(|l| l.kind != Kind::Error && l.kind != Kind::Warning), "{out:?}");
+        let mut r = Shell::reflex_of(&engine, "heard", 48000).unwrap();
+        let mut got = vec![];
+        for _ in 0..100 {
+            r.step();
+            got.push(r.value("pl").unwrap_or(f64::NAN) as f32);
+        }
+        // the file, sample after sample (as written: 16 bits)
+        assert!(got.iter().zip(&tone).all(|(a, b)| (a - b).abs() < 1e-3), "{:?}", &got[..5]);
+        engine.stop();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn she_hears_a_melody_by_her_ear_alone() {
+        // someone plays a tone up, a tone down, again: what her ear takes of it is steps of two semitones
+        let a = her_notes(8, "hear", 1);
+        let mut steps: Vec<i64> = a.iter().map(|n| n.3.round() as i64).collect();
+        steps.dedup();
+        steps.retain(|s| *s != 0);
+        assert!(steps.iter().filter(|s| s.abs() == 2).count() * 2 > steps.len(), "{steps:?}");
+        assert!(steps.contains(&2) && steps.contains(&-2), "{steps:?}");
+    }
+
+    #[test]
+    fn in_a_lesson_of_steps_she_keeps_to_its_major_scale() {
+        let a = her_notes(12, "scale", 1);
+        let degrees: std::collections::BTreeSet<i64> =
+            a.iter().map(|n| (n.0.round() as i64 - 24).rem_euclid(12)).collect();
+        assert!(degrees.iter().all(|d| [0, 2, 4, 5, 7, 9, 11].contains(d)), "{degrees:?}");
+        assert!(degrees.len() >= 3, "she moves in it: {degrees:?}");
+    }
+
+    #[test]
+    fn in_a_lesson_of_chords_her_bass_plays_their_roots_and_she_breathes() {
+        let a = her_notes(16, "chords", 1);
+        let degrees: std::collections::BTreeSet<i64> =
+            a.iter().filter(|n| n.2 > 0.5).map(|n| (n.0.round() as i64 - 24).rem_euclid(12)).collect();
+        assert!(degrees.iter().all(|d| [0, 2, 4, 5, 7, 9, 11].contains(d)), "{degrees:?}");
+        assert!(a.iter().any(|n| n.2 < 0.5), "she rests now and then");
     }
 
     #[test]

@@ -67,6 +67,8 @@ pub enum Form {
     /// y = a1 x1 + a2 x2 + b
     /// y = a1 x1 + a2 x2 [+ a3 x3] + b
     Sum { a: Vec<f64>, b: f64 },
+    /// y = offset + amp e^(-x/tau) cos(2 pi x / period + phase): it swings (tau infinite: it does not fade)
+    Wave { period: f64, tau: f64, amp: f64, offset: f64, phase: f64 },
 }
 
 /// A law found.
@@ -114,6 +116,24 @@ impl Law {
             }
         };
         let law = match &self.form {
+            // a swing is no relation between nodes at one moment: what it is, said as nodes of its own (its
+            // period, how long it takes to fade, how wide, around what)
+            Form::Wave { period, tau, amp, offset, .. } => {
+                let sd = |v: f64| {
+                    g((self.spread / self.typical.0.abs().max(1e-12) * v.abs()).max(1e-9 * v.abs().max(1e-12)))
+                };
+                let mut measured = |node: String, v: f64, signed: bool| {
+                    lines.push(format!("node {node} = {}{}", g(v), if signed { " signed" } else { "" }));
+                    lines.push(format!("observe {node} = {} ± {}", g(v), sd(v)));
+                };
+                measured(format!("{y}_period"), *period, false);
+                measured(format!("{y}_amplitude"), *amp, false);
+                measured(format!("{y}_centre"), *offset, true);
+                if tau.is_finite() {
+                    measured(format!("{y}_fading"), *tau, false);
+                }
+                lines.pop().unwrap_or_default()
+            }
             Form::Line { a, b } => format!("relate {name}: {y} = {} * {x} {} ± {plain}{when}", g(*a), signed(*b)),
             Form::Sum { a, b } => {
                 let terms: Vec<String> = a
@@ -175,6 +195,14 @@ impl Law {
                 if *a < 0.0 { "fades exponentially with" } else { "grows exponentially with" }.to_string()
             }
             Form::Sum { .. } => "is a sum of".to_string(),
+            Form::Wave { period, tau, amp, .. } => {
+                let fade = if tau.is_finite() {
+                    format!(", fading over {}", fmt_g(*tau, 3))
+                } else {
+                    ", without fading".to_string()
+                };
+                format!("swings (a period of {}, {} wide{fade}) with", fmt_g(*period, 4), fmt_g(*amp, 3))
+            }
         };
         let when = self
             .when
@@ -262,7 +290,7 @@ pub fn find_laws(rows: &[IndexMap<String, f64>], known: &[(String, Vec<String>)]
                 continue;
             }
             let c = column(&[x, y]);
-            if let Some(law) = pair_law(&c[0], &c[1], x, y) {
+            if let Some(law) = pair_law(&c[0], &c[1], x, y).or_else(|| wave_law(&c[0], &c[1], x, y)) {
                 laws.push(law);
                 // both are held by it: neither is looked at again as a law of others
                 explained.push(y.clone());
@@ -517,10 +545,114 @@ fn pair_law(xv: &[f64], yv: &[f64], x: &str, y: &str) -> Option<Law> {
     best
 }
 
+/// A swing that holds well enough (a measured swing is noisier than a law of the same moment).
+pub const SWINGS: f64 = 0.98;
+
+/// y swinging with x (x going one way: a time): its period from where it crosses its middle, then the best period
+/// and fading near it (on a fixed grid, then a finer one: nothing drawn by chance), each with its least squares.
+fn wave_law(xv: &[f64], yv: &[f64], x: &str, y: &str) -> Option<Law> {
+    let n = yv.len();
+    if n < 3 * MIN_ROWS || !xv.windows(2).all(|w| w[1] > w[0]) {
+        return None;
+    }
+    let mean = yv.iter().sum::<f64>() / n as f64;
+    // where it crosses its middle
+    let mut crossings = vec![];
+    for k in 1..n {
+        let (a, b) = (yv[k - 1] - mean, yv[k] - mean);
+        if a == 0.0 || a.signum() != b.signum() && b != 0.0 {
+            let f = if a == b { 0.0 } else { a / (a - b) };
+            crossings.push(xv[k - 1] + f * (xv[k] - xv[k - 1]));
+        }
+    }
+    if crossings.len() < 4 {
+        return None;
+    }
+    let mut gaps: Vec<f64> = crossings.windows(2).map(|w| w[1] - w[0]).collect();
+    gaps.sort_by(|a, b| a.total_cmp(b));
+    let guess = 2.0 * gaps[gaps.len() / 2];
+    let span = xv[n - 1] - xv[0];
+    if !(guess > 0.0) || span < 1.5 * guess {
+        return None;
+    }
+    let fit = |period: f64, fade: f64| -> Option<(Vec<f64>, f64, f64, f64)> {
+        let w = std::f64::consts::TAU / period;
+        let e = |t: f64| (-(t - xv[0]) * fade).exp();
+        let c: Vec<f64> = xv.iter().map(|t| e(*t) * (w * (t - xv[0])).cos()).collect();
+        let s: Vec<f64> = xv.iter().map(|t| e(*t) * (w * (t - xv[0])).sin()).collect();
+        regress(&[c, s], yv)
+    };
+    // (period, fade, r2)
+    let mut best = (guess, 0.0, f64::MIN);
+    let (mut p_lo, mut p_hi) = (0.85 * guess, 1.15 * guess);
+    let (mut f_lo, mut f_hi) = (0.0, 5.0 / span);
+    for _ in 0..4 {
+        for i in 0..=24 {
+            let period = p_lo + (p_hi - p_lo) * i as f64 / 24.0;
+            for j in 0..=24 {
+                let fade = f_lo + (f_hi - f_lo) * j as f64 / 24.0;
+                if let Some((_, _, r2, _)) = fit(period, fade) {
+                    if r2 > best.2 {
+                        best = (period, fade, r2);
+                    }
+                }
+            }
+        }
+        let (dp, df) = ((p_hi - p_lo) / 12.0, (f_hi - f_lo) / 12.0);
+        (p_lo, p_hi) = (best.0 - dp, best.0 + dp);
+        (f_lo, f_hi) = ((best.1 - df).max(0.0), best.1 + df);
+    }
+    let (period, fade, _) = best;
+    let (w, offset, r2, spread) = fit(period, fade)?;
+    if r2 < SWINGS {
+        return None;
+    }
+    // its phase at the first x, and its width there
+    let amp = (w[0] * w[0] + w[1] * w[1]).sqrt();
+    let phase = (-w[1]).atan2(w[0]);
+    // a fading slower than ten times what was seen is no fading
+    let tau = if fade * span < 0.1 { f64::INFINITY } else { 1.0 / fade };
+    Some(Law {
+        target: y.to_string(),
+        inputs: vec![x.to_string()],
+        form: Form::Wave { period, tau, amp, offset, phase },
+        r2,
+        rows: n,
+        spread,
+        when: None,
+        typical: (amp, span),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::time::Rng;
+
+    #[test]
+    fn a_swing_that_fades_is_found_from_its_rows_alone() {
+        // a pendulum let go: its angle, sampled every 50 ms, a little noise
+        let mut rng = Rng::new(3);
+        let mut rows = Rows::new();
+        for k in 0..300 {
+            let t = k as f64 * 0.05;
+            let angle = 0.3 * (-t / 6.0).exp() * (std::f64::consts::TAU * t / 2.006).cos() + 0.002 * rng.normal();
+            rows.push(IndexMap::from([("t".to_string(), t), ("angle".to_string(), angle)]));
+        }
+        let laws = find_laws(&rows.rows, &[]);
+        let Some(law) = laws.iter().find(|l| matches!(l.form, Form::Wave { .. })) else { panic!("{laws:?}") };
+        let Form::Wave { period, tau, amp, .. } = law.form else { unreachable!() };
+        assert!((period - 2.006).abs() < 0.01, "{period}");
+        assert!((tau - 6.0).abs() < 0.4, "{tau}");
+        assert!((amp - 0.3).abs() < 0.01, "{amp}");
+        let lines = law.statements("found_1", &|_| false);
+        assert!(lines.iter().any(|l| l.starts_with("node angle_period = 2.00")), "{lines:?}");
+        assert!(law.text().starts_with("angle swings"), "{}", law.text());
+        let mut w = crate::world::World::new();
+        for l in &lines {
+            w.say(l, &crate::Provenance::default()).unwrap_or_else(|e| panic!("{l}: {e}"));
+        }
+    }
 
     #[test]
     fn laws_are_found_and_written_in_the_language() {

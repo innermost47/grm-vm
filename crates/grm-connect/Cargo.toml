@@ -10,6 +10,8 @@ authors.workspace = true
 grm-engine = { path = "../grm-engine" }
 indexmap = "2"
 png = "0.17"
+# JPEG pictures for the eye (pure Rust)
+zune-jpeg = "0.5"
 serde_json = { version = "1", features = ["preserve_order"] }
 ureq = "2"
 tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }

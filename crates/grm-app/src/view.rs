@@ -23,6 +23,8 @@ pub struct View {
     pub passive: bool,
     /// How far down the master equations reach (from the top of the view): the triangle stays below them.
     eq_below: f32,
+    /// How tall one of them is (measured as drawn).
+    eq_row: f32,
 }
 
 impl Default for View {
@@ -37,6 +39,7 @@ impl Default for View {
             fitted: false,
             passive: false,
             eq_below: 0.0,
+            eq_row: 30.0,
         }
     }
 }
@@ -45,7 +48,7 @@ fn faded(c: Color32, k: f32) -> Color32 {
     Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), (255.0 * k) as u8)
 }
 
-fn mix(a: Color32, b: Color32, k: f32) -> Color32 {
+pub(crate) fn mix(a: Color32, b: Color32, k: f32) -> Color32 {
     let k = k.clamp(0.0, 1.0);
     let m = |x: u8, y: u8| (x as f32 * (1.0 - k) + y as f32 * k) as u8;
     Color32::from_rgb(m(a.r(), b.r()), m(a.g(), b.g()), m(a.b(), b.b()))
@@ -302,6 +305,42 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
             hover_rel = Some(r.name.clone());
         }
     }
+    if let Some(c) = witness_at {
+        // the triangle, over the threads and the links, under the nodes and the networks gathered: empty (nothing is kept in it), a second fainter one around it, the reflection
+        let r = 17.0;
+        let tri = |r: f32, turn: f32| -> Vec<Pos2> {
+            (0..3)
+                .map(|k| {
+                    let a = -std::f32::consts::FRAC_PI_2 + turn + k as f32 * std::f32::consts::TAU / 3.0;
+                    c + vec2(a.cos(), a.sin()) * r
+                })
+                .collect()
+        };
+        painter.add(Shape::convex_polygon(
+            tri(r, 0.0),
+            ink.surface,
+            Stroke::new(1.6_f32, ink.accent.gamma_multiply(0.85)),
+        ));
+        painter.add(Shape::closed_line(
+            tri(r + 7.0, std::f32::consts::PI),
+            Stroke::new(0.7_f32, ink.accent.gamma_multiply(0.22)),
+        ));
+        if pointer_over(&resp, c, r + 6.0) {
+            resp.clone().on_hover_ui(|ui| {
+                let lang = app.settings.lang;
+                let ink = crate::app::Ink::of(ui.ctx());
+                ui.horizontal(|ui| {
+                    crate::icons::show(ui, "triangle", 15.0, ink.accent);
+                    ui.label(egui::RichText::new(crate::text::t(lang, "witness")).strong());
+                });
+                ui.label(egui::RichText::new(crate::text::t(lang, "witness_d")).small().color(ink.muted));
+                ui.separator();
+                crate::panels::witness_lines(app, ui);
+                ui.separator();
+                crate::panels::witness_equations(app, ui);
+            });
+        }
+    }
     // nodes
     // every label where there is room (the ones that would fall on others wait for the pointer)
     let label_all = zoom > 0.45 && pic.nodes.len() < 3000;
@@ -488,7 +527,17 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
         }
     }
     if collapse > 0.0 && sources.len() >= 2 {
-        painter.rect_filled(rect, 0.0, faded(ink.surface, 0.92 * collapse));
+        painter.rect_filled(rect, 0.0, faded(ink.surface, 0.985 * collapse));
+        // the triangle stays, behind the networks gathered
+        if let Some(c) = witness_at {
+            let tri: Vec<Pos2> = (0..3)
+                .map(|k| {
+                    let a = -std::f32::consts::FRAC_PI_2 + k as f32 * std::f32::consts::TAU / 3.0;
+                    c + vec2(a.cos(), a.sin()) * 17.0
+                })
+                .collect();
+            painter.add(Shape::convex_polygon(tri, ink.surface, Stroke::new(1.6_f32, ink.accent.gamma_multiply(0.85))));
+        }
         let mut centres: indexmap::IndexMap<String, (Pos2, f32, usize)> = indexmap::IndexMap::new();
         for s in &sources {
             let pts: Vec<Pos2> =
@@ -498,7 +547,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
             }
             let c = pts.iter().fold(vec2(0.0, 0.0), |a, p| a + p.to_vec2()) / pts.len() as f32;
             let spread = pts.iter().map(|p| p.distance(c.to_pos2())).fold(0.0, f32::max);
-            let radius = (18.0 + (pts.len() as f32).sqrt() * 6.0).max(spread * 0.5).min(90.0);
+            // its size says how many it holds (gently: a few hundred is not a hundred times a few), not how its
+            // nodes are spread
+            let _ = spread;
+            let radius = (16.0 + 9.0 * (pts.len() as f32).ln_1p()).min(84.0);
             centres.insert(s.clone(), (c.to_pos2(), radius, pts.len()));
         }
         // gathered, they must not lie on one another: they push each other apart (a few rounds), keeping room
@@ -546,6 +598,25 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
             if let (Some(pa), Some(pb)) = (centres.get(a), centres.get(b)) {
                 let w = (1.0 + (*n as f32).sqrt() * 1.5).min(8.0);
                 painter.line_segment([pa.0, pb.0], Stroke::new(w, faded(ink.muted, collapse)));
+            }
+        }
+        // laid out among themselves: each keeps the side where its nodes are, none on another
+        let keys: Vec<String> = centres.keys().cloned().collect();
+        for _ in 0..60 {
+            for a in 0..keys.len() {
+                for b in (a + 1)..keys.len() {
+                    let (ca, ra, _) = centres[&keys[a]];
+                    let (cb, rb, _) = centres[&keys[b]];
+                    let d = cb - ca;
+                    let room = ra + rb + 18.0;
+                    let dist = d.length().max(0.01);
+                    if dist < room {
+                        let dir = if dist < 0.1 { vec2(1.0, 0.3).normalized() } else { d / dist };
+                        let push = dir * (room - dist) * 0.5;
+                        centres.get_mut(&keys[a]).unwrap().0 -= push;
+                        centres.get_mut(&keys[b]).unwrap().0 += push;
+                    }
+                }
             }
         }
         for (s, (c, radius, count)) in &centres {
@@ -628,6 +699,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
         if ui.put(at, b).on_hover_text(t(lang, "flow_d")).clicked() {
             app.flow.on = !app.flow.on;
             app.graph.motion = 0.05;
+            // back to the free layout: a few seconds of quicker steps, then calm again
+            if !app.flow.on {
+                app.graph.hurry = 240;
+                app.graph.motion = 1.0;
+            }
             app.view.fitted = false;
         }
     }
@@ -685,7 +761,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
                     });
                 });
             y = inner.response.rect.bottom() + 4.0;
+            app.view.eq_row = inner.response.rect.height() + 4.0;
         }
+        // the room of both rows kept, whether one is there or two (what is under them does not move)
+        y = y.max(rect.top() + 8.0 + 2.0 * app.view.eq_row);
         app.view.eq_below = y - rect.top();
         // the networks in the network: a list on the left, searched, scrolled (as many as there are)
         if !app.view.passive {
@@ -886,42 +965,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
             egui::FontId::proportional(13.0),
             ink.accent,
         );
-    }
-    if let Some(c) = witness_at {
-        // the triangle, over everything: empty (nothing is kept in it), a second fainter one around it, the reflection
-        let r = 17.0;
-        let tri = |r: f32, turn: f32| -> Vec<Pos2> {
-            (0..3)
-                .map(|k| {
-                    let a = -std::f32::consts::FRAC_PI_2 + turn + k as f32 * std::f32::consts::TAU / 3.0;
-                    c + vec2(a.cos(), a.sin()) * r
-                })
-                .collect()
-        };
-        painter.add(Shape::convex_polygon(
-            tri(r, 0.0),
-            ink.surface,
-            Stroke::new(1.6_f32, ink.accent.gamma_multiply(0.85)),
-        ));
-        painter.add(Shape::closed_line(
-            tri(r + 7.0, std::f32::consts::PI),
-            Stroke::new(0.7_f32, ink.accent.gamma_multiply(0.22)),
-        ));
-        if pointer_over(&resp, c, r + 6.0) {
-            resp.clone().on_hover_ui(|ui| {
-                let lang = app.settings.lang;
-                let ink = crate::app::Ink::of(ui.ctx());
-                ui.horizontal(|ui| {
-                    crate::icons::show(ui, "triangle", 15.0, ink.accent);
-                    ui.label(egui::RichText::new(crate::text::t(lang, "witness")).strong());
-                });
-                ui.label(egui::RichText::new(crate::text::t(lang, "witness_d")).small().color(ink.muted));
-                ui.separator();
-                crate::panels::witness_lines(app, ui);
-                ui.separator();
-                crate::panels::witness_equations(app, ui);
-            });
-        }
     }
     if app.graph.motion > 0.02 {
         ui.ctx().request_repaint();

@@ -20,6 +20,8 @@ pub struct Graph {
     pub held: HashSet<String>,
     /// How much it moved at the last step (0: at rest).
     pub motion: f32,
+    /// Steps left to go back quickly to a free layout (after a flow: the points far from where they settle).
+    pub hurry: u32,
 }
 
 fn hash(s: &str) -> u64 {
@@ -126,9 +128,11 @@ impl Graph {
             v[0] = 0.6 * v[0] + 0.05 * force[k][0];
             v[1] = 0.6 * v[1] + 0.05 * force[k][1];
             let speed = (v[0] * v[0] + v[1] * v[1]).sqrt();
-            if speed > MAX_STEP {
-                v[0] *= MAX_STEP / speed;
-                v[1] *= MAX_STEP / speed;
+            // calm, except just after a flow, when the points have far to go
+            let most = if self.hurry > 0 { MAX_STEP * 8.0 } else { MAX_STEP };
+            if speed > most {
+                v[0] *= most / speed;
+                v[1] *= most / speed;
             }
             if speed < 0.02 {
                 *v = [0.0, 0.0];
@@ -136,9 +140,10 @@ impl Graph {
             let p = self.pos.get_mut(item).unwrap();
             p[0] += v[0];
             p[1] += v[1];
-            motion = motion.max(speed.min(MAX_STEP));
+            motion = motion.max(speed.min(most));
         }
         self.motion = motion;
+        self.hurry = self.hurry.saturating_sub(1);
     }
 
     /// The box around everything: (min x, min y, max x, max y).

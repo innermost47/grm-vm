@@ -1,0 +1,14 @@
+# Lesson: the major scale
+# Leçon : la gamme majeure
+# The seven notes of the major scale, by steps and thirds.
+repeat k in 4 .. 12: set {name}_open{k} = 1 when {here}
+set {name}_open16 = 1 when {here}
+set {name}_breathw = 0.6 when {here}
+repeat p in 0 .. 11: set {name}_sc{p} = 0 when {here}
+set {name}_sc0 = 1 when {here}
+set {name}_sc2 = 1 when {here}
+set {name}_sc4 = 1 when {here}
+set {name}_sc5 = 1 when {here}
+set {name}_sc7 = 1 when {here}
+set {name}_sc9 = 1 when {here}
+set {name}_sc11 = 1 when {here}

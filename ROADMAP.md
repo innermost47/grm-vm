@@ -39,7 +39,9 @@
    2. *Sound*: nodes that send impulses to others (a `pulse`, relations that act on it, a clock inside the sound
       thread so that pulses fall on the sample); sequencers made of it; a player of sound files (WAV, then MP3,
       FLAC, OGG by a pure-Rust decoder) whose features come in as nodes, and a screen drawn by the network from
-      them, calm.
+      them, calm. *Player done* (MP3, FLAC, OGG, WAV, M4A by Symphonia, lists, a mixed order without
+      chance), heard by her through the room; *her reverie done* (three veils of colour from her state, lit by what
+      she hears and sees). Next: video for her eye, her ear telling her own voice from the room's.
    3. *Apps of its own, written in GRM*: a spreadsheet (a cell a node with its spread, a formula a relation;
       the result fixed, the input found); a text editor; an SVG maker with nodes (shapes as nodes, geometry as
       relations), and a free paint that keeps what is drawn in the GRM.

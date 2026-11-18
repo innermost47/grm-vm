@@ -47,6 +47,15 @@ enum Expr {
     Exp(usize),
 }
 
+/// A sound file played: its samples (48 000 a second, one channel), where it is in them.
+#[derive(Debug, Clone)]
+struct Sounding {
+    target: usize,
+    run: Option<usize>,
+    data: std::sync::Arc<Vec<f32>>,
+    at: usize,
+}
+
 /// A line that remembers: its node is what its source was so many samples ago.
 #[derive(Debug, Clone)]
 struct Delay {
@@ -72,10 +81,15 @@ pub struct Reflex {
     sets: Vec<Step>,
     follow: Vec<Step>,
     delays: Vec<Delay>,
+    /// The sound files it plays (a node each, its samples one by one while its switch is on).
+    sounds: Vec<Sounding>,
     /// What it keeps when it starts again from nothing (its `memory` nodes: what it learned).
     kept: Vec<bool>,
     /// Where a sample's writes wait (kept between samples: nothing is allocated while it sounds).
     scratch: Vec<(usize, f64)>,
+    /// For each set, the next one whose first condition is another (the sets said by one `repeat` often share it:
+    /// when it does not hold, all of them are passed at once).
+    skip: Vec<usize>,
     pub samples: u64,
 }
 
@@ -109,11 +123,23 @@ impl Reflex {
             sets: vec![],
             follow: vec![],
             delays: vec![],
+            sounds: vec![],
             kept,
             scratch: vec![],
+            skip: vec![],
             samples: 0,
         };
         for st in &net.sets {
+            // a sound file: its samples, one each sample while its switch is on (from where it was left)
+            if let Some(rest) = st.text.strip_prefix("audio ") {
+                let path = rest.split_once(" from ").map(|(_, p)| p).unwrap_or("");
+                let path = path.rsplit_once(" when ").map(|(p, _)| p).unwrap_or(path).trim().trim_matches('"');
+                let data = crate::wav::load(std::path::Path::new(path)).unwrap_or_default();
+                let target = r.slot(&st.target)?;
+                let run = if st.source.is_empty() { None } else { Some(r.slot(&st.source)?) };
+                r.sounds.push(Sounding { target, run, data, at: 0 });
+                continue;
+            }
             // a delay: a line of so many samples (one at a slower clock)
             if let Some(by) = st.text.starts_with("delay ").then(|| st.text.rsplit_once(" by ")).flatten() {
                 let seconds = crate::lang::seconds_of(by.1).unwrap_or(0.0);
@@ -134,6 +160,15 @@ impl Reflex {
             };
             let when = r.conds(&st.when)?;
             r.sets.push(Step { target: r.slot(&st.target)?, expr, when });
+        }
+        r.skip = vec![0; r.sets.len()];
+        for i in (0..r.sets.len()).rev() {
+            let first = r.sets[i].when.first();
+            r.skip[i] = if first.is_some() && i + 1 < r.sets.len() && r.sets[i + 1].when.first() == first {
+                r.skip[i + 1]
+            } else {
+                i + 1
+            };
         }
         Ok(r)
     }
@@ -234,6 +269,11 @@ impl Reflex {
         }
     }
 
+    /// How big it is: its sets, the nodes that follow, its delays, its nodes.
+    pub fn sizes(&self) -> (usize, usize, usize, usize) {
+        (self.sets.len(), self.follow.len(), self.delays.len(), self.values.len())
+    }
+
     /// Where a node is kept (to read it at each sample without looking its name up).
     pub fn slot_of(&self, node: &str) -> Option<usize> {
         self.names.get(node).copied()
@@ -283,12 +323,34 @@ impl Reflex {
         for d in &self.delays {
             self.values[d.target] = d.line[d.at];
         }
+        for f in &mut self.sounds {
+            let on = f.run.is_none_or(|r| self.values[r] > 0.5);
+            self.values[f.target] = if on && !f.data.is_empty() {
+                let v = f.data[f.at] as f64;
+                f.at = (f.at + 1) % f.data.len();
+                v
+            } else {
+                0.0
+            };
+        }
         let mut writes = std::mem::take(&mut self.scratch);
         writes.clear();
-        for s in &self.sets {
-            if self.holds(&s.when) {
+        let mut i = 0;
+        let n = self.sets.len();
+        while i < n {
+            let s = &self.sets[i];
+            if let Some(&(c, lo, hi)) = s.when.first() {
+                let v = self.values[c];
+                if !(lo <= v && v <= hi) {
+                    // its first condition does not hold: nor for the sets after it that share it
+                    i = self.skip[i];
+                    continue;
+                }
+            }
+            if self.holds(&s.when[1.min(s.when.len())..]) {
                 writes.push((s.target, self.eval(&s.expr)));
             }
+            i += 1;
         }
         for &(i, v) in &writes {
             self.values[i] = v;

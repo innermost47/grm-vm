@@ -21,6 +21,16 @@ pub struct Airlock {
 }
 
 /// What a workshop made, put in the airlock: a sandbox here with its lines, and a trial of what it would change.
+/// Where a workshop is on its way into the main network (shown beside it, so that it is seen at once).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WsStatus {
+    /// Its sandbox waits in the airlock.
+    Waiting,
+    /// Let in: it comes in little by little (then: in).
+    Entering,
+    Refused,
+}
+
 pub fn open_for_workshop(app: &mut App, ws: &str) {
     let w = ws.to_string();
     let got = app.engine.query(move |main| -> Result<(String, MergeReport, Vec<String>), String> {
@@ -43,6 +53,7 @@ pub fn open_for_workshop(app: &mut App, ws: &str) {
     });
     app.airlock = Some(match got {
         Some(Ok((sandbox, report, not_taken))) => {
+            app.ws_status.insert(ws.to_string(), WsStatus::Waiting);
             Airlock { sandbox, from: ws.to_string(), report: Ok(report), not_taken }
         }
         Some(Err(e)) => Airlock { sandbox: String::new(), from: ws.to_string(), report: Err(e), not_taken: vec![] },
@@ -173,13 +184,16 @@ pub fn window(app: &mut App, ctx: &egui::Context) {
     if modal.should_close() && choice.is_none() {
         choice = Some("later");
     }
+    let from = app.airlock.as_ref().map(|a| a.from.clone()).unwrap_or_default();
     match choice {
         Some("merge") if !sandbox.is_empty() => {
             app.say(format!("merge {sandbox}"));
+            app.ws_status.insert(from, WsStatus::Entering);
             app.airlock = None;
         }
         Some("refuse") if !sandbox.is_empty() => {
             app.say(format!("refuse {sandbox}"));
+            app.ws_status.insert(from, WsStatus::Refused);
             app.airlock = None;
         }
         Some(_) => app.airlock = None,

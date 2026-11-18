@@ -1,20 +1,62 @@
 app Weather in Lyon
-# The weather of Lyon, asked again every ten minutes (Open-Meteo: free, no key).
-api meteo: get https://api.open-meteo.com/v1/forecast?latitude=45.76&longitude=4.84&current=temperature_2m,relative_humidity_2m,wind_speed_10m every 600
+icon cloud-sun
+# The weather of Lyon (Open-Meteo: free, no key), asked again every ten minutes: the sky now, how it feels, the
+# wind, the next twenty-four hours, the week. Each value comes with how sure it is; what the machine computes from
+# them is GRML (the Fahrenheit, the wind in metres a second). To see another town: its latitude and longitude below.
+api meteo: get https://api.open-meteo.com/v1/forecast?latitude=45.76&longitude=4.84&current=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,weather_code,cloud_cover,pressure_msl,wind_speed_10m,wind_gusts_10m,wind_direction_10m,is_day&hourly=temperature_2m,precipitation_probability&forecast_hours=24&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&forecast_days=7&timezone=auto every 600
+# now
 read meteo current.temperature_2m -> temp ± 0.5
+read meteo current.apparent_temperature -> feels ± 1
 read meteo current.relative_humidity_2m -> humidity ± 2
+read meteo current.precipitation -> rain ± 0.1
+read meteo current.weather_code -> sky_code
+read meteo current.cloud_cover -> clouds ± 5
+read meteo current.pressure_msl -> pressure ± 0.5
 read meteo current.wind_speed_10m -> wind ± 1
+read meteo current.wind_gusts_10m -> gusts ± 2
+read meteo current.wind_direction_10m -> wind_dir ± 5
+read meteo current.is_day -> daytime
+# the next twenty-four hours, the week
+repeat h in 0 .. 23: read meteo hourly.temperature_2m[{h}] -> temp_h{h} ± 0.5
+repeat h in 0 .. 23: read meteo hourly.precipitation_probability[{h}] -> rainp_h{h} ± 5
+repeat d in 0 .. 6: read meteo daily.temperature_2m_min[{d}] -> tmin_d{d} ± 0.5
+repeat d in 0 .. 6: read meteo daily.temperature_2m_max[{d}] -> tmax_d{d} ± 0.5
+repeat d in 0 .. 6: read meteo daily.precipitation_sum[{d}] -> rain_d{d} ± 0.2
 node temp signed
+node feels signed
 node humidity signed
+node rain signed
+node sky_code signed
+node clouds signed
+node pressure signed
 node wind signed
-# What the machine computes from it: the temperature in Fahrenheit.
+node gusts signed
+node wind_dir signed
+node daytime signed
+repeat h in 0 .. 23: node temp_h{h} signed
+repeat h in 0 .. 23: node rainp_h{h} signed
+repeat d in 0 .. 6: node tmin_d{d} signed
+repeat d in 0 .. 6: node tmax_d{d} signed
+repeat d in 0 .. 6: node rain_d{d} signed
+# what the machine computes from it
 node temp_f signed
 relate fahrenheit: temp_f = 1.8 * temp + 32
-# Its surface.
-widget about: text "Read from Open-Meteo every ten minutes; each value with how sure it is." at 0 0 size 12 1
-widget t: value temp at 0 1 size 4 1 "temperature (°C)"
-widget f: value temp_f at 4 1 size 4 1 "in Fahrenheit"
-widget h: value humidity at 8 1 size 4 1 "humidity (%)"
-widget tm: meter temp -10 .. 40 at 0 2 size 6 1 "temperature"
-widget wm: meter wind 0 .. 80 at 6 2 size 6 1 "wind (km/h)"
-widget tp: plot temp -10 .. 40 at 0 3 size 12 3 "temperature, as it comes"
+node wind_ms signed
+relate metres_a_second: wind_ms = 0.277777778 * wind
+# its surface
+widget sky: sky sky_code daytime at 0 0 size 3 4
+widget t: value temp at 3 0 size 3 1 "temperature (°C)"
+widget fl: value feels at 6 0 size 3 1 "feels like (°C)"
+widget f: value temp_f at 9 0 size 3 1 "in Fahrenheit"
+widget h: value humidity at 3 1 size 3 1 "humidity (%)"
+widget p: value pressure at 6 1 size 3 1 "pressure (hPa)"
+widget r: value rain at 9 1 size 3 1 "rain now (mm)"
+widget w: value wind at 3 2 size 3 1 "wind (km/h)"
+widget g: value gusts at 6 2 size 3 1 "gusts (km/h)"
+widget wd: value wind_dir at 9 2 size 3 1 "from (°)"
+widget cm: meter clouds 0 .. 100 at 3 3 size 9 1 "clouds (%)"
+widget hours: series temp_h0 temp_h1 temp_h2 temp_h3 temp_h4 temp_h5 temp_h6 temp_h7 temp_h8 temp_h9 temp_h10 temp_h11 temp_h12 temp_h13 temp_h14 temp_h15 temp_h16 temp_h17 temp_h18 temp_h19 temp_h20 temp_h21 temp_h22 temp_h23 -5 .. 35 at 0 4 size 12 3 "the next 24 hours (°C)"
+widget rainh: series rainp_h0 rainp_h1 rainp_h2 rainp_h3 rainp_h4 rainp_h5 rainp_h6 rainp_h7 rainp_h8 rainp_h9 rainp_h10 rainp_h11 rainp_h12 rainp_h13 rainp_h14 rainp_h15 rainp_h16 rainp_h17 rainp_h18 rainp_h19 rainp_h20 rainp_h21 rainp_h22 rainp_h23 0 .. 100 at 0 7 size 12 2 "chance of rain, hour by hour (%)"
+widget week: range tmin_d0 tmax_d0 tmin_d1 tmax_d1 tmin_d2 tmax_d2 tmin_d3 tmax_d3 tmin_d4 tmax_d4 tmin_d5 tmax_d5 tmin_d6 tmax_d6 -5 .. 35 at 0 9 size 12 4 "the week (°C)"
+widget rainw: series rain_d0 rain_d1 rain_d2 rain_d3 rain_d4 rain_d5 rain_d6 0 .. 20 at 0 13 size 12 2 "rain, day by day (mm)"
+widget tp: plot temp -10 .. 40 at 0 15 size 12 2 "the temperature, as it came"

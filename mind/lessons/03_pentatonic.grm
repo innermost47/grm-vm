@@ -1,0 +1,12 @@
+# Lesson: the pentatonic
+# Leçon : la pentatonique
+# The major pentatonic: five notes, no semitone, nothing can clash.
+repeat k in 5 .. 11: set {name}_open{k} = 1 when {here}
+set {name}_open16 = 1 when {here}
+set {name}_breathw = 0.5 when {here}
+repeat p in 0 .. 11: set {name}_sc{p} = 0 when {here}
+set {name}_sc0 = 1 when {here}
+set {name}_sc2 = 1 when {here}
+set {name}_sc4 = 1 when {here}
+set {name}_sc7 = 1 when {here}
+set {name}_sc9 = 1 when {here}

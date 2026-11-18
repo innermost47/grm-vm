@@ -361,6 +361,9 @@ impl Shell {
 
     pub fn close_app(&mut self, engine: &Engine, name: &str) -> Vec<Line> {
         let Some(app) = self.rt.apps.get(name) else { return vec![Line::warn(format!("? {name} does not run"))] };
+        if self.always.as_ref().is_some_and(|p| p.file_stem().is_some_and(|s| s.to_string_lossy() == name)) {
+            return vec![Line::dim(format!("{name} is always there: it does not close"))];
+        }
         let source = source_of(name);
         let played: Vec<String> = app.parsed.widgets.iter().flat_map(|w| w.nodes.clone()).collect();
         let s = source.clone();
@@ -596,28 +599,65 @@ impl Shell {
         }
     }
 
-    /// Every channel that plays a node is made again from the network as it is now (it goes on from where it was).
+    /// The world's network is made again as it is now (it goes on from where it was): every channel that plays one
+    /// of its nodes with it, and what lives in it even when nothing is heard (her).
     pub(crate) fn refresh_channels(&mut self, engine: &Engine) {
-        let (playing, rate) = match self.mixer.lock() {
-            Ok(m) => (m.playing(), m.rate),
+        let taps = match self.mixer.lock() {
+            Ok(m) => m.taps(),
             Err(_) => return,
         };
-        for node in playing {
-            match Self::reflex_of(engine, &node, rate) {
-                Ok(r) => {
-                    if let Some(source) = ReflexSource::new(r, &node) {
-                        if let Ok(mut m) = self.mixer.lock() {
-                            m.swap(&node, Box::new(source));
-                        }
-                    }
-                }
-                Err(_) => {
-                    if let Ok(mut m) = self.mixer.lock() {
-                        m.stop(&node);
-                    }
-                    self.rt.pending.push(Line::dim(format!("{node} no longer plays (it is no longer in the network)")));
-                }
+        // a node no longer in the network: its channel leaves
+        let known: Vec<String> = {
+            let taps = taps.clone();
+            engine
+                .query(move |w| -> grm_engine::Result<Vec<String>> {
+                    Ok(taps.into_iter().filter(|t| w.machine.net.nodes.contains_key(t)).collect())
+                })
+                .and_then(|r| r.ok())
+                .unwrap_or_default()
+        };
+        for gone in taps.iter().filter(|t| !known.contains(t)) {
+            if let Ok(mut m) = self.mixer.lock() {
+                m.stop(gone);
             }
+            self.rt.pending.push(Line::dim(format!("{gone} no longer plays (it is no longer in the network)")));
+        }
+        if let Err(e) = self.refresh_world(engine, &known) {
+            self.rt.pending.push(Line::warn(format!("the network no longer plays: {e}")));
+        }
+    }
+
+    /// The world's network at the speed of sound, following these nodes: it runs while something plays in it or
+    /// while she lives in it (her app open); else it stops.
+    pub(crate) fn refresh_world(&mut self, engine: &Engine, taps: &[String]) -> grm_engine::Result<()> {
+        let alive = !taps.is_empty() || self.always_runs();
+        let rate = self.mixer.lock().map(|m| m.rate).unwrap_or(48_000);
+        if !alive {
+            if let Ok(mut m) = self.mixer.lock() {
+                m.set_world(None);
+            }
+            return Ok(());
+        }
+        let r = Self::reflex_following(engine, None, taps, rate)?;
+        if let Ok(mut m) = self.mixer.lock() {
+            m.set_world(Some(ReflexSource::whole(r)));
+        }
+        Ok(())
+    }
+
+    /// Whether an app that is always there runs (her).
+    pub fn always_runs(&self) -> bool {
+        self.always.as_ref().is_some_and(|p| {
+            let name = p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+            self.rt.apps.contains_key(&name)
+        })
+    }
+
+    /// The app that is always there (her) opens first, before anything else.
+    pub fn wake(&mut self, engine: &Engine) -> Vec<Line> {
+        match self.always.clone() {
+            Some(p) if !self.always_runs() => self.open_app(engine, &p),
+            _ => vec![],
         }
     }
 
@@ -675,6 +715,10 @@ impl Shell {
         self.rt.closed = desk.closed.clone();
         let mut out = vec![];
         for (name, path, prefix) in &desk.running {
+            // already there (her, woken first)
+            if self.rt.apps.contains_key(name) {
+                continue;
+            }
             let Ok(text) = std::fs::read_to_string(path) else {
                 out.push(Line::warn(format!("{name}: {} is not there any more", path.display())));
                 continue;
@@ -715,6 +759,9 @@ impl Shell {
             }
         }
         for (node, gain, pan, mute, solo) in desk.channels {
+            if node == "player" {
+                continue;
+            }
             let (lines, _) = self.run(engine, &format!("play {node} {gain}"));
             if lines.iter().any(|l| l.kind == crate::Kind::Error) {
                 continue;

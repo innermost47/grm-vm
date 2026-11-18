@@ -78,6 +78,52 @@ impl Default for Song {
     }
 }
 
+/// A lesson of hers: a file of GRML in mind/lessons, its name (its first line, `# Lesson: ...`; in French
+/// `# Leçon : ...`), its lines.
+#[derive(Debug, Clone, Default)]
+pub struct Lesson {
+    pub name: String,
+    pub name_fr: String,
+    pub lines: Vec<String>,
+}
+
+/// Where her mind is (her network, her lessons, what she starts knowing): beside the memory, or here.
+pub fn mind_dir(memory: &std::path::Path) -> Option<std::path::PathBuf> {
+    [memory.parent().map(|p| p.join("mind")), Some(std::path::PathBuf::from("mind"))]
+        .into_iter()
+        .flatten()
+        .find(|d| d.join("elle.grm").exists())
+}
+
+/// Her lessons, in the order of their files' names.
+pub fn lessons(mind: &std::path::Path) -> Vec<Lesson> {
+    let Ok(dir) = std::fs::read_dir(mind.join("lessons")) else { return vec![] };
+    let mut files: Vec<std::path::PathBuf> =
+        dir.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "grm")).collect();
+    files.sort();
+    files
+        .iter()
+        .filter_map(|f| {
+            let text = std::fs::read_to_string(f).ok()?;
+            let mut lesson = Lesson::default();
+            for line in text.lines() {
+                let l = line.trim();
+                if let Some(n) = l.strip_prefix("# Lesson:") {
+                    lesson.name = n.trim().to_string();
+                } else if let Some(n) = l.strip_prefix("# Leçon :").or_else(|| l.strip_prefix("# Leçon:")) {
+                    lesson.name_fr = n.trim().to_string();
+                } else if !l.is_empty() && !l.starts_with('#') {
+                    lesson.lines.push(l.to_string());
+                }
+            }
+            if lesson.name.is_empty() {
+                lesson.name = f.file_stem()?.to_string_lossy().replace('_', " ");
+            }
+            Some(lesson)
+        })
+        .collect()
+}
+
 /// The drums: (letter, name).
 pub const DRUMS: [(&str, &str); 4] = [("k", "kick"), ("s", "snare"), ("h", "hat"), ("t", "tom")];
 
@@ -87,7 +133,17 @@ impl Song {
     }
 
     pub fn load(memory: &std::path::Path) -> Song {
-        std::fs::read_to_string(Self::path(memory)).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+        let Some(mut v) = std::fs::read_to_string(Self::path(memory))
+            .ok()
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        else {
+            return Song::default();
+        };
+        // the player tracks of before are gone from the studio (the player is an app of its own)
+        if let Some(tracks) = v.get_mut("tracks").and_then(|t| t.as_array_mut()) {
+            tracks.retain(|t| t.get("kind").and_then(|k| k.as_str()) != Some("Player"));
+        }
+        serde_json::from_value(v).unwrap_or_default()
     }
 
     pub fn save(&self, memory: &std::path::Path) {
@@ -116,8 +172,9 @@ impl Song {
         4
     }
 
-    /// The app's file, written from the song (`human`: who plays with her, as she knows them apart).
-    pub fn grm(&self, human: u32) -> String {
+    /// The app's file, written from the song (`human`: who plays with her, as she knows them apart; `lessons`: hers,
+    /// each said while it is hers).
+    pub fn grm(&self, human: u32, lessons: &[Lesson]) -> String {
         let mut l: Vec<String> = vec![];
         let mut a = |s: String| l.push(s);
         a("app Studio".into());
@@ -133,11 +190,17 @@ impl Song {
         a("input echo_return = 0.5".into());
         a("input room = 0.75".into());
         a("input rev_return = 0.6".into());
-        // where she is: this song, this human (what she learned in each is kept apart)
-        a(format!("input elle_ctx_song = {}", self.number.clamp(1, 4)));
-        a(format!("input elle_ctx_human = {}", human.clamp(1, 4)));
-        // her lessons: on, unless the human turns them off
-        a("input elle_lessons = 1".into());
+        // she lives in her own home (mind/home.grm), always there: the studio gives her its time, where she is (this
+        // song, this human: what she learned in each is kept apart), her lessons (on, unless the human turns them
+        // off; the one the human gives her, else she goes from one to the next by herself) and a key, if one is given
+        a(format!("set elle_ctx_song = {}", self.number.clamp(1, 4)));
+        a(format!("set elle_ctx_human = {}", human.clamp(1, 4)));
+        a("input elle_lessons_on = 1".into());
+        a(format!("set elle_lessons = {} * elle_lessons_on", lessons.len()));
+        a("input elle_lesson_pick = 0".into());
+        a("set elle_lesson = elle_lesson_pick when elle_lesson_pick in 0.5 .. 999".into());
+        a("input elle_key_pick = -1".into());
+        a("set elle_keypick = elle_key_pick".into());
         a("node tr_step".into());
         a("relate sixteenths: tr_step = 0.00000138888889 * bpm".into());
         for n in [
@@ -158,16 +221,15 @@ impl Song {
             a(format!("use networks/{n}.grm"));
         }
         a("call transport(name=tr, step=tr_step, run=playing)".into());
-        // what she hears and what she plays, named before the instruments read them
-        a("node elle_ear signed".into());
-        a("var elle_pitch = 440 positive".into());
-        a("var elle_gate = 0".into());
-        for d in 1..=4 {
-            a(format!("var elle_dhit{d} = 0"));
-        }
+        a("set elle_clock_i = tr_i".into());
+        a("set elle_clock_f = tr_f".into());
         // what she plays sounds only while the song plays (stopped, her note and her strikes are let go)
         a("node elle_sounding signed".into());
         a("relate elle_while_playing: elle_sounding = playing * elle_gate".into());
+        a("node elle_bsounding signed".into());
+        a("relate elle_bass_while_playing: elle_bsounding = playing * elle_bgate".into());
+        a("node elle_hsounding signed".into());
+        a("relate elle_harm_while_playing: elle_hsounding = playing * elle_hgate".into());
         for d in 1..=4 {
             a(format!("node elle_strike{d} signed"));
             a(format!("relate elle_strike_while{d}: elle_strike{d} = playing * elle_dhit{d}"));
@@ -177,7 +239,7 @@ impl Song {
             match t.kind {
                 Kind::Synth => {
                     a(format!(
-                        "call synth(name={n}, clock_i=tr_i, clock_f=tr_f, hers={}, her_pitch=elle_pitch, her_gate=elle_sounding)",
+                        "call synth(name={n}, clock_i=tr_i, clock_f=tr_f, hers={}, her_pitch=elle_pitch, her_gate=elle_sounding, her_bass=elle_bpitch, her_bass_gate=elle_bsounding, her_harm=elle_hpitch, her_harm_gate=elle_hsounding, her_tone=elle_tone)",
                         if t.hers { 1 } else { 0 }
                     ))
                 }
@@ -197,21 +259,15 @@ impl Song {
             a(format!("node {n}_r signed"));
             a(format!("relate {n}_right: {n}_r = 1.4 * {n}_on * {n}_level * {n}_pan * {n}_out"));
         }
-        // her: the same network in every app; here she hears the song, sees the first synthesiser's keys
-        a("use ../mind/elle.grm".into());
-        let other =
-            self.tracks.iter().find(|t| t.kind == Kind::Synth && !t.hers && t.power).map(|t| format!("t{}", t.id));
-        let (op, og) = match &other {
-            Some(o) => (format!("{o}_pitch"), format!("{o}_hold")),
-            None => ("elle_none_pitch".into(), "elle_none_gate".into()),
-        };
-        if other.is_none() {
-            a("input elle_none_pitch = 220 positive".into());
-            a("input elle_none_gate = 0".into());
+        // her lessons, each from its file (mind/lessons), said while it is hers
+        for (k, lesson) in lessons.iter().enumerate() {
+            a(format!("# lesson {}: {}", k + 1, lesson.name));
+            let here =
+                format!("elle_lesson in {} .. {} and elle_lessons in 0.5 .. 999", k as f64 + 0.5, k as f64 + 1.5);
+            for line in &lesson.lines {
+                a(line.replace("{name}", "elle").replace("{here}", &here));
+            }
         }
-        a(format!(
-            "call elle(name=elle, ear=elle_ear, clock_i=tr_i, clock_f=tr_f, other_pitch={op}, other_gate={og}, ctx_song=elle_ctx_song, ctx_human=elle_ctx_human, lessons=elle_lessons)"
-        ));
         let ids: Vec<String> = self.tracks.iter().filter(|t| t.power).map(|t| format!("t{}", t.id)).collect();
         let sum = |f: &dyn Fn(&str) -> String| -> String {
             if ids.is_empty() {
@@ -228,12 +284,6 @@ impl Song {
         a("node rev_in signed".into());
         a(format!("relate rev_send: rev_in = {} + 0.3 * fxe_wet", sum(&|n| format!("{n}_rev * {n}_on * {n}_out"))));
         a("call reverb(name=fxr, input=rev_in, decay=room)".into());
-        // what she hears: every track and the returns, before the master
-        a("node elle_ear signed".into());
-        a(format!(
-            "relate elle_hearing: elle_ear = {} + 0.5 * fxe_wet + 0.5 * fxr_out",
-            sum(&|n| format!("{n}_l + {n}_r"))
-        ));
         a("node out signed".into());
         a(format!(
             "relate master_left: out = {} + master * echo_return * fxe_wet + master * rev_return * fxr_out + metro_on * metro_level * tr_click",
@@ -361,6 +411,10 @@ impl Song {
 /// mixer at the bottom.
 pub fn panel(app: &mut App, ui: &mut egui::Ui) {
     let ink = Ink::of(ui.ctx());
+    // while the song plays, drawn at the screen's pace: what scrolls goes smoothly, not by uneven steps
+    if app.picture.node("playing").is_some_and(|n| n.value > 0.5) {
+        ui.ctx().request_repaint();
+    }
     let lang = app.settings.lang;
     transport(app, ui, &ink);
     ui.separator();
@@ -368,9 +422,13 @@ pub fn panel(app: &mut App, ui: &mut egui::Ui) {
     ui.separator();
     let mixer_h = 236.0;
     let middle = (ui.available_height() - mixer_h - 12.0).max(120.0);
-    egui::ScrollArea::vertical().id_salt("studio-tracks").max_height(middle).auto_shrink([false, false]).show(
-        ui,
-        |ui| {
+    // its scroll bar always there: the width does not come and go with it (everything inside would shake)
+    egui::ScrollArea::vertical()
+        .id_salt("studio-tracks")
+        .max_height(middle)
+        .auto_shrink([false, false])
+        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
+        .show(ui, |ui| {
             let drums: Vec<Track> =
                 app.song.tracks.iter().filter(|t| t.kind == Kind::Drums && t.power).cloned().collect();
             for t in drums {
@@ -378,8 +436,7 @@ pub fn panel(app: &mut App, ui: &mut egui::Ui) {
                 ui.add_space(6.0);
             }
             crate::surface::show(app, ui, APP);
-        },
-    );
+        });
     ui.separator();
     egui::ScrollArea::horizontal().id_salt("studio-mixer").show(ui, |ui| {
         ui.horizontal(|ui| {
@@ -402,12 +459,13 @@ fn value(app: &App, node: &str) -> f64 {
 fn her(app: &mut App, ui: &mut egui::Ui, ink: &Ink) {
     let lang = app.settings.lang;
     let mixer = app.mixer.clone();
-    let read = |n: &str| mixer.lock().ok().and_then(|m| m.value("out", n));
+    let read = |n: &str| mixer.lock().ok().and_then(|m| m.world_value(n));
     let Some(choice) = read("elle_choice") else {
         ui.label(RichText::new(t(lang, "elle_asleep")).small().color(ink.muted));
         return;
     };
-    ui.horizontal(|ui| {
+    // on as many rows as the window needs (her lesson and her key go under her mood when it is narrow)
+    ui.horizontal_wrapped(|ui| {
         crate::icons::show(ui, "brain", 14.0, ink.accent);
         ui.label(RichText::new(t(lang, "elle_name")).strong());
         ui.add_space(8.0);
@@ -432,17 +490,76 @@ fn her(app: &mut App, ui: &mut egui::Ui, ink: &Ink) {
         }
         ui.add_space(12.0);
         // her lesson: which, and whether she has lessons (the human's switch)
-        let on = read("elle_lessons").unwrap_or(1.0) > 0.5;
+        let on = read("elle_lessons_on").unwrap_or(1.0) > 0.5;
         let mut keep = on;
         if ui.checkbox(&mut keep, t(lang, "elle_lessons")).on_hover_text(t(lang, "elle_lessons_d")).changed() {
-            app.write("elle_lessons", if keep { 1.0 } else { 0.0 });
+            app.write("elle_lessons_on", if keep { 1.0 } else { 0.0 });
         }
-        if on {
-            let k = read("elle_lesson").unwrap_or(1.0).round().clamp(1.0, 6.0) as usize;
-            let key = ["lesson_e1", "lesson_e2", "lesson_e3", "lesson_e4", "lesson_e5", "lesson_e6"][k - 1];
+        // her lesson and her key on a row of their own
+        ui.end_row();
+        let count = app.lessons.len();
+        if on && count > 0 {
+            let k = read("elle_lesson").unwrap_or(1.0).round().clamp(1.0, count as f64) as usize;
+            let name_of = |l: &Lesson| {
+                if lang == crate::text::Lang::Fr && !l.name_fr.is_empty() {
+                    l.name_fr.clone()
+                } else {
+                    l.name.clone()
+                }
+            };
             let time = read("elle_ltime").unwrap_or(0.0);
-            ui.label(RichText::new(format!("{k}/6 · {}", t(lang, key))).small().color(ink.accent))
+            // the lesson: the one she is in (she goes from one to the next by herself), or one the human gives her
+            let pick = value(app, "elle_lesson_pick").round() as usize;
+            let shown = format!(
+                "{k}/{count} · {}{}",
+                name_of(&app.lessons[k - 1]),
+                if pick == 0 { format!(" ({})", t(lang, "elle_by_herself")) } else { String::new() }
+            );
+            let mut chosen = pick;
+            egui::ComboBox::from_id_salt("elle-lesson")
+                .selected_text(RichText::new(shown).small().color(ink.accent))
+                .width(220.0)
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut chosen, 0, t(lang, "elle_by_herself"));
+                    for (i, l) in app.lessons.iter().enumerate() {
+                        ui.selectable_value(&mut chosen, i + 1, format!("{} · {}", i + 1, name_of(l)));
+                    }
+                })
+                .response
                 .on_hover_text(format!("{} ({time:.0})", t(lang, "elle_lesson_d")));
+            if chosen != pick {
+                app.write("elle_lesson_pick", chosen as f64);
+            }
+        }
+        // her key: the one she is in, the one she hears, and the one the human may give her
+        let names = key_names(lang);
+        let tonic = read("elle_tonic").unwrap_or(0.0).round().rem_euclid(12.0) as usize;
+        let heard = read("elle_hkey").unwrap_or(0.0).round().rem_euclid(12.0) as usize;
+        let clear = read("elle_kconf").unwrap_or(0.0);
+        let kp = value(app, "elle_key_pick").round();
+        let mut kchosen = kp as i64;
+        egui::ComboBox::from_id_salt("elle-key")
+            .selected_text(
+                RichText::new(format!(
+                    "{} {}{}",
+                    t(lang, "elle_key"),
+                    names[tonic],
+                    if kp < 0.0 { format!(" ({})", t(lang, "elle_by_herself")) } else { String::new() }
+                ))
+                .small()
+                .color(ink.accent),
+            )
+            .width(150.0)
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut kchosen, -1, t(lang, "elle_by_herself"));
+                for (i, n) in names.iter().enumerate() {
+                    ui.selectable_value(&mut kchosen, i as i64, *n);
+                }
+            })
+            .response
+            .on_hover_text(format!("{} {} ({clear:.2})", t(lang, "elle_heard_key"), names[heard]));
+        if kchosen as f64 != kp {
+            app.write("elle_key_pick", kchosen as f64);
         }
         ui.add_space(12.0);
         // her wants: fifteen intervals (-7 .. +7 semitones) and a rest
@@ -467,6 +584,15 @@ fn her(app: &mut App, ui: &mut egui::Ui, ink: &Ink) {
             .collect();
         r.on_hover_text(format!("{}\n{}", t(lang, "elle_wants"), hover.join("  ")));
     });
+}
+
+/// The twelve notes from A (her keys are counted from A: her first note is an A).
+pub fn key_names(lang: crate::text::Lang) -> [&'static str; 12] {
+    if lang == crate::text::Lang::Fr {
+        ["la", "si♭", "si", "do", "do♯", "ré", "mi♭", "mi", "fa", "fa♯", "sol", "la♭"]
+    } else {
+        ["A", "B♭", "B", "C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "A♭"]
+    }
 }
 
 /// The transport: play or stop, the tempo, where it is (bar and beat), the click, the echo's time, the tracks.
@@ -595,17 +721,22 @@ fn drum_grid(app: &mut App, ui: &mut egui::Ui, track: &Track, ink: &Ink) {
                 let node = format!("{n}_{x}_s{}", k + 1);
                 let on = value(app, &node) > 0.5;
                 let (rect, r) = ui.allocate_exact_size(vec2(24.0, 22.0), Sense::click());
-                let beat = k % 4 == 0;
+                // how strong its place in the bar is: the first beat, the other beats, the eighths between, the
+                // sixteenths (shades of one grey: what is lit stays what is seen first)
+                let weight = match k {
+                    0 => 0.34,
+                    4 | 8 | 12 => 0.24,
+                    2 | 6 | 10 | 14 => 0.13,
+                    _ => 0.04,
+                };
                 let fill = if on {
                     if hers {
                         ink.accent.gamma_multiply(0.75)
                     } else {
                         ink.accent
                     }
-                } else if beat {
-                    ink.surface.gamma_multiply(1.6)
                 } else {
-                    ink.surface
+                    crate::view::mix(ink.surface, ink.text, weight)
                 };
                 ui.painter().rect_filled(rect.shrink(1.5), 3.0, fill);
                 if k as i64 == now_i {
@@ -722,15 +853,94 @@ fn master(app: &mut App, ui: &mut egui::Ui, ink: &Ink) {
 mod tests {
     use super::*;
 
+    /// Her home and the studio opened as the window opens them, the studio's sound played: what is heard.
+    fn studio_heard(seconds: usize, keys: bool) -> (f32, f32, usize, Vec<f64>) {
+        use grm_engine::engine::Engine;
+        use grm_engine::world::World;
+        use std::sync::{Arc, Mutex};
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let dir = std::env::temp_dir().join(format!("grm-studio-{keys}-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(dir.join("apps"));
+        let song = Song::default();
+        let lessons = lessons(&root.join("mind"));
+        let app = song.grm(1, &lessons).replace("use networks/", &format!("use {}/apps/networks/", root.display()));
+        std::fs::write(dir.join("apps").join("studio.grm"), app).unwrap();
+        let engine = Engine::start(World::new(), std::time::Duration::from_millis(4));
+        let mixer = Arc::new(Mutex::new(grm_sound::mixer::Mixer::new(48000)));
+        let mut sh = grm_shell::Shell::new(dir.join("w.world"), mixer.clone());
+        sh.always = Some(root.join("mind/home.grm"));
+        let out = sh.wake(&engine);
+        assert!(out.iter().all(|l| l.kind != grm_shell::Kind::Error), "{out:?}");
+        assert!(mixer.lock().unwrap().has_world(), "she is there before anything plays");
+        let (out, _) = sh.run(&engine, &format!("app open {}", dir.join("apps").join("studio.grm").display()));
+        assert!(out.iter().all(|l| l.kind != grm_shell::Kind::Error), "{out:?}");
+        // the app said whole before it plays
+        for _ in 0..300 {
+            let (o, _) = sh.run(&engine, "show t3_out");
+            if o.iter().any(|l| l.text.contains("t3_out =")) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let (out, _) = sh.run(&engine, "play out");
+        assert!(out[0].text.contains("plays"), "{out:?}");
+        if keys {
+            let mut m = mixer.lock().unwrap();
+            // a lesson of the major scale given to her
+            m.set_now("elle_lesson_pick", 4.0);
+            m.set_now("t1_pitch", 220.0);
+            m.set_now("t1_hold", 1.0);
+        }
+        let mut buf = vec![0.0f32; 2 * 480];
+        let (mut loud, mut t1) = (0.0f32, 0.0f32);
+        let mut gates = 0;
+        let mut her = vec![];
+        let started = std::time::Instant::now();
+        eprintln!("world: {:?}", mixer.lock().unwrap().world_sizes());
+        for k in 0..seconds * 100 {
+            mixer.lock().unwrap().render(&mut buf);
+            let m = mixer.lock().unwrap();
+            loud = loud.max(buf.iter().fold(0.0f32, |a, x| a.max(x.abs())));
+            t1 = t1.max(m.world_value("t1_out").unwrap_or(0.0).abs() as f32);
+            if m.world_value("elle_gate").unwrap_or(0.0) > 0.5 {
+                gates += 1;
+            }
+            if k % 10 == 0 {
+                her.push(m.world_value("elle_pitch").unwrap_or(0.0));
+            }
+        }
+        eprintln!("{seconds} s of sound rendered in {:.2?}", started.elapsed());
+        engine.stop();
+        let _ = std::fs::remove_dir_all(&dir);
+        (loud, t1, gates, her)
+    }
+
+    #[test]
+    fn the_human_plays_the_studio_synthesiser_and_she_plays_hers() {
+        let (loud, t1, gates, her) = studio_heard(4, true);
+        assert!(t1 > 0.01, "the human's synthesiser is silent: {t1}");
+        assert!(loud > 0.01, "nothing heard: {loud}");
+        assert!(gates > 0, "she does not play");
+        let mut moved = her.clone();
+        moved.dedup();
+        assert!(moved.len() > 1, "her note never moves: {her:?}");
+    }
+
     #[test]
     fn the_song_writes_an_app_with_its_tracks_and_their_hands() {
         let song = Song::default();
-        let text = song.grm(1);
+        let text = song.grm(1, &lessons(std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../mind"))));
         assert!(text.contains(
             "call synth(name=t1, clock_i=tr_i, clock_f=tr_f, hers=0, her_pitch=elle_pitch, her_gate=elle_sounding"
         ));
         assert!(text.contains("call synth(name=t2, clock_i=tr_i, clock_f=tr_f, hers=1, her_pitch=elle_pitch"));
-        assert!(text.contains("call elle(name=elle, ear=elle_ear"));
+        assert!(!text.contains("call elle("), "she lives in her home, not in the studio");
+        assert!(text.contains("set elle_clock_i = tr_i"));
+        assert!(text.contains(&format!(
+            "set elle_lessons = {} * elle_lessons_on",
+            lessons(std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../mind"))).len()
+        )));
+        assert!(text.contains("set elle_open8 = 1 when elle_lesson in 0.5 .. 1.5 and elle_lessons in 0.5 .. 999"));
         assert!(text.contains("call drums(name=t3"));
         assert!(text.contains("relate echo_send: echo_in = t1_echo * t1_on * t1_out"));
         assert!(text.contains("widget t1keys: keys t1_pitch t1_hold"));

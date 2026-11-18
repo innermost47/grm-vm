@@ -95,6 +95,39 @@ impl Picture {
         Picture { width, height, channels, data: vec![0.0; width * height * channels] }
     }
 
+    /// Its colour as a whole, in OKLab (lightness 0 .. 1, green to red, blue to yellow): the mean of its pixels
+    /// (those not seen left out). A grey picture is grey.
+    pub fn mean_oklab(&self) -> (f64, f64, f64) {
+        let lin = |c: f64| if c <= 0.040_45 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) };
+        let (mut sl, mut sa, mut sb, mut n) = (0.0, 0.0, 0.0, 0.0);
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let (r, g, b) = if self.channels >= 3 {
+                    (self.at(x, y, 0) as f64, self.at(x, y, 1) as f64, self.at(x, y, 2) as f64)
+                } else {
+                    let v = self.at(x, y, 0) as f64;
+                    (v, v, v)
+                };
+                if !(r.is_finite() && g.is_finite() && b.is_finite()) {
+                    continue;
+                }
+                let (r, g, b) = (lin(r), lin(g), lin(b));
+                let l = (0.412_221_470_8 * r + 0.536_332_536_3 * g + 0.051_445_992_9 * b).cbrt();
+                let m = (0.211_903_498_2 * r + 0.680_699_545_1 * g + 0.107_396_956_6 * b).cbrt();
+                let s = (0.088_302_461_9 * r + 0.281_718_837_6 * g + 0.629_978_700_5 * b).cbrt();
+                sl += 0.210_454_255_3 * l + 0.793_617_785 * m - 0.004_072_046_8 * s;
+                sa += 1.977_998_495_1 * l - 2.428_592_205 * m + 0.450_593_709_9 * s;
+                sb += 0.025_904_037_1 * l + 0.782_771_766_2 * m - 0.808_675_766 * s;
+                n += 1.0;
+            }
+        }
+        if n == 0.0 {
+            (0.5, 0.0, 0.0)
+        } else {
+            (sl / n, sa / n, sb / n)
+        }
+    }
+
     pub fn at(&self, x: usize, y: usize, c: usize) -> f32 {
         self.data[(y * self.width + x) * self.channels + c]
     }

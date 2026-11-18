@@ -1,0 +1,31 @@
+# Lesson: one note, one a beat
+# Leçon : une note, une par temps
+# Her tonic alone, a note a beat: she learns to come in on time.
+#
+# A lesson is a few lines of GRML, said while it is hers ({here}). What it can set, in her network ({name}):
+#   {name}_openK = 1      open a choice: K = 8 the same note, 7 and 9 a semitone down or up, 6 and 10 a tone,
+#                         5 and 11 a minor third, 4 and 12 a major third, 3 and 13 a fourth, 2 and 14 the tritone,
+#                         1 and 15 a fifth; 16 a rest. What it does not open stays closed, and she keeps to it.
+#   {name}_scP = 0 or 1   her scale: P = 0 .. 11 semitones above her tonic (unless a lesson says, the major scale).
+#                         A note out of it she never plays.
+#   {name}_ctP = 0 or 1   the chord (of the bar, with "and {name}_bar in B - 0.5 .. B + 0.5"): while the lesson holds
+#                         her tight, only its notes; once mastered, the scale
+#   {name}_root = R       the chord's root (R semitones above her tonic): her bass plays it
+#   {name}_blen = N       how many bars the form has (4 unless said); {name}_bar: which (0 .. N-1);
+#                         {name}_cyc: which form, four by four (0 .. 3)
+#   {name}_chords = 1     a bass under her and a third below her notes; {name}_chordal = 1: the bass on the roots
+#   {name}_moving = 1     the key moves at each form, by {name}_modul semitones
+#   {name}_row = 1        the twelve tones, each before any comes back
+#   {name}_join = 1       she goes to the key she hears
+#   {name}_beats = 1      one note a beat (the eighths between the beats are rests)
+#   {name}_quarter = 1    quarters (one note lasts a beat)
+#   {name}_breathw = W    how much a phrase without a rest tires her (0: not at all, as a drone; 1: much, as a song)
+# She goes on to the next lesson (the next file, in the order of their names) when this one is mastered and bores
+# her, back to the one before when it is too hard. The human may also give her one, and a key.
+set {name}_open8 = 1 when {here}
+set {name}_open16 = 1 when {here}
+set {name}_beats = 1 when {here}
+set {name}_quarter = 1 when {here}
+set {name}_breathw = 0.2 when {here}
+repeat p in 0 .. 11: set {name}_sc{p} = 0 when {here}
+set {name}_sc0 = 1 when {here}

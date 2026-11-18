@@ -1,0 +1,12 @@
+# Lesson: pelog
+# Leçon : pelog
+# The gamelan's pelog (tempered), five of its notes.
+repeat k in 1 .. 16: set {name}_open{k} = 1 when {here}
+set {name}_breathw = 0.5 when {here}
+set {name}_chords = 1 when {here}
+repeat p in 0 .. 11: set {name}_sc{p} = 0 when {here}
+set {name}_sc0 = 1 when {here}
+set {name}_sc1 = 1 when {here}
+set {name}_sc3 = 1 when {here}
+set {name}_sc7 = 1 when {here}
+set {name}_sc8 = 1 when {here}

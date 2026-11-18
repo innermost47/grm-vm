@@ -1,0 +1,16 @@
+# Lesson: fourths and fifths
+# Leçon : quartes et quintes
+# The major scale, leaps of a fourth and a fifth too (no tritone).
+set {name}_open1 = 1 when {here}
+repeat k in 3 .. 13: set {name}_open{k} = 1 when {here}
+set {name}_open15 = 1 when {here}
+set {name}_open16 = 1 when {here}
+set {name}_breathw = 0.6 when {here}
+repeat p in 0 .. 11: set {name}_sc{p} = 0 when {here}
+set {name}_sc0 = 1 when {here}
+set {name}_sc2 = 1 when {here}
+set {name}_sc4 = 1 when {here}
+set {name}_sc5 = 1 when {here}
+set {name}_sc7 = 1 when {here}
+set {name}_sc9 = 1 when {here}
+set {name}_sc11 = 1 when {here}

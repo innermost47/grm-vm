@@ -233,9 +233,9 @@ pub fn speak(g: &Glance, human: &str, french: bool) -> Option<String> {
     }
     if g.harmony < 0.7 {
         return Some(if french {
-            format!("Elle est tiraillée : son harmonie est tombée à {}. Des relations ne tiennent plus ensemble ; {human} pourrait regarder lesquelles.", f(g.harmony))
+            format!("Elle est tiraillée : son harmonie est à {}. Des relations ne tiennent pas bien ensemble ; {human} pourrait regarder lesquelles.", f(g.harmony))
         } else {
-            format!("She is torn: her harmony fell to {}. Some relations no longer hold together; {human} could look at which.", f(g.harmony))
+            format!("She is torn: her harmony is at {}. Some relations do not hold well together; {human} could look at which.", f(g.harmony))
         });
     }
     if let Some((r, s)) = g.surprised.first() {

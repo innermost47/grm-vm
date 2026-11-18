@@ -74,6 +74,21 @@ impl ReflexSource {
         let right = reflex.slot_of(&format!("{node}_r"));
         Some(ReflexSource { reflex, slot, right, fused: 0 })
     }
+
+    /// The whole of a world's network, played once for every channel that listens to one of its nodes (and for
+    /// what runs in it even when nothing is heard: her).
+    pub fn whole(reflex: Reflex) -> ReflexSource {
+        ReflexSource { reflex, slot: 0, right: None, fused: 0 }
+    }
+}
+
+/// Nothing (a channel that takes its sound from the world's network has no source of its own).
+struct Nothing;
+
+impl Source for Nothing {
+    fn next(&mut self) -> f64 {
+        0.0
+    }
 }
 
 impl Source for ReflexSource {
@@ -137,6 +152,9 @@ pub struct Channel {
     dc: (f64, f64),
     dc_r: (f64, f64),
     pub peak: f32,
+    /// A node of the world's network it plays (and its right side), instead of a source of its own.
+    tap: Option<(usize, Option<usize>)>,
+    tapped: Vec<(f64, f64)>,
     /// The last samples it gave (what a scope shows), and where the next one goes.
     scope: Vec<f32>,
     scope_at: usize,
@@ -169,6 +187,13 @@ pub struct Mixer {
     scratch: Vec<f32>,
     /// Parameters written straight to the sound lately, and when.
     direct: std::collections::HashMap<String, std::time::Instant>,
+    /// The world's network, at the speed of sound: one for all its channels, one time for all (it runs even when
+    /// none of them is heard, while something lives in it).
+    world: Option<ReflexSource>,
+    world_fused: u64,
+    /// What the room heard at the last block, left and right (what the world hears by `room_l`, `room_r`).
+    room: Vec<(f32, f32)>,
+    room_slots: (Option<usize>, Option<usize>),
 }
 
 impl Mixer {
@@ -185,6 +210,10 @@ impl Mixer {
             peak: 0.0,
             scratch: vec![],
             direct: Default::default(),
+            world: None,
+            world_fused: 0,
+            room: vec![],
+            room_slots: (None, None),
         }
     }
 
@@ -202,17 +231,84 @@ impl Mixer {
             dc: (0.0, 0.0),
             dc_r: (0.0, 0.0),
             peak: 0.0,
+            tap: None,
+            tapped: vec![],
             scope: vec![0.0; SCOPE],
             scope_at: 0,
         };
         self.channels.insert(name.to_string(), ch);
     }
 
+    /// The world's network as it is now written (it goes on from where the one before was). Its channels find their
+    /// nodes in it again; one whose node is gone leaves. None: nothing runs in the world any more.
+    pub fn set_world(&mut self, world: Option<ReflexSource>) {
+        let mut world = world;
+        if let (Some(new), Some(old)) = (world.as_mut(), self.world.as_ref()) {
+            new.set_state(&old.state());
+        }
+        self.world = world;
+        let w = self.world.as_ref();
+        self.room_slots = (w.and_then(|w| w.reflex.slot_of("room_l")), w.and_then(|w| w.reflex.slot_of("room_r")));
+        for (name, c) in self.channels.iter_mut() {
+            if c.tap.is_some() {
+                match w.and_then(|w| w.reflex.slot_of(name)) {
+                    Some(l) => c.tap = Some((l, w.and_then(|w| w.reflex.slot_of(&format!("{name}_r"))))),
+                    None => c.stopping = true,
+                }
+            }
+        }
+    }
+
+    /// How big the world's network is (its sets, what follows, its delays, its nodes).
+    pub fn world_sizes(&self) -> Option<(usize, usize, usize, usize)> {
+        self.world.as_ref().map(|w| w.reflex.sizes())
+    }
+
+    /// Whether the world's network runs.
+    pub fn has_world(&self) -> bool {
+        self.world.is_some()
+    }
+
+    /// A node of the world's network on a channel of its own (the world plays it; another channel of that name is
+    /// replaced). False: no such node in it, or no world.
+    pub fn tap(&mut self, name: &str, gain: f64) -> bool {
+        let Some(w) = self.world.as_ref() else { return false };
+        let Some(l) = w.reflex.slot_of(name) else { return false };
+        let r = w.reflex.slot_of(&format!("{name}_r"));
+        self.play(name, Box::new(Nothing), gain);
+        if let Some(c) = self.channels.get_mut(name) {
+            c.tap = Some((l, r));
+        }
+        true
+    }
+
+    /// The channels the world plays.
+    pub fn taps(&self) -> Vec<String> {
+        self.channels.iter().filter(|(_, c)| c.tap.is_some() && !c.stopping).map(|(n, _)| n.clone()).collect()
+    }
+
+    /// A node of the world's network, as the sound has it now.
+    pub fn world_value(&self, node: &str) -> Option<f64> {
+        self.world.as_ref().and_then(|w| w.value(node))
+    }
+
+    /// What the world's network learned (its `memory` nodes).
+    pub fn world_memories(&self) -> IndexMap<String, f64> {
+        self.world.as_ref().map(|w| w.memories()).unwrap_or_default()
+    }
+
+    /// Gives the world's network back what it had learned.
+    pub fn world_restore(&mut self, values: &IndexMap<String, f64>) {
+        if let Some(w) = self.world.as_mut() {
+            w.set_state(values);
+        }
+    }
+
     /// A new version of a channel's source (its network was edited while it plays): it goes on from where the old
     /// one was, without a fade, without a click. False: no such channel.
     pub fn swap(&mut self, name: &str, mut source: Box<dyn Source>) -> bool {
         match self.channels.get_mut(name) {
-            Some(c) if !c.stopping => {
+            Some(c) if !c.stopping && c.tap.is_none() => {
                 source.set_state(&c.source.state());
                 c.source = source;
                 true
@@ -229,18 +325,28 @@ impl Mixer {
 
     /// A node's value in a channel that plays, as its reflex has it now (a sequencer's step, say).
     pub fn value(&self, channel: &str, node: &str) -> Option<f64> {
-        self.channels.get(channel).and_then(|c| c.source.value(node))
+        match self.channels.get(channel) {
+            Some(c) if c.tap.is_some() => self.world_value(node),
+            Some(c) => c.source.value(node),
+            None => None,
+        }
     }
 
     /// What a channel learned while it played (its `memory` nodes), to be kept.
     pub fn memories(&self, channel: &str) -> IndexMap<String, f64> {
-        self.channels.get(channel).map(|c| c.source.memories()).unwrap_or_default()
+        match self.channels.get(channel) {
+            Some(c) if c.tap.is_some() => self.world_memories(),
+            Some(c) => c.source.memories(),
+            None => IndexMap::new(),
+        }
     }
 
     /// Gives a channel back what it had learned (its `memory` nodes, and anything else it writes itself).
     pub fn restore(&mut self, channel: &str, values: &IndexMap<String, f64>) {
-        if let Some(c) = self.channels.get_mut(channel) {
-            c.source.set_state(values);
+        match self.channels.get_mut(channel) {
+            Some(c) if c.tap.is_some() => self.world_restore(values),
+            Some(c) => c.source.set_state(values),
+            None => {}
         }
     }
 
@@ -277,11 +383,14 @@ impl Mixer {
             c.dc = (0.0, 0.0);
             c.dc_r = (0.0, 0.0);
         }
+        if let Some(w) = self.world.as_mut() {
+            w.reset();
+        }
     }
 
     /// How many times the channels ran away and started again by themselves, all together.
     pub fn fused(&self) -> u64 {
-        self.channels.values().map(|c| c.source.fused()).sum()
+        self.channels.values().map(|c| c.source.fused()).sum::<u64>() + self.world_fused
     }
 
     pub fn views(&self) -> Vec<ChannelView> {
@@ -302,8 +411,9 @@ impl Mixer {
     /// What the channels listen to (the nodes to tune them with).
     pub fn params(&self) -> Vec<String> {
         let mut all: Vec<String> = vec![];
+        let world = self.world.as_ref().map(|w| w.params()).unwrap_or_default();
         for c in self.channels.values() {
-            for p in c.source.params() {
+            for p in c.source.params().into_iter().chain(world.iter().cloned()) {
                 if !all.contains(&p) {
                     all.push(p);
                 }
@@ -321,6 +431,9 @@ impl Mixer {
         for c in self.channels.values_mut() {
             c.source.tune(&values);
         }
+        if let Some(w) = self.world.as_mut() {
+            w.tune(&values);
+        }
     }
 
     /// A parameter written now, straight to the sound (a key, a note, a knob): heard at the next block, not when the
@@ -331,6 +444,9 @@ impl Mixer {
         let one: IndexMap<String, f64> = [(node.to_string(), v)].into_iter().collect();
         for c in self.channels.values_mut() {
             c.source.tune(&one);
+        }
+        if let Some(w) = self.world.as_mut() {
+            w.tune(&one);
         }
     }
 
@@ -351,6 +467,45 @@ impl Mixer {
                 o[1] += s[1] * g as f32;
             }
         }
+        // the world's network, one sample after another for the whole block: what the room heard comes in, what
+        // its channels play goes out to them
+        let frames = out.len() / 2;
+        if let Some(w) = self.world.as_mut() {
+            for c in self.channels.values_mut() {
+                c.tapped.clear();
+            }
+            let (rl, rr) = self.room_slots;
+            for k in 0..frames {
+                let heard = self.room.get(k).copied().unwrap_or((0.0, 0.0));
+                if let Some(i) = rl {
+                    w.reflex.values[i] = heard.0 as f64;
+                }
+                if let Some(i) = rr {
+                    w.reflex.values[i] = heard.1 as f64;
+                }
+                w.reflex.step();
+                let mut ran_away = false;
+                for c in self.channels.values_mut() {
+                    if let Some((l, r)) = c.tap {
+                        let v = (w.reflex.values[l], w.reflex.values[r.unwrap_or(l)]);
+                        if !(v.0.is_finite() && v.1.is_finite() && v.0.abs() < RUNAWAY && v.1.abs() < RUNAWAY) {
+                            ran_away = true;
+                        }
+                        c.tapped.push(v);
+                    }
+                }
+                if ran_away {
+                    // the fuse: it starts again from nothing (what it learned kept), silent for this sample
+                    w.reflex.reset();
+                    self.world_fused += 1;
+                    for c in self.channels.values_mut() {
+                        if let Some(v) = c.tapped.last_mut() {
+                            *v = (0.0, 0.0);
+                        }
+                    }
+                }
+            }
+        }
         // the human's channels
         let any_solo = self.channels.values().any(|c| c.solo && !c.stopping);
         let fall = (-(out.len() as f64 / 2.0) / (0.3 * self.rate as f64)).exp() as f32;
@@ -360,8 +515,11 @@ impl Mixer {
             let angle = (c.pan.clamp(-1.0, 1.0) + 1.0) * std::f64::consts::FRAC_PI_4;
             let (left, right) = (angle.cos(), angle.sin());
             let mut peak = c.peak * fall;
-            for o in out.chunks_exact_mut(2) {
-                let (mut x, mut xr) = c.source.next_stereo();
+            for (k, o) in out.chunks_exact_mut(2).enumerate() {
+                let (mut x, mut xr) = match c.tap {
+                    Some(_) => c.tapped.get(k).copied().unwrap_or((0.0, 0.0)),
+                    None => c.source.next_stereo(),
+                };
                 if !x.is_finite() {
                     x = 0.0;
                 }
@@ -387,6 +545,9 @@ impl Mixer {
             c.peak = peak;
         }
         self.channels.retain(|_, c| !(c.stopping && c.envelope <= 0.0));
+        // what the room heard (every channel, before the master), for the world to hear at the next block
+        self.room.clear();
+        self.room.extend(out.chunks_exact(2).map(|o| (o[0], o[1])));
         // the whole: the master, then the soft limit
         let mut peak = self.peak * fall;
         for o in out.iter_mut() {

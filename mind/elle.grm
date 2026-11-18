@@ -1,5 +1,5 @@
-# ELLE: her own network, the same in every app that calls it. Not an instrument: she hears ({ear}), she sees what
-# the human plays ({other_pitch}, {other_gate}: the tool's own keys), she knows where she is ({ctx_song}, the song;
+# ELLE: her own network, the same in every app that calls it. Not an instrument: she hears ({ear}: what others
+# play she knows by it alone, no keys read), she knows where she is ({ctx_song}, the song;
 # {ctx_human}, who plays with her), she keeps the time of the place ({clock_i}: the sixteenth of the bar, {clock_f}:
 # where in it). What she chooses comes out as {name}_pitch and {name}_gate: a tool plays it through its hand.
 #
@@ -7,13 +7,14 @@
 # and what she lived change her state, so she never quite does the same thing again. Only her first weights are
 # made by a formula (her birth).
 #
-# {lessons} on: she learns little by little, as a child does (one note, then a tone, then steps...): her lessons.
+# {lessons}: how many lessons she has (0: none, everything open); she learns them little by little, as a child does.
 #
 # Its parts, from the ear to the hand:
 #   the ear       a cochlea: 36 resonators, one a semitone from 110 Hz; how clear what is heard is (its energy in
 #                 few places: tones that agree share their harmonics)
 #   expectation   what usually follows what (intervals counted, the human's and her own): how uncertain the next
 #                 is, how surprising what came was (Pearce's IDyOM, simply)
+#   the beat      a pulse of her own, drawn towards the notes she hears (an oscillator that entrains)
 #   pleasure      a surprise when it was certain, or a certainty when it was not (Cheung et al., 2019), and the
 #                 sound growing clearer; the gap from what she expected (Schultz's reward prediction error)
 #   state         six nodes turning in pairs at their own speeds (Churchland et al., 2012), pushed by what she lives
@@ -25,12 +26,16 @@
 #   how long      each note its length (an eighth to a half), chosen and learned the same way
 #   drums         on a drum the human gives her, she strikes it at a sixteenth when she wants to (her state, her
 #                 taste for that place in the bar), and learns it by the same gap of pleasure
+#   breath        a note spends it, a rest gives it back; effort and breath make her concentration
+#   under it      a bass each half bar, a third below with her notes (when a lesson allows), learned the same way
+#   a knob        the brightness of her synthesiser, opened or closed as she wants, learned the same way
+#   her key       where her note is in its octave; a lesson gives a scale, and she plays in it
 #   lessons       a lesson opens some choices and closes the others; she stays while she progresses, goes on when
 #                 it is mastered and bores her, steps back when it is too hard and bores her (her curiosity follows
 #                 her progress: Oudeyer; what is neither too easy nor too hard: Vygotsky); each lesson a context
 #
 # Needs nothing else. Costs about 500 sets a sample.
-network elle(name, ear, clock_i, clock_f, other_pitch, other_gate, ctx_song, ctx_human, lessons)
+network elle(name, ear, clock_i, clock_f, ctx_song, ctx_human, lessons)
   # named first (other parts read them before their own part)
   var {name}_bore = 0.2
   var {name}_semi = 24
@@ -58,7 +63,7 @@ network elle(name, ear, clock_i, clock_f, other_pitch, other_gate, ctx_song, ctx
   repeat b in 1 .. 36: var {name}_bp{b} = 0
   repeat b in 1 .. 36: var {name}_e{b} = 0
   repeat b in 1 .. 36: set {name}_lo{b} = {name}_lo{b} + {2*sin(pi*110*2^((b-1)/12)/48000)} * {name}_bp{b}
-  repeat b in 1 .. 36: set {name}_bp{b} = {1 - (2*sin(pi*110*2^((b-1)/12)/48000))^2 - 0.06*2*sin(pi*110*2^((b-1)/12)/48000)} * {name}_bp{b} + {2*sin(pi*110*2^((b-1)/12)/48000)} * {ear} - {2*sin(pi*110*2^((b-1)/12)/48000)} * {name}_lo{b}
+  repeat b in 1 .. 36: set {name}_bp{b} = {1 - (2*sin(pi*110*2^((b-1)/12)/48000))^2 - 0.025*2*sin(pi*110*2^((b-1)/12)/48000)} * {name}_bp{b} + {2*sin(pi*110*2^((b-1)/12)/48000)} * {ear} - {2*sin(pi*110*2^((b-1)/12)/48000)} * {name}_lo{b}
   repeat b in 1 .. 36: set {name}_e{b} = {name}_e{b} + 0.0007 * {name}_bp{b} * {name}_bp{b} - 0.0007 * {name}_e{b}
   # how clear: the energy in few places (the sum of squares over the square of the sum)
   node {name}_tot
@@ -72,26 +77,106 @@ network elle(name, ear, clock_i, clock_f, other_pitch, other_gate, ctx_song, ctx
   node {name}_cons signed
   relate {name}_clearer: {name}_cons = {name}_clar - {name}_ca
 
-  # ---- what the human plays: each new key, its interval from the one before (a ratio of their pitches)
-  var {name}_lg = 0
-  set {name}_lg = {other_gate}
-  node {name}_dg signed
-  relate {name}_key: {name}_dg = {other_gate} - {name}_lg
+  # ---- what others play, heard by her ear alone (no keys read): a note begins where the sound grows suddenly (its
+  # energy well above what it was a moment ago), its pitch is the band that sounds
+  # the most a little after (a sweep across the 36 bands, one a sample), if what sounds is clear enough to have one
+  # (a drum has none); its step, from the note heard before, in semitones
+  var {name}_tslow = 0
+  set {name}_tslow = {name}_tslow + 0.0002 * {name}_tot - 0.0002 * {name}_tslow
+  node {name}_rise signed
+  relate {name}_rising: {name}_rise = {name}_tot - 1.25 * {name}_tslow - 0.000000001
+  var {name}_quiet = 0
+  set {name}_quiet = {name}_quiet + 1
   var {name}_hon = 0
   set {name}_hon = 0
-  set {name}_hon = 1 when {name}_dg in 0.5 .. 9
-  var {name}_hp = 220 positive
-  set {name}_hp = {other_pitch} when {name}_hon in 0.5 .. 1.5
-  node {name}_hr
-  relate {name}_human_step: {name}_hr * {name}_hp = {other_pitch}
+  set {name}_hon = 1 when {name}_rise in 0 .. 99 and {name}_quiet in 2400 .. 1000000000
+  set {name}_quiet = 0 when {name}_rise in 0 .. 99 and {name}_quiet in 2400 .. 1000000000
+  var {name}_hoff = -4
+  var {name}_bs = 1
+  set {name}_bs = {name}_bs + 1 when {name}_bs in 0.5 .. 35.5
+  set {name}_bs = 1 when {name}_bs in 35.5 .. 99
+  var {name}_be = 0
+  var {name}_bk = 1
+  repeat b in 1 .. 36: set {name}_be = {name}_e{b} when {name}_bs in {b - 0.5} .. {b + 0.5}
+  repeat b in 1 .. 36: set {name}_bk = {b} when {name}_bs in {b - 0.5} .. {b + 0.5}
+  # a band where she sounds herself (and its neighbours, where her note spills over) is left out of the sweep (she knows what she plays: the brain discounts its own
+  # movements), so that another's note can be found under hers
+  # her note rings on a little after she lets it go (its release): still hers while it rings
+  var {name}_ring = 0
+  set {name}_ring = 0.99993 * {name}_ring
+  set {name}_ring = 1 when {name}_gate in 0.5 .. 9
+  var {name}_ringing = 0
+  set {name}_ringing = 0
+  set {name}_ringing = 1 when {name}_ring in 0.05 .. 9
+  node {name}_sme signed
+  relate {name}_sweep_mine: {name}_sme = {name}_bs - {name}_semi - 1 + 100 * {name}_ringing - 100
+  node {name}_smo signed
+  relate {name}_sweep_mine_octave: {name}_smo = {name}_bs - {name}_semi - 13 + 100 * {name}_ringing - 100
+  node {name}_smb signed
+  relate {name}_sweep_my_bass: {name}_smb = {name}_bs - {name}_bband + 100 * {name}_bgate - 100
+  node {name}_smh signed
+  relate {name}_sweep_my_harmony: {name}_smh = {name}_bs - {name}_semi - 1 - {name}_hoff + 100 * {name}_hgate - 100
+  set {name}_be = 0 when {name}_sme in -1.5 .. 1.5
+  set {name}_be = 0 when {name}_smo in -1.5 .. 1.5
+  set {name}_be = 0 when {name}_smb in -1.5 .. 1.5
+  set {name}_be = 0 when {name}_smh in -1.5 .. 1.5
+  var {name}_bbest = 0
+  var {name}_bpick = 1
+  node {name}_bd signed
+  relate {name}_band_against: {name}_bd = {name}_be - {name}_bbest
+  set {name}_bbest = {name}_be when {name}_bd in 0 .. 99
+  set {name}_bpick = {name}_bk when {name}_bd in 0 .. 99
+  set {name}_bbest = {name}_be when {name}_bk in 0.5 .. 1.5
+  set {name}_bpick = 1 when {name}_bk in 0.5 .. 1.5
+  var {name}_band = 1
+  set {name}_band = {name}_bpick when {name}_bk in 0.5 .. 1.5
+  # forty milliseconds after a note begins, its pitch is taken
+  var {name}_hwait = 0
+  set {name}_hwait = {name}_hwait - 1 when {name}_hwait in 0.5 .. 99999
+  set {name}_hwait = 1920 when {name}_hon in 0.5 .. 1.5
+  var {name}_hcap = 0
+  set {name}_hcap = 0
+  # (what she plays is hers, and she knows it as she plays it, as the brain discounts its own movements: the bands of
+  # her melody and its octave, of her bass, of her harmony are not another's)
+  node {name}_bme signed
+  relate {name}_not_mine: {name}_bme = {name}_band - {name}_semi - 1 + 100 * {name}_gate - 100
+  node {name}_bme2 signed
+  relate {name}_not_mine_octave: {name}_bme2 = {name}_band - {name}_semi - 13 + 100 * {name}_gate - 100
+  # (her bass: its band, from its pitch: 12 bands an octave from 110 Hz; under 110 Hz, the band of its octave)
+  var {name}_bband = 1
+  repeat b in 1 .. 36: set {name}_bband = {b} when {name}_bpitch in {110 * 2^((b - 1.5)/12)} .. {110 * 2^((b - 0.5)/12)}
+  repeat b in 1 .. 12: set {name}_bband = {b} when {name}_bpitch in {55 * 2^((b - 1.5)/12)} .. {55 * 2^((b - 0.5)/12)}
+  node {name}_bmb signed
+  relate {name}_not_my_bass: {name}_bmb = {name}_band - {name}_bband + 100 * {name}_bgate - 100
+  var {name}_hoff = -4
+  set {name}_hoff = -4
+  set {name}_hoff = -3 when {name}_hthird in 2.5 .. 3.5
+  node {name}_bmh signed
+  relate {name}_not_my_harmony: {name}_bmh = {name}_band - {name}_semi - 1 - {name}_hoff + 100 * {name}_hgate - 100
+  var {name}_mine = 0
+  set {name}_mine = 0
+  set {name}_mine = 1 when {name}_bme in -0.5 .. 0.5
+  set {name}_mine = 1 when {name}_bme2 in -0.5 .. 0.5
+  set {name}_mine = 1 when {name}_bmb in -0.5 .. 0.5
+  set {name}_mine = 1 when {name}_bmh in -0.5 .. 0.5
+  set {name}_hcap = 1 when {name}_hwait in 0.5 .. 1.5 and {name}_clar in 0.05 .. 9 and {name}_mine in -9 .. 0.5
+  # how many notes she began to hear, how many she took the pitch of (a count: what her ear did)
+  var {name}_onsets = 0
+  set {name}_onsets = {name}_onsets + 1 when {name}_hon in 0.5 .. 1.5
+  var {name}_heard = 0
+  set {name}_heard = {name}_heard + 1 when {name}_hcap in 0.5 .. 1.5
+  var {name}_hprev = 0
+  set {name}_hprev = {name}_band when {name}_hcap in 0.5 .. 1.5
+  node {name}_hstep signed
+  relate {name}_heard_step: {name}_hstep = {name}_band - {name}_hprev
   var {name}_hint = 0
-  repeat k in 1 .. 15: set {name}_hint = {k - 8} when {name}_hon in 0.5 .. 1.5 and {name}_hr in {2^((k - 8.5)/12)} .. {2^((k - 7.5)/12)}
+  set {name}_hint = {name}_hstep when {name}_hcap in 0.5 .. 1.5 and {name}_hstep in -7.5 .. 7.5
 
   # ---- expectation: how often each interval came (kept: she learns it), what that makes of the next
   repeat k in 1 .. 15: memory {name}_cnt{k} = 1 positive
   repeat k in 1 .. 15: set {name}_cnt{k} = 0.998 * {name}_cnt{k} when {name}_ev in 0.5 .. 1.5
   repeat k in 1 .. 15: set {name}_cnt{k} = 0.998 * {name}_cnt{k} + 1 when {name}_ev in 0.5 .. 1.5 and {name}_choice in {k - 0.5} .. {k + 0.5}
-  repeat k in 1 .. 15: set {name}_cnt{k} = {name}_cnt{k} + 1 when {name}_hon in 0.5 .. 1.5 and {name}_hr in {2^((k - 8.5)/12)} .. {2^((k - 7.5)/12)}
+  repeat k in 1 .. 15: set {name}_cnt{k} = {name}_cnt{k} + 1 when {name}_hcap in 0.5 .. 1.5 and {name}_hstep in {k - 8.5} .. {k - 7.5}
   node {name}_ctot
   relate {name}_counted: {name}_ctot = sum(k in 1 .. 15: {name}_cnt{k})
   repeat k in 1 .. 15: node {name}_p{k}
@@ -107,11 +192,28 @@ network elle(name, ear, clock_i, clock_f, other_pitch, other_gate, ctx_song, ctx
   node {name}_sur
   relate {name}_surprising: {name}_sur * {name}_pq = 1
 
+
+  # ---- her sense of the beat: a pulse of her own ({name}_ph, 0 .. 1 a beat, at {name}_fr beats a sample), drawn at
+  # each note she hears towards the nearest beat, quicker when what she hears comes early, slower when late (an
+  # oscillator that entrains: Large's neural resonance); how well what she hears falls on it ({name}_sync) pleases
+  # her (a groove she can follow)
+  var {name}_ph = 0
+  var {name}_fr = 0.0000416667
+  set {name}_ph = {name}_ph + {name}_fr
+  set {name}_ph = {name}_ph - 1 when {name}_ph in 1 .. 9
+  set {name}_ph = 0.8 * {name}_ph when {name}_hon in 0.5 .. 1.5 and {name}_ph in 0 .. 0.5
+  set {name}_ph = 0.8 * {name}_ph + 0.2 when {name}_hon in 0.5 .. 1.5 and {name}_ph in 0.5 .. 1
+  set {name}_fr = {name}_fr - 0.000000002 * {name}_ph when {name}_hon in 0.5 .. 1.5 and {name}_ph in 0 .. 0.5 and {name}_fr in 0.000021 .. 1
+  set {name}_fr = {name}_fr + 0.000000002 - 0.000000002 * {name}_ph when {name}_hon in 0.5 .. 1.5 and {name}_ph in 0.5 .. 1 and {name}_fr in 0 .. 0.000069
+  var {name}_sync = 0.5
+  set {name}_sync = 0.9 * {name}_sync + 0.1 - 0.2 * {name}_ph when {name}_hon in 0.5 .. 1.5 and {name}_ph in 0 .. 0.5
+  set {name}_sync = 0.9 * {name}_sync - 0.1 + 0.2 * {name}_ph when {name}_hon in 0.5 .. 1.5 and {name}_ph in 0.5 .. 1
+
   # ---- pleasure, and the gap from what she expected
   node {name}_pm signed
   relate {name}_cheung: {name}_pm = {name}_sur + {name}_unc - 2 * {name}_sur * {name}_unc
   node {name}_pleasure signed
-  relate {name}_pleased: {name}_pleasure = 0.6 * {name}_pm + 4 * {name}_cons - 0.3 * {name}_bore
+  relate {name}_pleased: {name}_pleasure = 0.6 * {name}_pm + 4 * {name}_cons - 0.3 * {name}_bore + 0.3 * {name}_sync - 0.15
   var {name}_pav = 0
   set {name}_pav = {name}_pav + 0.0003 * {name}_pleasure - 0.0003 * {name}_pav
   memory {name}_pexp = 0.3
@@ -202,55 +304,262 @@ network elle(name, ear, clock_i, clock_f, other_pitch, other_gate, ctx_song, ctx
   repeat k in 1 .. 16: set {name}_stay{k} = 1 when {name}_choice in {k - 0.5} .. {k + 0.5}
 
 
-  # ---- her lessons: each choice has its difficulty; a lesson opens what is not harder than it. One note (and the
-  # rest), then a tone up or down, then the semitones, then thirds, then fourths and fifths, then the tritone too.
-  # In the first two, the eighths between the beats are rests (one note a beat).
+  # ---- her lessons: one a file (mind/lessons/*.grm, in the order of their names), written in GRML by anyone. Here,
+  # what every lesson starts from: everything closed (a lesson opens what it teaches: set {name}_open8 = 1 when
+  # {here}), no beat asked, no quarter asked, a phrase without rest tiring her a middling amount. Lessons off,
+  # everything is open.
   memory {name}_lesson = 1
   memory {name}_ltime = 0
-  repeat k in 1 .. 16: node {name}_dd{k} signed
-  relate {name}_ready1: {name}_dd1 = {name}_lesson - 5
-  relate {name}_ready2: {name}_dd2 = {name}_lesson - 6
-  relate {name}_ready3: {name}_dd3 = {name}_lesson - 5
-  relate {name}_ready4: {name}_dd4 = {name}_lesson - 4
-  relate {name}_ready5: {name}_dd5 = {name}_lesson - 4
-  relate {name}_ready6: {name}_dd6 = {name}_lesson - 2
-  relate {name}_ready7: {name}_dd7 = {name}_lesson - 3
-  relate {name}_ready8: {name}_dd8 = {name}_lesson - 1
-  relate {name}_ready9: {name}_dd9 = {name}_lesson - 3
-  relate {name}_ready10: {name}_dd10 = {name}_lesson - 2
-  relate {name}_ready11: {name}_dd11 = {name}_lesson - 4
-  relate {name}_ready12: {name}_dd12 = {name}_lesson - 4
-  relate {name}_ready13: {name}_dd13 = {name}_lesson - 5
-  relate {name}_ready14: {name}_dd14 = {name}_lesson - 6
-  relate {name}_ready15: {name}_dd15 = {name}_lesson - 5
-  relate {name}_ready16: {name}_dd16 = {name}_lesson - 1
   repeat k in 1 .. 16: var {name}_open{k} = 1
-  repeat k in 1 .. 16: set {name}_open{k} = 0
-  repeat k in 1 .. 16: set {name}_open{k} = 1 when {name}_dd{k} in -0.5 .. 99
+  repeat k in 1 .. 16: set {name}_open{k} = 0 when {lessons} in 0.5 .. 999
   repeat k in 1 .. 16: set {name}_open{k} = 1 when {lessons} in -9 .. 0.5
+  var {name}_beats = 0
+  set {name}_beats = 0
+  var {name}_quarter = 0
+  set {name}_quarter = 0
+  var {name}_breathw = 0.5
+  set {name}_breathw = 0.5
+  # one note a beat: the eighths between the beats are rests
   var {name}_offb = 0
   set {name}_offb = 0
-  repeat e in 0 .. 3: set {name}_offb = 1 when {clock_i} in {4*e + 1.5} .. {4*e + 2.5} and {name}_lesson in -9 .. 2.5 and {lessons} in 0.5 .. 9
-  # each lesson a context: what she learns in it is kept apart
-  repeat l in 1 .. 6: var {name}_xl{l} = 0
-  repeat l in 1 .. 6: set {name}_xl{l} = 0
-  repeat l in 1 .. 6: set {name}_xl{l} = 1 when {name}_lesson in {l - 0.5} .. {l + 0.5} and {lessons} in 0.5 .. 9
-  repeat k in 1 .. 16: repeat l in 1 .. 6: memory {name}_tl{k}_{l} = 0
-  repeat k in 1 .. 16: repeat l in 1 .. 6: set {name}_tl{k}_{l} = {name}_tl{k}_{l} + 0.1 * {name}_delta * {name}_xl{l} when {name}_ev in 0.5 .. 1.5 and {name}_last in {k - 0.5} .. {k + 0.5}
-  # her pace: the eighths lived in this lesson; after sixteen seconds or so, if it bores her and she no longer
-  # progresses, on to the next when she makes few errors, back to the one before when she makes many
-  set {name}_ltime = {name}_ltime + 1 when {name}_ev in 0.5 .. 1.5 and {lessons} in 0.5 .. 9
-  set {name}_lesson = {name}_lesson + 1 when {name}_ev in 0.5 .. 1.5 and {lessons} in 0.5 .. 9 and {name}_ltime in 64 .. 1000000000 and {name}_bore in 0.55 .. 9 and {name}_curious in -9 .. 0.02 and {name}_errs in -9 .. 0.2 and {name}_lesson in -9 .. 5.5
-  set {name}_lesson = {name}_lesson - 1 when {name}_ev in 0.5 .. 1.5 and {lessons} in 0.5 .. 9 and {name}_ltime in 64 .. 1000000000 and {name}_bore in 0.55 .. 9 and {name}_curious in -9 .. 0.02 and {name}_errs in 0.2 .. 9 and {name}_lesson in 1.5 .. 9
-  set {name}_ltime = 0 when {name}_ev in 0.5 .. 1.5 and {lessons} in 0.5 .. 9 and {name}_ltime in 64 .. 1000000000 and {name}_bore in 0.55 .. 9 and {name}_curious in -9 .. 0.02
-  set {name}_bore = 0.5 * {name}_bore when {name}_ev in 0.5 .. 1.5 and {lessons} in 0.5 .. 9 and {name}_ltime in 64 .. 1000000000 and {name}_bore in 0.55 .. 9 and {name}_curious in -9 .. 0.02
+  repeat e in 0 .. 3: set {name}_offb = 1 when {clock_i} in {4*e + 1.5} .. {4*e + 2.5} and {name}_beats in 0.5 .. 9
+  # each lesson a context: what she learns in it is kept apart (up to thirty-two)
+  repeat l in 1 .. 32: var {name}_xl{l} = 0
+  repeat l in 1 .. 32: set {name}_xl{l} = 0
+  repeat l in 1 .. 32: set {name}_xl{l} = 1 when {name}_lesson in {l - 0.5} .. {l + 0.5} and {lessons} in 0.5 .. 999
+  repeat k in 1 .. 16: repeat l in 1 .. 32: memory {name}_tl{k}_{l} = 0
+  repeat k in 1 .. 16: repeat l in 1 .. 32: set {name}_tl{k}_{l} = {name}_tl{k}_{l} + 0.05 * {name}_delta * {name}_xl{l} + 0.1 * {name}_delta * {name}_xl{l} * {name}_conc when {name}_ev in 0.5 .. 1.5 and {name}_last in {k - 0.5} .. {k + 0.5}
+  # her pace: the notes lived in this lesson; after sixty-four or so, if it bores her and she no longer progresses,
+  # on to the next when she makes few errors (if there is a next: {lessons} is how many there are), back to the one
+  # before when she makes many
+  node {name}_room signed
+  relate {name}_ahead: {name}_room = {lessons} - {name}_lesson
+  set {name}_ltime = {name}_ltime + 1 when {name}_ev in 0.5 .. 1.5 and {lessons} in 0.5 .. 999
+  set {name}_lesson = {name}_lesson + 1 when {name}_ev in 0.5 .. 1.5 and {lessons} in 0.5 .. 999 and {name}_ltime in 64 .. 1000000000 and {name}_bore in 0.55 .. 9 and {name}_curious in -9 .. 0.02 and {name}_errs in -9 .. 0.2 and {name}_room in 0.5 .. 999
+  set {name}_lesson = {name}_lesson - 1 when {name}_ev in 0.5 .. 1.5 and {lessons} in 0.5 .. 999 and {name}_ltime in 64 .. 1000000000 and {name}_bore in 0.55 .. 9 and {name}_curious in -9 .. 0.02 and {name}_errs in 0.2 .. 9 and {name}_lesson in 1.5 .. 999
+  set {name}_ltime = 0 when {name}_ev in 0.5 .. 1.5 and {lessons} in 0.5 .. 999 and {name}_ltime in 64 .. 1000000000 and {name}_bore in 0.55 .. 9 and {name}_curious in -9 .. 0.02
+  set {name}_bore = 0.5 * {name}_bore when {name}_ev in 0.5 .. 1.5 and {lessons} in 0.5 .. 999 and {name}_ltime in 64 .. 1000000000 and {name}_bore in 0.55 .. 9 and {name}_curious in -9 .. 0.02
+
+  # ---- her breath, her effort, her concentration (nothing of it is drawn: it acts). Her effort: the size of her
+  # leaps, short notes, her errors. A note sounding spends her breath (more when the effort is high), a rest gives it
+  # back; she breathes faster when it is hard. Her concentration: highest at a middling effort, a little higher as
+  # she breathes in (Zelano et al., 2016), lower as her breath runs out; concentrated, a repetition tires her less
+  # and she learns more (the gain of the locus coeruleus: Aston-Jones and Cohen, 2005).
+  var {name}_leap = 0
+  repeat k in 1 .. 15: set {name}_leap = {abs(k - 8)} when {name}_ev in 0.5 .. 1.5 and {name}_choice in {k - 0.5} .. {k + 0.5}
+  set {name}_leap = 0 when {name}_ev in 0.5 .. 1.5 and {name}_choice in 15.5 .. 99
+  var {name}_short = 0
+  set {name}_short = 0 when {name}_ev in 0.5 .. 1.5
+  set {name}_short = 1 when {name}_ev in 0.5 .. 1.5 and {name}_len in -9 .. 1.5
+  var {name}_effort = 0.3
+  set {name}_effort = 0.9 * {name}_effort + 0.007 * {name}_leap + 0.03 * {name}_short + 0.15 * {name}_aerr when {name}_ev in 0.5 .. 1.5
+  var {name}_air = 1
+  set {name}_air = {name}_air - 0.0000017 - 0.0000052 * {name}_effort when {name}_gate in 0.5 .. 9
+  set {name}_air = {name}_air + 0.0000104 when {name}_gate in -9 .. 0.5
+  set {name}_air = 1 when {name}_air in 1 .. 9
+  set {name}_air = 0 when {name}_air in -9 .. 0
+  var {name}_b1 = 1
+  var {name}_b2 = 0
+  set {name}_b1 = {name}_b1 + 0.0000327 * {name}_b2 + 0.0000654 * {name}_effort * {name}_b2 - 0.000001 * {name}_b1
+  set {name}_b2 = {name}_b2 - 0.0000327 * {name}_b1 - 0.0000654 * {name}_effort * {name}_b1 - 0.000001 * {name}_b2
+  set {name}_b1 = 1 when {name}_b1 in 1.2 .. 99
+  set {name}_b1 = -1 when {name}_b1 in -99 .. -1.2
+  node {name}_conc signed
+  relate {name}_concentration: {name}_conc = 0.7 + 0.1 * {name}_b1 - 1.5 * {name}_effort * {name}_effort + 1.2 * {name}_effort - 0.24 - 0.3 + 0.3 * {name}_air
+
+
+  # ---- her key. Where her note is in its octave ({name}_deg, 0 .. 11 above her tonic; her tonic is where she began)
+  # and among the twelve notes ({name}_apc, 0 .. 11 above A: her first note is an A)
+  var {name}_deg = 0
+  repeat k in 8 .. 15: set {name}_deg = {name}_deg + {k - 8} when {name}_ev in 0.5 .. 1.5 and {name}_choice in {k - 0.5} .. {k + 0.5} and {name}_deg in -0.5 .. {11.5 - (k - 8)}
+  repeat k in 8 .. 15: set {name}_deg = {name}_deg + {k - 8 - 12} when {name}_ev in 0.5 .. 1.5 and {name}_choice in {k - 0.5} .. {k + 0.5} and {name}_deg in {11.5 - (k - 8)} .. 99
+  repeat k in 1 .. 7: set {name}_deg = {name}_deg + {k - 8} when {name}_ev in 0.5 .. 1.5 and {name}_choice in {k - 0.5} .. {k + 0.5} and {name}_deg in {-0.5 - (k - 8)} .. 11.5
+  repeat k in 1 .. 7: set {name}_deg = {name}_deg + {k - 8 + 12} when {name}_ev in 0.5 .. 1.5 and {name}_choice in {k - 0.5} .. {k + 0.5} and {name}_deg in -99 .. {-0.5 - (k - 8)}
+  var {name}_apc = 0
+  repeat k in 8 .. 15: set {name}_apc = {name}_apc + {k - 8} when {name}_ev in 0.5 .. 1.5 and {name}_choice in {k - 0.5} .. {k + 0.5} and {name}_apc in -0.5 .. {11.5 - (k - 8)}
+  repeat k in 8 .. 15: set {name}_apc = {name}_apc + {k - 8 - 12} when {name}_ev in 0.5 .. 1.5 and {name}_choice in {k - 0.5} .. {k + 0.5} and {name}_apc in {11.5 - (k - 8)} .. 99
+  repeat k in 1 .. 7: set {name}_apc = {name}_apc + {k - 8} when {name}_ev in 0.5 .. 1.5 and {name}_choice in {k - 0.5} .. {k + 0.5} and {name}_apc in {-0.5 - (k - 8)} .. 11.5
+  repeat k in 1 .. 7: set {name}_apc = {name}_apc + {k - 8 + 12} when {name}_ev in 0.5 .. 1.5 and {name}_choice in {k - 0.5} .. {k + 0.5} and {name}_apc in -99 .. {-0.5 - (k - 8)}
+  # the bars, counted just before each begins (what a lesson says of the next bar is ready on its first beat): a form
+  # of {name}_blen bars (four, unless a lesson says), the forms counted four by four ({name}_cyc)
+  var {name}_pf = 0
+  set {name}_pf = {clock_f}
+  var {name}_barst = 0
+  set {name}_barst = 0
+  set {name}_barst = 1 when {clock_i} in 14.5 .. 15.5 and {clock_f} in 0.9 .. 2 and {name}_pf in -1 .. 0.9
+  var {name}_blen = 4
+  set {name}_blen = 4
+  var {name}_bar = 0
+  node {name}_bleft signed
+  relate {name}_bars_left: {name}_bleft = {name}_blen - {name}_bar - 1
+  var {name}_formst = 0
+  set {name}_formst = 0
+  set {name}_formst = 1 when {name}_barst in 0.5 .. 1.5 and {name}_bleft in -99 .. 0.5
+  set {name}_bar = {name}_bar + 1 when {name}_barst in 0.5 .. 1.5
+  set {name}_bar = 0 when {name}_barst in 0.5 .. 1.5 and {name}_bleft in -99 .. 0.5
+  var {name}_cyc = 0
+  set {name}_cyc = {name}_cyc + 1 when {name}_barst in 0.5 .. 1.5 and {name}_bleft in -99 .. 0.5
+  set {name}_cyc = 0 when {name}_barst in 0.5 .. 1.5 and {name}_bleft in -99 .. 0.5 and {name}_cyc in 2.5 .. 99
+  # her scale ({name}_sc0 .. 11: 1 a degree of it): the major scale, unless her lesson gives another; the chord of
+  # the bar ({name}_ct0 .. 11), its root ({name}_root): the scale and its tonic, unless her lesson gives a chord
+  var {name}_sc0 = 1
+  var {name}_sc1 = 0
+  var {name}_sc2 = 1
+  var {name}_sc3 = 0
+  var {name}_sc4 = 1
+  var {name}_sc5 = 1
+  var {name}_sc6 = 0
+  var {name}_sc7 = 1
+  var {name}_sc8 = 0
+  var {name}_sc9 = 1
+  var {name}_sc10 = 0
+  var {name}_sc11 = 1
+  set {name}_sc0 = 1
+  set {name}_sc1 = 0
+  set {name}_sc2 = 1
+  set {name}_sc3 = 0
+  set {name}_sc4 = 1
+  set {name}_sc5 = 1
+  set {name}_sc6 = 0
+  set {name}_sc7 = 1
+  set {name}_sc8 = 0
+  set {name}_sc9 = 1
+  set {name}_sc10 = 0
+  set {name}_sc11 = 1
+  repeat p in 0 .. 11: var {name}_ct{p} = 1
+  repeat p in 0 .. 11: set {name}_ct{p} = {name}_sc{p}
+  var {name}_root = 0
+  set {name}_root = 0
+  # what a lesson may also say: its chords lead (the bass on their roots), the key moves at each form (by
+  # {name}_modul semitones), the twelve tones each before any comes back, her ears lead her to the key she hears
+  var {name}_chordal = 0
+  set {name}_chordal = 0
+  var {name}_moving = 0
+  set {name}_moving = 0
+  var {name}_modul = 7
+  set {name}_modul = 7
+  var {name}_row = 0
+  set {name}_row = 0
+  var {name}_join = 1
+  set {name}_join = 0 when {lessons} in 0.5 .. 999
+  set {name}_join = 1 when {lessons} in -9 .. 0.5
+  # the key the human gives her (-1: none, she finds it)
+  var {name}_keypick = -1
+  # the bridle: on entering a lesson, held tight (only the notes of the chord); loosened when she masters it (the scale)
+  var {name}_lprev = 1
+  set {name}_lprev = {name}_lesson
+  node {name}_lchange signed
+  relate {name}_lesson_changed: {name}_lchange = {name}_lesson - {name}_lprev
+  var {name}_tight = 1
+  set {name}_tight = 1 when {name}_lchange in 0.5 .. 99
+  set {name}_tight = 1 when {name}_lchange in -99 .. -0.5
+  set {name}_tight = 0 when {name}_ev in 0.5 .. 1.5 and {name}_ltime in 96 .. 1000000000 and {name}_errs in -9 .. 0.25
+  set {name}_tight = 0 when {lessons} in -9 .. 0.5
+  # what is allowed: the chord while tight, the scale when loose; in the twelve tones, those not yet played
+  var {name}_ev1 = 0
+  set {name}_ev1 = {name}_ev
+  var {name}_ev2 = 0
+  set {name}_ev2 = {name}_ev1
+  var {name}_ev3 = 0
+  set {name}_ev3 = {name}_ev2
+  repeat p in 0 .. 11: var {name}_used{p} = 0
+  repeat p in 0 .. 11: set {name}_used{p} = 1 when {name}_ev1 in 0.5 .. 1.5 and {name}_row in 0.5 .. 9 and {name}_gate in 0.5 .. 9 and {name}_deg in {p - 0.5} .. {p + 0.5}
+  node {name}_usedn
+  relate {name}_used_all: {name}_usedn = sum(p in 0 .. 11: {name}_used{p}) + 0.001
+  repeat p in 0 .. 11: set {name}_used{p} = 0 when {name}_usedn in 11.5 .. 99
+  repeat p in 0 .. 11: set {name}_used{p} = 0 when {name}_row in -9 .. 0.5
+  repeat p in 0 .. 11: var {name}_al{p} = 1
+  repeat p in 0 .. 11: set {name}_al{p} = {name}_sc{p}
+  repeat p in 0 .. 11: set {name}_al{p} = {name}_ct{p} when {name}_tight in 0.5 .. 9
+  repeat p in 0 .. 11: set {name}_al{p} = 1 - {name}_used{p} when {name}_row in 0.5 .. 9
+  # never a semitone above the bass (a minor ninth: the harshest clash there is)
+  var {name}_bdeg = 0
+  repeat p in 0 .. 11: var {name}_av{p} = 0
+  repeat p in 0 .. 11: set {name}_av{p} = 0
+  repeat b in 0 .. 11: set {name}_av{(b + 1) - 12 * floor((b + 1) / 12)} = 1 when {name}_bdeg in {b - 0.5} .. {b + 0.5} and {name}_bgate in 0.5 .. 9
+  repeat p in 0 .. 11: var {name}_ok{p} = 1
+  repeat p in 0 .. 11: set {name}_ok{p} = {name}_al{p}
+  repeat p in 0 .. 11: set {name}_ok{p} = 0 when {name}_av{p} in 0.5 .. 9
+  # each step's landing: allowed or not, from where she is
+  repeat k in 1 .. 15: var {name}_in{k} = 1
+  repeat k in 1 .. 15: repeat p in 0 .. 11: set {name}_in{k} = {name}_ok{(p + k - 8) - 12 * floor((p + k - 8) / 12)} when {name}_deg in {p - 0.5} .. {p + 0.5}
+
+  # ---- the key she hears (Krumhansl and Kessler's profiles: how well each degree fits a key, by listeners): the
+  # energy of each of the twelve notes heard (her cochlea folded on one octave), slowly; each key's fit; the best
+  repeat q in 0 .. 11: var {name}_kc{q} = 0
+  repeat q in 0 .. 11: set {name}_kc{q} = {name}_kc{q} + 0.00002 * {name}_e{q + 1} + 0.00002 * {name}_e{q + 13} + 0.00002 * {name}_e{q + 25} - 0.00002 * {name}_kc{q}
+  repeat t in 0 .. 11: node {name}_ks{t}
+  relate {name}_key_fit0: {name}_ks0 = 6.35 * {name}_kc0 + 2.23 * {name}_kc1 + 3.48 * {name}_kc2 + 2.33 * {name}_kc3 + 4.38 * {name}_kc4 + 4.09 * {name}_kc5 + 2.52 * {name}_kc6 + 5.19 * {name}_kc7 + 2.39 * {name}_kc8 + 3.66 * {name}_kc9 + 2.29 * {name}_kc10 + 2.88 * {name}_kc11
+  relate {name}_key_fit1: {name}_ks1 = 2.88 * {name}_kc0 + 6.35 * {name}_kc1 + 2.23 * {name}_kc2 + 3.48 * {name}_kc3 + 2.33 * {name}_kc4 + 4.38 * {name}_kc5 + 4.09 * {name}_kc6 + 2.52 * {name}_kc7 + 5.19 * {name}_kc8 + 2.39 * {name}_kc9 + 3.66 * {name}_kc10 + 2.29 * {name}_kc11
+  relate {name}_key_fit2: {name}_ks2 = 2.29 * {name}_kc0 + 2.88 * {name}_kc1 + 6.35 * {name}_kc2 + 2.23 * {name}_kc3 + 3.48 * {name}_kc4 + 2.33 * {name}_kc5 + 4.38 * {name}_kc6 + 4.09 * {name}_kc7 + 2.52 * {name}_kc8 + 5.19 * {name}_kc9 + 2.39 * {name}_kc10 + 3.66 * {name}_kc11
+  relate {name}_key_fit3: {name}_ks3 = 3.66 * {name}_kc0 + 2.29 * {name}_kc1 + 2.88 * {name}_kc2 + 6.35 * {name}_kc3 + 2.23 * {name}_kc4 + 3.48 * {name}_kc5 + 2.33 * {name}_kc6 + 4.38 * {name}_kc7 + 4.09 * {name}_kc8 + 2.52 * {name}_kc9 + 5.19 * {name}_kc10 + 2.39 * {name}_kc11
+  relate {name}_key_fit4: {name}_ks4 = 2.39 * {name}_kc0 + 3.66 * {name}_kc1 + 2.29 * {name}_kc2 + 2.88 * {name}_kc3 + 6.35 * {name}_kc4 + 2.23 * {name}_kc5 + 3.48 * {name}_kc6 + 2.33 * {name}_kc7 + 4.38 * {name}_kc8 + 4.09 * {name}_kc9 + 2.52 * {name}_kc10 + 5.19 * {name}_kc11
+  relate {name}_key_fit5: {name}_ks5 = 5.19 * {name}_kc0 + 2.39 * {name}_kc1 + 3.66 * {name}_kc2 + 2.29 * {name}_kc3 + 2.88 * {name}_kc4 + 6.35 * {name}_kc5 + 2.23 * {name}_kc6 + 3.48 * {name}_kc7 + 2.33 * {name}_kc8 + 4.38 * {name}_kc9 + 4.09 * {name}_kc10 + 2.52 * {name}_kc11
+  relate {name}_key_fit6: {name}_ks6 = 2.52 * {name}_kc0 + 5.19 * {name}_kc1 + 2.39 * {name}_kc2 + 3.66 * {name}_kc3 + 2.29 * {name}_kc4 + 2.88 * {name}_kc5 + 6.35 * {name}_kc6 + 2.23 * {name}_kc7 + 3.48 * {name}_kc8 + 2.33 * {name}_kc9 + 4.38 * {name}_kc10 + 4.09 * {name}_kc11
+  relate {name}_key_fit7: {name}_ks7 = 4.09 * {name}_kc0 + 2.52 * {name}_kc1 + 5.19 * {name}_kc2 + 2.39 * {name}_kc3 + 3.66 * {name}_kc4 + 2.29 * {name}_kc5 + 2.88 * {name}_kc6 + 6.35 * {name}_kc7 + 2.23 * {name}_kc8 + 3.48 * {name}_kc9 + 2.33 * {name}_kc10 + 4.38 * {name}_kc11
+  relate {name}_key_fit8: {name}_ks8 = 4.38 * {name}_kc0 + 4.09 * {name}_kc1 + 2.52 * {name}_kc2 + 5.19 * {name}_kc3 + 2.39 * {name}_kc4 + 3.66 * {name}_kc5 + 2.29 * {name}_kc6 + 2.88 * {name}_kc7 + 6.35 * {name}_kc8 + 2.23 * {name}_kc9 + 3.48 * {name}_kc10 + 2.33 * {name}_kc11
+  relate {name}_key_fit9: {name}_ks9 = 2.33 * {name}_kc0 + 4.38 * {name}_kc1 + 4.09 * {name}_kc2 + 2.52 * {name}_kc3 + 5.19 * {name}_kc4 + 2.39 * {name}_kc5 + 3.66 * {name}_kc6 + 2.29 * {name}_kc7 + 2.88 * {name}_kc8 + 6.35 * {name}_kc9 + 2.23 * {name}_kc10 + 3.48 * {name}_kc11
+  relate {name}_key_fit10: {name}_ks10 = 3.48 * {name}_kc0 + 2.33 * {name}_kc1 + 4.38 * {name}_kc2 + 4.09 * {name}_kc3 + 2.52 * {name}_kc4 + 5.19 * {name}_kc5 + 2.39 * {name}_kc6 + 3.66 * {name}_kc7 + 2.29 * {name}_kc8 + 2.88 * {name}_kc9 + 6.35 * {name}_kc10 + 2.23 * {name}_kc11
+  relate {name}_key_fit11: {name}_ks11 = 2.23 * {name}_kc0 + 3.48 * {name}_kc1 + 2.33 * {name}_kc2 + 4.38 * {name}_kc3 + 4.09 * {name}_kc4 + 2.52 * {name}_kc5 + 5.19 * {name}_kc6 + 2.39 * {name}_kc7 + 3.66 * {name}_kc8 + 2.29 * {name}_kc9 + 2.88 * {name}_kc10 + 6.35 * {name}_kc11
+  node {name}_ksum
+  relate {name}_key_all: {name}_ksum = sum(q in 0 .. 11: {name}_kc{q}) + 0.000000000001
+  var {name}_kscan = 0
+  set {name}_kscan = {name}_kscan + 1 when {name}_kscan in -0.5 .. 10.5
+  set {name}_kscan = 0 when {name}_kscan in 10.5 .. 99
+  var {name}_kcur = 0
+  var {name}_kcurk = 0
+  repeat t in 0 .. 11: set {name}_kcur = {name}_ks{t} when {name}_kscan in {t - 0.5} .. {t + 0.5}
+  repeat t in 0 .. 11: set {name}_kcurk = {t} when {name}_kscan in {t - 0.5} .. {t + 0.5}
+  var {name}_kbest = 0
+  var {name}_kpick = 0
+  node {name}_kd signed
+  relate {name}_key_against: {name}_kd = {name}_kcur - {name}_kbest
+  set {name}_kbest = {name}_kcur when {name}_kd in 0 .. 1000000000
+  set {name}_kpick = {name}_kcurk when {name}_kd in 0 .. 1000000000
+  set {name}_kbest = {name}_kcur when {name}_kcurk in -0.5 .. 0.5
+  set {name}_kpick = 0 when {name}_kcurk in -0.5 .. 0.5
+  var {name}_hkey = 0
+  set {name}_hkey = {name}_kpick when {name}_kcurk in -0.5 .. 0.5
+  var {name}_hkbest = 0.000000000001 positive
+  set {name}_hkbest = {name}_kbest when {name}_kcurk in -0.5 .. 0.5
+  # how clearly a key is heard: the best fit over the mean fit (a flat sound: 3.64; a scale: about 4.4)
+  node {name}_kconf
+  relate {name}_key_clear: {name}_kconf * {name}_ksum = {name}_hkbest
+  # her tonic among the twelve, and the key she goes to: the one given her, else the one she hears
+  node {name}_tn signed
+  relate {name}_her_tonic: {name}_tn = {name}_apc - {name}_deg
+  var {name}_tonic = 0
+  set {name}_tonic = {name}_tn when {name}_tn in -0.5 .. 11.5
+  set {name}_tonic = {name}_tn + 12 when {name}_tn in -99 .. -0.5
+  var {name}_tkey = 0
+  set {name}_tkey = {name}_hkey
+  set {name}_tkey = {name}_keypick when {name}_keypick in -0.5 .. 11.5
+  var {name}_kwant = 0
+  set {name}_kwant = 0
+  set {name}_kwant = 1 when {name}_join in 0.5 .. 9 and {name}_kconf in 4.1 .. 99 and {name}_ksum in 0.00001 .. 1000000000
+  set {name}_kwant = 1 when {name}_keypick in -0.5 .. 11.5
+  node {name}_dk signed
+  relate {name}_key_gap: {name}_dk = {name}_tkey - {name}_tonic
+  var {name}_dkm = 0
+  set {name}_dkm = {name}_dk when {name}_dk in -0.5 .. 11.5
+  set {name}_dkm = {name}_dk + 12 when {name}_dk in -99 .. -0.5
+  # at a form's start, the key moves: as the lesson says, or to the key she goes to; the note she holds stays, its
+  # degree in the new key is another
+  var {name}_mv = 0
+  var {name}_keych = 0
+  set {name}_keych = 0
+  set {name}_mv = {name}_modul when {name}_formst in 0.5 .. 1.5 and {name}_moving in 0.5 .. 9
+  set {name}_keych = 1 when {name}_formst in 0.5 .. 1.5 and {name}_moving in 0.5 .. 9
+  set {name}_mv = {name}_dkm when {name}_formst in 0.5 .. 1.5 and {name}_kwant in 0.5 .. 9 and {name}_dkm in 0.5 .. 11.5
+  set {name}_keych = 1 when {name}_formst in 0.5 .. 1.5 and {name}_kwant in 0.5 .. 9 and {name}_dkm in 0.5 .. 11.5
+  repeat p in 0 .. 11: repeat m in 1 .. 11: set {name}_deg = {(p - m) - 12 * floor((p - m) / 12)} when {name}_keych in 0.5 .. 1.5 and {name}_mv in {m - 0.5} .. {m + 0.5} and {name}_deg in {p - 0.5} .. {p + 0.5}
 
   # ---- her wants: read in her state, her tastes and where she is
   repeat k in 1 .. 16: node {name}_want{k} signed
   # a voice is easiest in the middle of its range (its tessitura): the further she is from it, the more a step back
   # towards it is wanted
-  repeat k in 1 .. 15: relate {name}_wanting{k}: {name}_want{k} = sum(j in 1 .. 6: {name}_w{k}_{j} * {name}_s{j}) + {name}_taste{k} + sum(c in 1 .. 4: {name}_ts{k}_{c} * {name}_xs{c}) + sum(h in 1 .. 4: {name}_th{k}_{h} * {name}_xh{h}) - 0.6 * {name}_fat{k} + {name}_bnd{k} + 0.3 * {name}_stay{k} - {0.012 * (k - 8)} * {name}_semi + {0.288 * (k - 8)} + 6 * {name}_open{k} - 6 - 6 * {name}_offb + sum(l in 1 .. 6: {name}_tl{k}_{l} * {name}_xl{l})
-  relate {name}_wanting16: {name}_want16 = sum(j in 1 .. 6: {name}_w16_{j} * {name}_s{j}) + {name}_taste16 + sum(c in 1 .. 4: {name}_ts16_{c} * {name}_xs{c}) + sum(h in 1 .. 4: {name}_th16_{h} * {name}_xh{h}) - 0.6 * {name}_fat16 + {name}_bnd16 + 0.3 * {name}_stay16 + 6 * {name}_open16 - 6 + sum(l in 1 .. 6: {name}_tl16_{l} * {name}_xl{l})
+  repeat k in 1 .. 15: relate {name}_wanting{k}: {name}_want{k} = sum(j in 1 .. 6: {name}_w{k}_{j} * {name}_s{j}) + {name}_taste{k} + sum(c in 1 .. 4: {name}_ts{k}_{c} * {name}_xs{c}) + sum(h in 1 .. 4: {name}_th{k}_{h} * {name}_xh{h}) - 0.9 * {name}_fat{k} + 0.4 * {name}_conc * {name}_fat{k} + {name}_bnd{k} + 0.3 * {name}_stay{k} - {0.012 * (k - 8)} * {name}_semi + {0.288 * (k - 8)} + 40 * {name}_open{k} - 40 + 40 * {name}_in{k} - 40 - 6 * {name}_offb + sum(l in 1 .. 32: {name}_tl{k}_{l} * {name}_xl{l})
+  relate {name}_wanting16: {name}_want16 = sum(j in 1 .. 6: {name}_w16_{j} * {name}_s{j}) + {name}_taste16 + sum(c in 1 .. 4: {name}_ts16_{c} * {name}_xs{c}) + sum(h in 1 .. 4: {name}_th16_{h} * {name}_xh{h}) - 0.9 * {name}_fat16 + 0.4 * {name}_conc * {name}_fat16 + {name}_bnd16 + 0.3 * {name}_stay16 + 6 * {name}_open16 - 6 + sum(l in 1 .. 32: {name}_tl16_{l} * {name}_xl{l}) + 2 * {name}_breathw - 2 * {name}_breathw * {name}_air
 
   # ---- choosing: a sweep, one want a sample; the strongest of a whole sweep becomes her choice
   var {name}_scan = 1
@@ -291,7 +600,7 @@ network elle(name, ear, clock_i, clock_f, other_pitch, other_gate, ctx_song, ctx
   memory {name}_tlen4 = 0.05
   var {name}_early = 0
   set {name}_early = 0
-  set {name}_early = 1 when {name}_lesson in -9 .. 2.5 and {lessons} in 0.5 .. 9
+  set {name}_early = 1 when {name}_quarter in 0.5 .. 9
   repeat m in 1 .. 4: node {name}_lw{m} signed
   # the same length again and again tires (as the same note does)
   repeat m in 1 .. 4: var {name}_flen{m} = 0
@@ -323,18 +632,19 @@ network elle(name, ear, clock_i, clock_f, other_pitch, other_gate, ctx_song, ctx
   set {name}_left = 2 when {name}_ev in 0.5 .. 1.5 and {name}_l13 in -99 .. 0 and {name}_l23 in -99 .. 0 and {name}_l34 in 0 .. 99
   set {name}_left = 3 when {name}_ev in 0.5 .. 1.5 and {name}_l14 in -99 .. 0 and {name}_l24 in -99 .. 0 and {name}_l34 in -99 .. 0
   # the length of the note before, moved by the gap of pleasure when the next begins
-  repeat m in 1 .. 4: repeat j in 1 .. 6: set {name}_wl{m}_{j} = {name}_wl{m}_{j} + 0.05 * {name}_delta * {name}_sd{j} when {name}_ev in 0.5 .. 1.5 and {name}_len in {m - 0.5} .. {m + 0.5}
-  repeat m in 1 .. 4: set {name}_tlen{m} = {name}_tlen{m} + 0.03 * {name}_delta when {name}_ev in 0.5 .. 1.5 and {name}_len in {m - 0.5} .. {m + 0.5}
+  repeat m in 1 .. 4: repeat j in 1 .. 6: set {name}_wl{m}_{j} = {name}_wl{m}_{j} + 0.025 * {name}_delta * {name}_sd{j} + 0.05 * {name}_delta * {name}_sd{j} * {name}_conc when {name}_ev in 0.5 .. 1.5 and {name}_len in {m - 0.5} .. {m + 0.5}
+  repeat m in 1 .. 4: set {name}_tlen{m} = {name}_tlen{m} + 0.015 * {name}_delta + 0.03 * {name}_delta * {name}_conc when {name}_ev in 0.5 .. 1.5 and {name}_len in {m - 0.5} .. {m + 0.5}
 
-  # ---- learning: after each eighth, what made the last choice is moved by the gap of pleasure
+  # ---- learning: after each note, what made the last choice is moved by the gap of pleasure, the more as she is
+  # concentrated (half of it at no concentration, one and a half at full)
   var {name}_last = 16
   set {name}_last = {name}_choice when {name}_ev in 0.5 .. 1.5
   repeat j in 1 .. 6: var {name}_sd{j} = 0
   repeat j in 1 .. 6: set {name}_sd{j} = {name}_s{j} when {name}_ev in 0.5 .. 1.5
-  repeat k in 1 .. 16: repeat j in 1 .. 6: set {name}_w{k}_{j} = {name}_w{k}_{j} + 0.1 * {name}_delta * {name}_sd{j} when {name}_ev in 0.5 .. 1.5 and {name}_last in {k - 0.5} .. {k + 0.5}
-  repeat k in 1 .. 16: set {name}_taste{k} = {name}_taste{k} + 0.05 * {name}_delta when {name}_ev in 0.5 .. 1.5 and {name}_last in {k - 0.5} .. {k + 0.5}
-  repeat k in 1 .. 16: repeat c in 1 .. 4: set {name}_ts{k}_{c} = {name}_ts{k}_{c} + 0.1 * {name}_delta * {name}_xs{c} when {name}_ev in 0.5 .. 1.5 and {name}_last in {k - 0.5} .. {k + 0.5}
-  repeat k in 1 .. 16: repeat h in 1 .. 4: set {name}_th{k}_{h} = {name}_th{k}_{h} + 0.1 * {name}_delta * {name}_xh{h} when {name}_ev in 0.5 .. 1.5 and {name}_last in {k - 0.5} .. {k + 0.5}
+  repeat k in 1 .. 16: repeat j in 1 .. 6: set {name}_w{k}_{j} = {name}_w{k}_{j} + 0.05 * {name}_delta * {name}_sd{j} + 0.1 * {name}_delta * {name}_sd{j} * {name}_conc when {name}_ev in 0.5 .. 1.5 and {name}_last in {k - 0.5} .. {k + 0.5}
+  repeat k in 1 .. 16: set {name}_taste{k} = {name}_taste{k} + 0.025 * {name}_delta + 0.05 * {name}_delta * {name}_conc when {name}_ev in 0.5 .. 1.5 and {name}_last in {k - 0.5} .. {k + 0.5}
+  repeat k in 1 .. 16: repeat c in 1 .. 4: set {name}_ts{k}_{c} = {name}_ts{k}_{c} + 0.05 * {name}_delta * {name}_xs{c} + 0.1 * {name}_delta * {name}_xs{c} * {name}_conc when {name}_ev in 0.5 .. 1.5 and {name}_last in {k - 0.5} .. {k + 0.5}
+  repeat k in 1 .. 16: repeat h in 1 .. 4: set {name}_th{k}_{h} = {name}_th{k}_{h} + 0.05 * {name}_delta * {name}_xh{h} + 0.1 * {name}_delta * {name}_xh{h} * {name}_conc when {name}_ev in 0.5 .. 1.5 and {name}_last in {k - 0.5} .. {k + 0.5}
 
 
   # ---- her hand on the drums (kick, snare, hat, tom: 1 .. 4), played when the human gives her a drum: at each
@@ -367,8 +677,156 @@ network elle(name, ear, clock_i, clock_f, other_pitch, other_gate, ctx_song, ctx
   repeat d in 1 .. 4: set {name}_dhit{d} = 0 when {clock_f} in 0.3 .. 9
   repeat d in 1 .. 4: set {name}_dhit{d} = 1 when {name}_tk in 0.5 .. 9 and {name}_dw{d} in 0 .. 99
   # what she struck at the sixteenth before, moved by the gap of pleasure
-  repeat d in 1 .. 4: repeat i in 0 .. 15: set {name}_pt{d}_{i} = {name}_pt{d}_{i} + 0.05 * {name}_delta when {name}_tk in 0.5 .. 9 and {name}_xi{i} in 0.5 .. 9 and {name}_dl{d} in 0.5 .. 9
-  repeat d in 1 .. 4: repeat j in 1 .. 6: set {name}_wd{d}_{j} = {name}_wd{d}_{j} + 0.05 * {name}_delta * {name}_s{j} when {name}_tk in 0.5 .. 9 and {name}_dl{d} in 0.5 .. 9
+  repeat d in 1 .. 4: repeat i in 0 .. 15: set {name}_pt{d}_{i} = {name}_pt{d}_{i} + 0.025 * {name}_delta + 0.05 * {name}_delta * {name}_conc when {name}_tk in 0.5 .. 9 and {name}_xi{i} in 0.5 .. 9 and {name}_dl{d} in 0.5 .. 9
+  repeat d in 1 .. 4: repeat j in 1 .. 6: set {name}_wd{d}_{j} = {name}_wd{d}_{j} + 0.025 * {name}_delta * {name}_s{j} + 0.05 * {name}_delta * {name}_s{j} * {name}_conc when {name}_tk in 0.5 .. 9 and {name}_dl{d} in 0.5 .. 9
+
+
+  # ---- under her melody: a bass at each half bar, a note of harmony with each of her notes, when a lesson allows it
+  # ({name}_chords; lessons off, always). Her bass an octave below her note, or a tenth (minor, major), or a twelfth
+  # (a fifth more); her harmony a minor or a major third below, or none. Chosen as the rest is, learned the same way.
+  var {name}_bpitch = 110 positive
+  var {name}_bgate = 0
+  var {name}_hpitch = 330 positive
+  var {name}_hgate = 0
+  var {name}_chords = 1
+  set {name}_chords = 1
+  set {name}_chords = 0 when {lessons} in 0.5 .. 999
+  var {name}_hb = 0
+  set {name}_hb = 0
+  set {name}_hb = 1 when {clock_i} in 6.5 .. 7.5 and {clock_f} in 0.95 .. 2 and {name}_pf in -1 .. 0.95
+  set {name}_hb = 1 when {clock_i} in 14.5 .. 15.5 and {clock_f} in 0.95 .. 2 and {name}_pf in -1 .. 0.95
+  repeat m in 1 .. 4: repeat j in 1 .. 6: memory {name}_wb{m}_{j} = {0.12 * sin(m * 2.7 + j * 1.3)}
+  memory {name}_tb1 = 0.2
+  memory {name}_tb2 = 0
+  memory {name}_tb3 = 0.05
+  memory {name}_tb4 = 0.1
+  repeat m in 1 .. 4: var {name}_fb{m} = 0
+  repeat m in 1 .. 4: set {name}_fb{m} = 0.7 * {name}_fb{m} when {name}_hb in 0.5 .. 1.5
+  repeat m in 1 .. 4: set {name}_fb{m} = 0.7 * {name}_fb{m} + 1 when {name}_hb in 0.5 .. 1.5 and {name}_blast in {m - 0.5} .. {m + 0.5}
+  repeat m in 1 .. 4: node {name}_bw{m} signed
+  repeat m in 1 .. 4: relate {name}_bass_want{m}: {name}_bw{m} = sum(j in 1 .. 6: {name}_wb{m}_{j} * {name}_s{j}) + {name}_tb{m} - 0.2 * {name}_fb{m} + {6 * (1 - floor(m / 2) + floor(m / 4))} * {name}_chordal * {name}_tight
+  node {name}_b12 signed
+  relate {name}_b12r: {name}_b12 = {name}_bw1 - {name}_bw2
+  node {name}_b13 signed
+  relate {name}_b13r: {name}_b13 = {name}_bw1 - {name}_bw3
+  node {name}_b14 signed
+  relate {name}_b14r: {name}_b14 = {name}_bw1 - {name}_bw4
+  node {name}_b23 signed
+  relate {name}_b23r: {name}_b23 = {name}_bw2 - {name}_bw3
+  node {name}_b24 signed
+  relate {name}_b24r: {name}_b24 = {name}_bw2 - {name}_bw4
+  node {name}_b34 signed
+  relate {name}_b34r: {name}_b34 = {name}_bw3 - {name}_bw4
+  var {name}_blast = 1
+  set {name}_blast = 1 when {name}_hb in 0.5 .. 1.5 and {name}_b12 in 0 .. 99 and {name}_b13 in 0 .. 99 and {name}_b14 in 0 .. 99
+  set {name}_blast = 2 when {name}_hb in 0.5 .. 1.5 and {name}_b12 in -99 .. 0 and {name}_b23 in 0 .. 99 and {name}_b24 in 0 .. 99
+  set {name}_blast = 3 when {name}_hb in 0.5 .. 1.5 and {name}_b13 in -99 .. 0 and {name}_b23 in -99 .. 0 and {name}_b34 in 0 .. 99
+  set {name}_blast = 4 when {name}_hb in 0.5 .. 1.5 and {name}_b14 in -99 .. 0 and {name}_b24 in -99 .. 0 and {name}_b34 in -99 .. 0
+  # the tonic under her note, brought down to the bass's octave (55 .. 110 Hz); the root of the chord above it
+  var {name}_tp = 220 positive
+  repeat p in 0 .. 11: set {name}_tp = {2^(-p/12)} * {name}_pitch when {name}_deg in {p - 0.5} .. {p + 0.5}
+  var {name}_tf = 110 positive
+  set {name}_tf = {name}_tp when {name}_tp in 55 .. 110
+  set {name}_tf = 0.5 * {name}_tp when {name}_tp in 110 .. 220
+  set {name}_tf = 0.25 * {name}_tp when {name}_tp in 220 .. 440
+  set {name}_tf = 0.125 * {name}_tp when {name}_tp in 440 .. 880
+  set {name}_tf = 0.0625 * {name}_tp when {name}_tp in 880 .. 1760
+  var {name}_rf = 110 positive
+  repeat r in 0 .. 11: set {name}_rf = {2^(r/12 + 1)} * {name}_tf when {name}_root in {r - 0.5} .. {r + 0.5}
+  # the chord's third (minor or major, as its notes say; 0: none) and its fifth (1: in it)
+  var {name}_rthird = 4
+  repeat r in 0 .. 11: set {name}_rthird = 0 when {name}_root in {r - 0.5} .. {r + 0.5}
+  repeat r in 0 .. 11: set {name}_rthird = 3 when {name}_root in {r - 0.5} .. {r + 0.5} and {name}_ct{(r + 3) - 12 * floor((r + 3) / 12)} in 0.5 .. 9
+  repeat r in 0 .. 11: set {name}_rthird = 4 when {name}_root in {r - 0.5} .. {r + 0.5} and {name}_ct{(r + 4) - 12 * floor((r + 4) / 12)} in 0.5 .. 9
+  var {name}_rfifth = 1
+  repeat r in 0 .. 11: set {name}_rfifth = {name}_ct{(r + 7) - 12 * floor((r + 7) / 12)} when {name}_root in {r - 0.5} .. {r + 0.5}
+  # her bass: the root, the fifth, the third (when the chord has them), or the root an octave down
+  var {name}_bsh = 0
+  set {name}_bpitch = {name}_rf when {name}_hb in 0.5 .. 1.5 and {name}_b12 in 0 .. 99 and {name}_b13 in 0 .. 99 and {name}_b14 in 0 .. 99
+  set {name}_bsh = 0 when {name}_hb in 0.5 .. 1.5 and {name}_b12 in 0 .. 99 and {name}_b13 in 0 .. 99 and {name}_b14 in 0 .. 99
+  set {name}_bpitch = {name}_rf when {name}_hb in 0.5 .. 1.5 and {name}_b12 in -99 .. 0 and {name}_b23 in 0 .. 99 and {name}_b24 in 0 .. 99
+  set {name}_bsh = 0 when {name}_hb in 0.5 .. 1.5 and {name}_b12 in -99 .. 0 and {name}_b23 in 0 .. 99 and {name}_b24 in 0 .. 99
+  set {name}_bpitch = 1.49830707688 * {name}_rf when {name}_hb in 0.5 .. 1.5 and {name}_b12 in -99 .. 0 and {name}_b23 in 0 .. 99 and {name}_b24 in 0 .. 99 and {name}_rfifth in 0.5 .. 9
+  set {name}_bsh = 7 when {name}_hb in 0.5 .. 1.5 and {name}_b12 in -99 .. 0 and {name}_b23 in 0 .. 99 and {name}_b24 in 0 .. 99 and {name}_rfifth in 0.5 .. 9
+  set {name}_bpitch = {name}_rf when {name}_hb in 0.5 .. 1.5 and {name}_b13 in -99 .. 0 and {name}_b23 in -99 .. 0 and {name}_b34 in 0 .. 99
+  set {name}_bsh = 0 when {name}_hb in 0.5 .. 1.5 and {name}_b13 in -99 .. 0 and {name}_b23 in -99 .. 0 and {name}_b34 in 0 .. 99
+  set {name}_bpitch = 1.189207115 * {name}_rf when {name}_hb in 0.5 .. 1.5 and {name}_b13 in -99 .. 0 and {name}_b23 in -99 .. 0 and {name}_b34 in 0 .. 99 and {name}_rthird in 2.5 .. 3.5
+  set {name}_bsh = 3 when {name}_hb in 0.5 .. 1.5 and {name}_b13 in -99 .. 0 and {name}_b23 in -99 .. 0 and {name}_b34 in 0 .. 99 and {name}_rthird in 2.5 .. 3.5
+  set {name}_bpitch = 1.25992104989 * {name}_rf when {name}_hb in 0.5 .. 1.5 and {name}_b13 in -99 .. 0 and {name}_b23 in -99 .. 0 and {name}_b34 in 0 .. 99 and {name}_rthird in 3.5 .. 4.5
+  set {name}_bsh = 4 when {name}_hb in 0.5 .. 1.5 and {name}_b13 in -99 .. 0 and {name}_b23 in -99 .. 0 and {name}_b34 in 0 .. 99 and {name}_rthird in 3.5 .. 4.5
+  set {name}_bpitch = 0.5 * {name}_rf when {name}_hb in 0.5 .. 1.5 and {name}_b14 in -99 .. 0 and {name}_b24 in -99 .. 0 and {name}_b34 in -99 .. 0
+  set {name}_bsh = 0 when {name}_hb in 0.5 .. 1.5 and {name}_b14 in -99 .. 0 and {name}_b24 in -99 .. 0 and {name}_b34 in -99 .. 0
+  # where the bass is among her degrees (what her melody keeps clear of)
+  node {name}_braw signed
+  relate {name}_bass_degree: {name}_braw = {name}_root + {name}_bsh
+  set {name}_bdeg = {name}_braw when {name}_braw in -0.5 .. 11.5
+  set {name}_bdeg = {name}_braw - 12 when {name}_braw in 11.5 .. 99
+  # the bass breathes with her: it plays a half bar only if she played in the one before, and has breath for it
+  var {name}_phr = 0
+  set {name}_phr = 1 when {name}_ev in 0.5 .. 1.5 and {name}_choice in 0.5 .. 15.5
+  var {name}_bphr = 0
+  set {name}_bphr = {name}_phr when {name}_hb in 0.5 .. 1.5
+  set {name}_phr = 0 when {name}_hb in 0.5 .. 1.5
+  set {name}_bphr = 0 when {name}_hb in 0.5 .. 1.5 and {name}_air in -9 .. 0.3
+  set {name}_bgate = 0 when {clock_i} in 6.5 .. 7.5 and {clock_f} in 0.85 .. 9
+  set {name}_bgate = 0 when {clock_i} in 14.5 .. 15.5 and {clock_f} in 0.85 .. 9
+  set {name}_bgate = {name}_chords * {name}_bphr when {name}_hb in 0.5 .. 1.5
+  repeat m in 1 .. 4: repeat j in 1 .. 6: set {name}_wb{m}_{j} = {name}_wb{m}_{j} + 0.025 * {name}_delta * {name}_s{j} + 0.05 * {name}_delta * {name}_s{j} * {name}_conc when {name}_hb in 0.5 .. 1.5 and {name}_blast in {m - 0.5} .. {m + 0.5} and {name}_chords in 0.5 .. 9
+  repeat m in 1 .. 4: set {name}_tb{m} = {name}_tb{m} + 0.015 * {name}_delta + 0.03 * {name}_delta * {name}_conc when {name}_hb in 0.5 .. 1.5 and {name}_blast in {m - 0.5} .. {m + 0.5} and {name}_chords in 0.5 .. 9
+  # her harmony: whether (its want above nothing), and which third (its own want)
+  repeat j in 1 .. 6: memory {name}_wh{j} = {0.1 * sin(j * 1.9 + 0.4)}
+  memory {name}_thy = 0.1
+  node {name}_hy signed
+  relate {name}_harm_want: {name}_hy = sum(j in 1 .. 6: {name}_wh{j} * {name}_s{j}) + {name}_thy
+  # which third: the one of her scale under her note (the major if both are, none if neither)
+  var {name}_hthird = 4
+  repeat p in 0 .. 11: set {name}_hthird = 0 when {name}_deg in {p - 0.5} .. {p + 0.5}
+  repeat p in 0 .. 11: set {name}_hthird = 3 when {name}_deg in {p - 0.5} .. {p + 0.5} and {name}_sc{(p - 3) - 12 * floor((p - 3) / 12)} in 0.5 .. 9
+  repeat p in 0 .. 11: set {name}_hthird = 4 when {name}_deg in {p - 0.5} .. {p + 0.5} and {name}_sc{(p - 4) - 12 * floor((p - 4) / 12)} in 0.5 .. 9
+  # and whether it would sit a semitone above the bass
+  var {name}_hav = 0
+  set {name}_hav = 1 when {name}_hthird in -1 .. 0.5
+  repeat p in 0 .. 11: set {name}_hav = {name}_av{(p - 3) - 12 * floor((p - 3) / 12)} when {name}_deg in {p - 0.5} .. {p + 0.5} and {name}_hthird in 2.5 .. 3.5
+  repeat p in 0 .. 11: set {name}_hav = {name}_av{(p - 4) - 12 * floor((p - 4) / 12)} when {name}_deg in {p - 0.5} .. {p + 0.5} and {name}_hthird in 3.5 .. 4.5
+  # three samples after her note (its degree known, its third, the bass): the harmony, when she wants it and has the
+  # breath for two voices
+  set {name}_hpitch = 0.84089641525 * {name}_pitch when {name}_ev3 in 0.5 .. 1.5 and {name}_hthird in 2.5 .. 3.5
+  set {name}_hpitch = 0.79370052598 * {name}_pitch when {name}_ev3 in 0.5 .. 1.5 and {name}_hthird in 3.5 .. 4.5
+  var {name}_hplayed = 0
+  set {name}_hplayed = 0 when {name}_ev in 0.5 .. 1.5
+  set {name}_hplayed = 1 when {name}_ev3 in 0.5 .. 1.5 and {name}_hy in 0 .. 99 and {name}_chords in 0.5 .. 9 and {name}_gate in 0.5 .. 9 and {name}_hav in -1 .. 0.5 and {name}_air in 0.5 .. 9
+  set {name}_hgate = 0 when {name}_gate in -9 .. 0.5
+  set {name}_hgate = 0 when {name}_ev in 0.5 .. 1.5
+  set {name}_hgate = 1 when {name}_ev3 in 0.5 .. 1.5 and {name}_hy in 0 .. 99 and {name}_chords in 0.5 .. 9 and {name}_gate in 0.5 .. 9 and {name}_hav in -1 .. 0.5 and {name}_air in 0.5 .. 9
+  repeat j in 1 .. 6: set {name}_wh{j} = {name}_wh{j} + 0.025 * {name}_delta * {name}_sd{j} + 0.05 * {name}_delta * {name}_sd{j} * {name}_conc when {name}_ev in 0.5 .. 1.5 and {name}_hplayed in 0.5 .. 9
+  set {name}_thy = {name}_thy + 0.015 * {name}_delta + 0.03 * {name}_delta * {name}_conc when {name}_ev in 0.5 .. 1.5 and {name}_hplayed in 0.5 .. 9
+
+
+  # ---- her hand on a knob of her synthesiser: its brightness ({name}_tone, the filter opened or closed, -0.5 .. 1).
+  # At each half bar she opens it a little, closes it a little, or leaves it, as she wants (her state read, her taste
+  # for each); what pleased her after is kept (a clearer sound is part of her pleasure)
+  var {name}_tone = 0
+  repeat j in 1 .. 6: memory {name}_wtu{j} = {0.1 * sin(j * 1.1 + 0.3)}
+  repeat j in 1 .. 6: memory {name}_wtd{j} = {0.1 * sin(j * 2.9 + 1.7)}
+  memory {name}_ttu = 0
+  memory {name}_ttd = 0
+  node {name}_tu signed
+  relate {name}_tone_up: {name}_tu = sum(j in 1 .. 6: {name}_wtu{j} * {name}_s{j}) + {name}_ttu
+  node {name}_td signed
+  relate {name}_tone_down: {name}_td = sum(j in 1 .. 6: {name}_wtd{j} * {name}_s{j}) + {name}_ttd
+  node {name}_tud signed
+  relate {name}_tone_which: {name}_tud = {name}_tu - {name}_td
+  var {name}_tmove = 0
+  set {name}_tmove = 0 when {name}_hb in 0.5 .. 1.5
+  set {name}_tmove = 1 when {name}_hb in 0.5 .. 1.5 and {name}_tu in 0 .. 99 and {name}_tud in 0 .. 99 and {name}_tone in -9 .. 0.95
+  set {name}_tmove = -1 when {name}_hb in 0.5 .. 1.5 and {name}_td in 0 .. 99 and {name}_tud in -99 .. 0 and {name}_tone in -0.45 .. 9
+  set {name}_tone = {name}_tone + 0.05 when {name}_hb in 0.5 .. 1.5 and {name}_tu in 0 .. 99 and {name}_tud in 0 .. 99 and {name}_tone in -9 .. 0.95
+  set {name}_tone = {name}_tone - 0.05 when {name}_hb in 0.5 .. 1.5 and {name}_td in 0 .. 99 and {name}_tud in -99 .. 0 and {name}_tone in -0.45 .. 9
+  # what the last move gave (read at the next half bar, before the next move: its tmove is still the last)
+  repeat j in 1 .. 6: set {name}_wtu{j} = {name}_wtu{j} + 0.025 * {name}_delta * {name}_s{j} + 0.05 * {name}_delta * {name}_s{j} * {name}_conc when {name}_hb in 0.5 .. 1.5 and {name}_tmove in 0.5 .. 9
+  set {name}_ttu = {name}_ttu + 0.015 * {name}_delta + 0.03 * {name}_delta * {name}_conc when {name}_hb in 0.5 .. 1.5 and {name}_tmove in 0.5 .. 9
+  repeat j in 1 .. 6: set {name}_wtd{j} = {name}_wtd{j} + 0.025 * {name}_delta * {name}_s{j} + 0.05 * {name}_delta * {name}_s{j} * {name}_conc when {name}_hb in 0.5 .. 1.5 and {name}_tmove in -9 .. -0.5
+  set {name}_ttd = {name}_ttd + 0.015 * {name}_delta + 0.03 * {name}_delta * {name}_conc when {name}_hb in 0.5 .. 1.5 and {name}_tmove in -9 .. -0.5
 
   # ---- born: 0 until what she learned before is given back to her (the window does it when she wakes)
   memory {name}_born = 0

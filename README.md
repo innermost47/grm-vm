@@ -842,6 +842,111 @@ network at all, and costs nothing.
 **No more improviser in Rust.** The window's old improviser and its lessons (and their chance) are gone: she is her
 network alone. The window keeps only what was played (the roll, the takes) and what she learned between sessions.
 
+### Her lessons are files; her breath; her ear alone; a player
+
+**Lessons, one a file** (`mind/lessons/*.grm`, in the order of their names), a few lines of GRML each, said while
+the lesson is hers (`{here}`): which of her choices it opens (`set {name}_open8 = 1 when {here}`), one note a beat,
+quarters, how much a phrase without a rest tires her. Anyone can write one: a file more is a lesson more, shown in
+the studio by its first line (`# Lesson: ...`, and `# Leçon : ...` in French). The first file explains what a lesson
+can set.
+
+**Breath, effort, concentration** (in her network, nothing drawn): her effort is the size of her leaps, short notes,
+her errors; a note sounding spends her breath, more when the effort is high, a rest gives it back; she breathes
+faster when it is hard. Her concentration is highest at a middling effort, a little higher as she breathes in (Zelano
+et al., 2016), lower as her breath runs out; concentrated, a repetition tires her less (the adaptive gain of the
+locus coeruleus: Aston-Jones and Cohen, 2005). As her breath runs out, a rest is wanted, more or less as the lesson
+says (little for a drone, much for a song).
+
+**Her ear alone.** What others play she knows by her cochlea, no keys read: a note begins where the sound grows
+suddenly; its pitch is the band that sounds the most forty milliseconds later, if what sounds is clear enough to have
+one (a drum has none), not her own band nor its octave; its step from the note before feeds what she expects. A test
+plays her a melody a tone up and down, and her ear takes most of it as steps of two semitones. She knows what she plays
+as she plays it (as the brain discounts its own movements): the bands of her melody (and its octave), of her bass
+and of her harmony, and their neighbours, are left out when she looks for another's note. When she plays at the same
+time, her ear is still often misled: that is for later.
+
+**A sound file as a node.** A new word of GRML, `audio NAME from FILE when SWITCH`: a sound file (WAV, any rate, any
+number of channels) as a node, its samples one each sample (for the player to come, an app of its own).
+
+### Scales, under her melody, a knob of hers, her sense of the beat
+
+**Scales.** She knows where her note is in its octave (from the note she began on), and a lesson gives a scale:
+a note out of it she never plays (see *Her lessons: twenty-eight* above). From the steps on, her lessons are in the major scale: no more wandering by
+semitones. A lesson file says its scale (`set {name}_sc4 = 1 when {here}`: the major third is in it). Her bass and
+her harmony are drawn on the roll too, in her colour, quieter.
+
+**Bass and harmony.** When a lesson allows it (from the thirds on; lessons off, always), her synthesiser's third and
+fourth voices are hers too: a bass at each half bar (an octave below her note, a minor or major tenth, or a
+twelfth), and with her notes, when she wants to, a minor or major third below. Chosen as the rest is (her state, her
+tastes, the same again tiring), learned by the same gap of pleasure.
+
+**A knob.** At each half bar she opens the filter of her synthesiser a little, closes it a little, or leaves it;
+what pleased her after is kept (a clearer sound is part of her pleasure). The first of her knobs.
+
+**The beat.** A pulse of her own, drawn at each note she hears towards the nearest beat, quicker when what she hears
+comes early, slower when late (an oscillator that entrains: Large's neural resonance); how well what she hears falls
+on it pleases her. A test plays her notes on a steady beat, and her pulse falls in with them.
+
+**Concentration and learning.** Concentrated, she learns more (half as much at no concentration, one and a half
+times at full): the gap of pleasure moves what made her choice by her concentration too.
+
+### She is always there: her home, the player, her reverie
+
+**Her home** (`mind/home.grm`): she no longer lives inside the studio. Her app opens before anything else and never
+closes; one network for her, the same in every app. Her ear is the room: what the speakers give (every channel, the
+machine's own voice too), handed to her by the sound at each sample (`room_l`, `room_r`, a block late: five
+milliseconds). An app that has a time gives it to her (the studio writes `elle_clock_i`, `elle_clock_f` from its
+transport, where she is, her lessons): she plays in it; without one she listens and dreams.
+
+**One time for all.** The world's network now runs once at the speed of sound, for every channel that plays one of
+its nodes (and for her, even when nothing is heard): two channels are no longer two copies of everything, and she is
+one. Its sets are run faster: the sets a `repeat` writes share their first condition, and when it does not hold
+they are passed all at once.
+
+**The player** (an app of the window): the human's Music folder (or another), every MP3, FLAC, OGG, WAV and M4A
+in it (read by Symphonia, made stereo at the mixer's rate, beside the sound), lists of one's own (a right click
+on a piece adds it to one), play, pause, the one before, the next, a progress bar to click, repeat, and *mixed*:
+the same mixed order every time, by a fixed stride (never by chance). She hears what it plays.
+
+**Her reverie** (`mind/reverie.grm`): colours that drift, not a picture of the sound (no note gives a colour, as a
+synesthete's would): what moves in her, made visible. Three veils in OKLab, each where one of her state's pairs is
+as it turns: *now*, lit by what she hears (how loud, against what she usually hears), warmed by her pleasure, drawn
+for a while towards the colour of a picture given to her eye; *mood*, her state as a direction of colour; *dream*,
+the colours of four moments that pleased her, remembered, one after another. The quickest takes two seconds to
+change, the dream fifteen. Her home's window paints it.
+
+![The player: the Music folder, lists of one's own, repeat and a mixed order without chance](docs/player.png)
+
+![Her home on the space: her reverie, three veils of colour where her state is](docs/reverie.png)
+
+**Her eye.** A picture given to the eye (PNG or JPEG now) is given to her too: its colour (OKLab) and that one more
+came. The first stone of her vision; video comes later (a decoder, and an eye fast enough for twenty-five pictures a
+second).
+
+### Her lessons: twenty-eight, every note in its place
+
+**A note out of what is allowed she never plays** (it was only unwanted, and what she learned could outweigh it).
+The scale is the major one unless a lesson says another, lessons on or off: no more chromatic wandering. **Never a
+note a semitone above her bass** (a minor ninth, the harshest clash). Her **bass** is now the chord's: its root, its
+fifth, its third, or the root an octave down, never an interval taken from her note; her **harmony** is the third
+of her scale under her note (minor or major as the scale says), never on the minor ninth of the bass. Both
+**breathe** with her: the bass plays a half bar only if she played in the one before and has breath for it, the
+harmony only with enough breath for two voices.
+
+**Twenty-eight lessons** (`mind/lessons/`): one note, a tone, the pentatonic, the major scale, fourths and fifths,
+the minor scale, four chords (I-V-vi-IV), dorian over a vamp, phrygian, lydian, mixolydian, the blues (twelve bars),
+ii-V-I, minor ii-V-i (locrian, the altered scale, melodic minor), the andalusian cadence, hijaz, bhairav, the
+Japanese *in*, pelog, the whole tone, the modes on one tonic, the key moving by fifths, the key moving by many
+intervals, mode and key at once, ii-V's down by whole tones, Coltrane's changes, the twelve tones (each before any
+comes back), and her ears alone. A lesson gives a scale (`{name}_scP`), chords bar by bar (`{name}_ctP`,
+`{name}_root`, `{name}_bar`, a form of `{name}_blen` bars), keys that move (`{name}_moving`, `{name}_modul`). On
+entering a lesson she is **held tight** (only the notes of the chord, her bass on its roots); once she masters it,
+the scale.
+
+**Her key.** Her tonic is where she began; she also hears the key around her (Krumhansl and Kessler's profiles on
+her cochlea folded on one octave) and, lessons off or in the lesson of her ears, goes to it at the start of a form.
+**The human chooses**: in the studio, the lesson she is given (or *by herself*) and the key (or *by herself*).
+
 ### What she starts knowing
 
 At the first launch she starts from a blank network and a few things known, each file its own provenance, each
@@ -997,6 +1102,18 @@ can send too (it reconnects by itself, waiting longer each time). What is read g
 measurement with its sigma (a path: `a.b[0].c`, `[-1]` the last of a list, `.` the whole answer). What it says
 (it connected, it could not reach the server) comes into the log.
 
+
+**The weather, worthy of the name** (`apps/weather.grm`): the sky now (its sign, by day or night), the
+temperature and how it feels, humidity, pressure, rain, wind, gusts and where it comes from, clouds, the next
+twenty-four hours (a curve, then the chance of rain hour by hour), the week (each day's coldest and warmest, its
+rain). Three new widgets: `sky CODE DAY` (a WMO weather code as a sign and a word), `series NODE..` (a curve through
+nodes, one after another), `range LOW HIGH ..` (pairs as bars).
+
+**She guesses by herself.** A table taken from an API, like a table from a file, is looked at for what holds in it,
+each column against its time too, and what holds is said in the same sandbox. Besides lines, powers, logarithms and
+exponentials, **a swing**: a column that oscillates against a time is found with its period, its width, its centre
+and how long it takes to fade (a pendulum's angle gives its period to the millisecond), said as nodes of their own.
+
 ### The sound
 
 The human decides what is heard; the mixer only makes sure it never hurts.
@@ -1099,7 +1216,10 @@ python3 tools/bench_python.py path/to/grm-core/vm FILE.grm [ROUNDS]
 - Belief propagation sends one number and its precision to each node: what links several nodes lives in the
   factors (relations, joint priors, memories of weights). Means are exact; each node's sigma is exact on a network
   without loops, and `joint` gives the exact joint belief of any nodes from the whole network.
-- Laws at the same moment are looked for among up to three inputs (and two regimes of a third node).
+- Laws at the same moment are looked for among up to three inputs (and two regimes of a third node); a swing
+  against a time is found when a column of time goes one way (not from the rows' order alone).
+- She hears the room a block late (five milliseconds); her own voice is in it (she still mistakes it now and then for
+  another's). The player reads files, not streams; video does not reach her eye yet.
 - Links found in time are links across a moment (x before, y after); links at the same moment are what the
   relations of the network hold (the discovery of laws of the Python VM, not ported yet).
 - Texts from an API are shown, not yet turned into nodes.

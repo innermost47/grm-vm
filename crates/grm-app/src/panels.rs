@@ -70,10 +70,17 @@ pub fn rail(app: &mut App, ui: &mut egui::Ui) {
 }
 
 fn chip(ui: &mut egui::Ui, text: &str, colour: Color32) {
+    // a chip that does not fit what is left of the row goes to the next one, whole
+    let font = egui::TextStyle::Small.resolve(ui.style());
+    let width = ui.painter().layout_no_wrap(text.to_string(), font, colour).size().x + 14.0;
+    if width > ui.available_width() && ui.layout().main_wrap {
+        ui.end_row();
+    }
     egui::Frame::new().stroke(Stroke::new(1.0_f32, colour)).corner_radius(3.0).inner_margin(vec2(6.0, 1.0)).show(
         ui,
         |ui| {
-            ui.label(RichText::new(text).small().color(colour));
+            // never broken letter by letter: a chip that does not fit goes to the next line whole
+            ui.add(egui::Label::new(RichText::new(text).small().color(colour)).wrap_mode(egui::TextWrapMode::Extend));
         },
     );
 }
@@ -331,9 +338,42 @@ fn sandboxes(app: &mut App, ui: &mut egui::Ui) {
                 app.space_on = true;
             }
             ui.label(RichText::new(format!("{nodes} · {rels}")).small().color(ink.muted));
+            // where it is on its way in: waiting in the airlock, coming in, in, refused
+            let waiting =
+                app.picture.sandboxes.iter().any(|s| s.name == name || s.name.starts_with(&format!("{name}_")));
+            let coming = app.picture.integrating.iter().any(|s| *s == name || s.starts_with(&format!("{name}_")));
+            let status = match app.ws_status.get(&name) {
+                Some(crate::airlock::WsStatus::Entering) if coming => Some(("ws_coming_in", ink.accent)),
+                Some(crate::airlock::WsStatus::Entering) => Some(("ws_in", ink.text)),
+                Some(crate::airlock::WsStatus::Refused) => Some(("ws_refused", ink.muted)),
+                _ if waiting => Some(("ws_waiting", ink.amber)),
+                _ => None,
+            };
+            if let Some((key, colour)) = status {
+                egui::Frame::new()
+                    .stroke(egui::Stroke::new(1.0_f32, colour))
+                    .corner_radius(3.0)
+                    .inner_margin(egui::vec2(5.0, 0.0))
+                    .show(ui, |ui| {
+                        ui.label(RichText::new(t(lang, key)).small().color(colour));
+                    });
+            }
             if crate::icons::sign(ui, "door-open", t(lang, "ws_let_in_d")).clicked() {
                 crate::airlock::open_for_workshop(app, &name);
             }
+            // erased: asked twice (the sign, then the line saying what is lost)
+            egui::containers::menu::MenuButton::from_button(
+                egui::Button::image(crate::icons::image("trash-2", 14.0, ink.muted)).frame(false),
+            )
+            .ui(ui, |ui| {
+                if crate::menu::item(ui, "trash-2", t(lang, "ws_erase"), t(lang, "ws_erase_d")) {
+                    app.say(format!("workshop close {name}"));
+                    if app.zone_center == Some(crate::space::Kind::Workshop(name.clone())) {
+                        app.zone_center = None;
+                    }
+                    ui.close();
+                }
+            });
         });
     }
     ui.add_space(8.0);

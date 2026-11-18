@@ -768,6 +768,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, ws: &str, view: &mut crate::view::
                         app.write_into = Some(ws.to_string());
                         crate::view::show(app, ui, None);
                         app.write_into = None;
+                        // a form asked from its menu (right button: a new relation) is this workshop's
+                        if let Some(asked) = app.workshop_state.remove(ws).and_then(|st| st.form) {
+                            state.form = Some(asked);
+                            state.path = None;
+                        }
                         app.view.passive = false;
                         std::mem::swap(&mut app.view, view);
                         app.picture = saved;
@@ -1040,14 +1045,17 @@ fn card(
         // the line it makes, in colour; in mathematics; in words
         let line = line_of(word, &values);
         crate::style::terminal(ui, std::slice::from_ref(&line));
-        if let Some(eq) = line.split_once(':').map(|x| x.1).filter(|_| w == "relate" || w == "keep") {
-            crate::math::show(ui, eq.trim(), 15.0, lang);
-        }
-        let words = explain(&line, lang);
-        if !words.is_empty() {
-            ui.label(RichText::new(words).italics().color(ink.muted));
-        }
+        // its mathematics and its words only once it says something (not a lone ": ." while it is being written)
         let fine = complete(word, &values);
+        if fine {
+            if let Some(eq) = line.split_once(':').map(|x| x.1).filter(|_| w == "relate" || w == "keep") {
+                crate::math::show(ui, eq.trim(), 15.0, lang);
+            }
+            let words = explain(&line, lang);
+            if !words.is_empty() {
+                ui.label(RichText::new(words).italics().color(ink.muted));
+            }
+        }
         ui.horizontal(|ui| {
             let key = if w == "ask" { "ws_ask" } else { "ws_write" };
             let b = egui::Button::image_and_text(

@@ -653,6 +653,7 @@ pub fn statement(
         }
         "set" => set(net, rest, origin)?,
         "delay" => delay(net, rest, origin)?,
+        "audio" => audio(net, rest, base.unwrap_or(std::path::Path::new(".")), origin)?,
         "carry" => carry(net, rest, origin)?,
         "observe-joint" => observe_joint(net, rest)?,
         "fuse" => {
@@ -1311,6 +1312,48 @@ fn delay(net: &mut Network, rest: &str, origin: &Provenance) -> Result<String> {
     let text = format!("delay {target} = {source} by {}", crate::lang::g(seconds));
     net.sets.push(SetRule { target: target.clone(), source: source.clone(), when: vec![], text, carry: false });
     Ok(format!("{target} is {source} as it was {} s before", crate::lang::g(seconds)))
+}
+
+/// `audio NAME from FILE [when SWITCH]`: a sound file (WAV) played as a node, its samples one each sample while
+/// the switch is on (from where it was left), round again at its end; the file read where the line was written.
+fn audio(net: &mut Network, rest: &str, base: &std::path::Path, origin: &Provenance) -> Result<String> {
+    let Some((name, after)) = rest.split_once(" from ") else { bail!("audio NAME from FILE [when SWITCH]") };
+    let name = name.trim().to_string();
+    if !is_name(&name) {
+        bail!("audio: {name} is not a name");
+    }
+    let (file, run) = match after.rsplit_once(" when ") {
+        Some((f, r)) => (f.trim(), Some(r.trim().to_string())),
+        None => (after.trim(), None),
+    };
+    let file = file.trim_matches('"');
+    let path = if std::path::Path::new(file).is_absolute() { std::path::PathBuf::from(file) } else { base.join(file) };
+    if crate::wav::load(&path).is_none() {
+        bail!("audio: cannot read {} (a WAV file)", path.display());
+    }
+    if let Some(r) = &run {
+        if !is_name(r) {
+            bail!("audio: when {r}: a node");
+        }
+        if !net.nodes.contains_key(r) {
+            role(net, "input", &format!("{r} = 1"), origin)?;
+        }
+    }
+    if !net.nodes.contains_key(&name) {
+        role(net, "var", &format!("{name} = 0"), origin)?;
+        if let Some(s) = net.nodes.get_mut(&name) {
+            s.signed = true;
+        }
+    }
+    net.sets.retain(|st| !(st.target == name && st.text.starts_with("audio ")));
+    let text = format!(
+        "audio {name} from {}{}",
+        path.display(),
+        run.as_ref().map(|r| format!(" when {r}")).unwrap_or_default()
+    );
+    let source = run.clone().unwrap_or_else(|| name.clone());
+    net.sets.push(SetRule { target: name.clone(), source, when: vec![], text, carry: false });
+    Ok(format!("{name} plays {}", path.display()))
 }
 
 /// A time in seconds: "0.3", "0.3s", "300ms".

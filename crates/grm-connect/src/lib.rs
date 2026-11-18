@@ -531,6 +531,10 @@ mod tests {
 // ---------------------------------------------------------------------- pictures
 /// A PNG as the eye takes it: grey or colour, its values in 0 .. 1 (its transparency left out).
 pub fn read_picture(path: &std::path::Path) -> Result<grm_engine::vision::Picture> {
+    let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    if ext == "jpg" || ext == "jpeg" {
+        return read_jpeg(path);
+    }
     let file = std::fs::File::open(path).map_err(|e| GrmError::new(format!("{}: {e}", path.display())))?;
     let mut decoder = png::Decoder::new(file);
     decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
@@ -553,6 +557,22 @@ pub fn read_picture(path: &std::path::Path) -> Result<grm_engine::vision::Pictur
                 data.push(row[x * stride + c] as f32 / 255.0);
             }
         }
+    }
+    Ok(grm_engine::vision::Picture { width: w, height: h, channels, data })
+}
+
+/// A JPEG picture, each value in 0 .. 1 (grey, or red green blue).
+pub fn read_jpeg(path: &std::path::Path) -> Result<grm_engine::vision::Picture> {
+    let bytes = std::fs::read(path).map_err(|e| GrmError::new(format!("{}: {e}", path.display())))?;
+    let mut decoder = zune_jpeg::JpegDecoder::new(std::io::Cursor::new(bytes));
+    let pixels = decoder.decode().map_err(|e| GrmError::new(format!("{}: {e:?}", path.display())))?;
+    let info = decoder.info().ok_or_else(|| GrmError::new(format!("{}: no picture in it", path.display())))?;
+    let (w, h) = (info.width as usize, info.height as usize);
+    let stride = decoder.output_colorspace().map(|c| c.num_components()).unwrap_or(3).max(1);
+    let channels = if stride >= 3 { 3 } else { 1 };
+    let mut data = Vec::with_capacity(w * h * channels);
+    for px in pixels.chunks_exact(stride).take(w * h) {
+        data.extend(px.iter().take(channels).map(|v| *v as f32 / 255.0));
     }
     Ok(grm_engine::vision::Picture { width: w, height: h, channels, data })
 }

@@ -456,6 +456,171 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                     });
                 }
             }
+            WidgetKind::Sky => {
+                let code = node(0).map(|n| n.value.round() as i64).unwrap_or(-1);
+                let day = node(1).is_none_or(|n| n.value > 0.5);
+                let (icon, en, fr) = sky(code, day);
+                let r = ui.interact(rect, id, Sense::hover());
+                let side = (rect.height() - 22.0).min(rect.width()).max(16.0);
+                let at = Rect::from_center_size(rect.center_top() + vec2(0.0, side / 2.0 + 2.0), vec2(side, side));
+                crate::icons::image(icon, side, ink.accent).paint_at(ui, at);
+                let words = if app.settings.lang == crate::text::Lang::Fr { fr } else { en };
+                painter.text(
+                    rect.center_bottom(),
+                    egui::Align2::CENTER_BOTTOM,
+                    words,
+                    egui::FontId::proportional(13.0),
+                    ink.text,
+                );
+                r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, words));
+            }
+            WidgetKind::Series | WidgetKind::Range => {
+                let r = ui.interact(rect, id, Sense::hover());
+                painter.text(
+                    rect.left_top(),
+                    egui::Align2::LEFT_TOP,
+                    &label,
+                    egui::FontId::proportional(12.0),
+                    ink.muted,
+                );
+                let inner =
+                    Rect::from_min_max(rect.left_top() + vec2(30.0, 20.0), rect.right_bottom() - vec2(6.0, 18.0));
+                let vals: Vec<Option<f64>> = (0..w.nodes.len()).map(|k| node(k).map(|n| n.value)).collect();
+                let y =
+                    |v: f64| inner.bottom() - (((v - w.lo) / (w.hi - w.lo)) as f32).clamp(0.0, 1.0) * inner.height();
+                // its scale: a few levels, faint
+                for f in [0.0f64, 0.5, 1.0] {
+                    let v = w.lo + f * (w.hi - w.lo);
+                    painter.line_segment(
+                        [pos2(inner.left(), y(v)), pos2(inner.right(), y(v))],
+                        Stroke::new(0.5_f32, ink.faint),
+                    );
+                    painter.text(
+                        pos2(inner.left() - 4.0, y(v)),
+                        egui::Align2::RIGHT_CENTER,
+                        grm_engine::lang::g(v),
+                        egui::FontId::monospace(10.0),
+                        ink.muted,
+                    );
+                }
+                let fr = app.settings.lang == crate::text::Lang::Fr;
+                if w.kind == WidgetKind::Series {
+                    let n = vals.len().max(2) as f32 - 1.0;
+                    let x = |k: usize| inner.left() + k as f32 / n * inner.width();
+                    let pts: Vec<Pos2> =
+                        vals.iter().enumerate().filter_map(|(k, v)| v.map(|v| pos2(x(k), y(v)))).collect();
+                    if pts.len() > 1 {
+                        // a soft ground under the curve, then the curve
+                        for pair in pts.windows(2) {
+                            let quad = vec![
+                                pair[0],
+                                pair[1],
+                                pos2(pair[1].x, inner.bottom()),
+                                pos2(pair[0].x, inner.bottom()),
+                            ];
+                            painter.add(egui::Shape::convex_polygon(
+                                quad,
+                                ink.accent.gamma_multiply(0.12),
+                                Stroke::NONE,
+                            ));
+                        }
+                        painter.add(egui::Shape::line(pts.clone(), Stroke::new(2.0_f32, ink.accent)));
+                    }
+                    // every few, its value and how far ahead
+                    let step = (vals.len() / 8).max(1);
+                    for (k, v) in vals.iter().enumerate().step_by(step) {
+                        if let Some(v) = v {
+                            painter.text(
+                                pos2(x(k), y(*v) - 4.0),
+                                egui::Align2::CENTER_BOTTOM,
+                                format!("{v:.0}"),
+                                egui::FontId::monospace(10.0),
+                                ink.text,
+                            );
+                            let when = if k == 0 {
+                                if fr {
+                                    "maint.".to_string()
+                                } else {
+                                    "now".to_string()
+                                }
+                            } else {
+                                format!("+{k}")
+                            };
+                            painter.text(
+                                pos2(x(k), inner.bottom() + 3.0),
+                                egui::Align2::CENTER_TOP,
+                                when,
+                                egui::FontId::monospace(10.0),
+                                ink.muted,
+                            );
+                        }
+                    }
+                    if let Some(p) = r.hover_pos() {
+                        let k = (((p.x - inner.left()) / inner.width()) * n).round().clamp(0.0, n) as usize;
+                        if let Some(Some(v)) = vals.get(k) {
+                            painter.circle_filled(pos2(x(k), y(*v)), 3.5, ink.accent);
+                            painter.text(
+                                pos2(x(k), inner.top()),
+                                egui::Align2::CENTER_BOTTOM,
+                                format!("+{k}: {}", grm_engine::lang::g(*v)),
+                                egui::FontId::monospace(11.0),
+                                ink.text,
+                            );
+                        }
+                    }
+                } else {
+                    // pairs: each a bar from its low to its high, the day's name under it
+                    let pairs = vals.len() / 2;
+                    let slot = inner.width() / pairs.max(1) as f32;
+                    let today = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs() / 86_400)
+                        .unwrap_or(0);
+                    let names_fr = ["jeu.", "ven.", "sam.", "dim.", "lun.", "mar.", "mer."];
+                    let names_en = ["Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed"];
+                    for d in 0..pairs {
+                        let (Some(a), Some(b)) = (vals[2 * d], vals[2 * d + 1]) else { continue };
+                        let (lo, hi) = (a.min(b), a.max(b));
+                        let cx = inner.left() + slot * (d as f32 + 0.5);
+                        let bar = Rect::from_min_max(pos2(cx - slot * 0.18, y(hi)), pos2(cx + slot * 0.18, y(lo)));
+                        painter.rect_filled(bar, 4.0, ink.accent.gamma_multiply(0.75));
+                        painter.text(
+                            pos2(cx, bar.top() - 2.0),
+                            egui::Align2::CENTER_BOTTOM,
+                            format!("{hi:.0}°"),
+                            egui::FontId::monospace(10.0),
+                            ink.text,
+                        );
+                        painter.text(
+                            pos2(cx, bar.bottom() + 2.0),
+                            egui::Align2::CENTER_TOP,
+                            format!("{lo:.0}°"),
+                            egui::FontId::monospace(10.0),
+                            ink.muted,
+                        );
+                        let wd = ((today + d as u64) % 7) as usize;
+                        let day = if d == 0 {
+                            if fr {
+                                "auj."
+                            } else {
+                                "today"
+                            }
+                        } else if fr {
+                            names_fr[wd]
+                        } else {
+                            names_en[wd]
+                        };
+                        painter.text(
+                            pos2(cx, rect.bottom()),
+                            egui::Align2::CENTER_BOTTOM,
+                            day,
+                            egui::FontId::proportional(11.0),
+                            ink.muted,
+                        );
+                    }
+                }
+                r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, true, &label));
+            }
             WidgetKind::Value => {
                 if let Some(n) = node(0) {
                     let r = ui.interact(rect, id, Sense::hover());
@@ -852,7 +1017,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                 painter.rect_filled(rect, 3.0, ink.surface);
                 painter.rect_stroke(rect, 3.0, Stroke::new(1.0_f32, ink.faint), egui::StrokeKind::Inside);
                 let inner = rect.shrink2(vec2(28.0, 6.0)).translate(vec2(10.0, 0.0));
-                let now = app.ear_now();
+                let now = app.roll_frozen.unwrap_or_else(|| app.ear_now());
                 let span = 10.0;
                 // the playhead: now, four fifths along; what she has already chosen shows after it
                 let head = inner.left() + inner.width() * 0.8;
@@ -907,6 +1072,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                     );
                     let colour = match voice {
                         4 => HERS,
+                        5 => HERS.gamma_multiply(0.55),
+                        6 => HERS.gamma_multiply(0.75),
                         1 => ink.accent,
                         2 => ink.amber,
                         3 => ink.accent.gamma_multiply(0.45),
@@ -1216,7 +1383,7 @@ fn keys(app: &mut App, ui: &mut egui::Ui, painter: &egui::Painter, rect: Rect, i
         for (k, (p, g)) in [("g1", "gate"), ("g2", "lg"), ("g3", "c1g"), ("g4", "c2g")].iter().enumerate() {
             if read(g).unwrap_or(0.0) > 0.5 {
                 let key = key_of(read(p).unwrap_or(0.0));
-                if hers && k == 1 {
+                if hers && k >= 1 {
                     her.insert(key)
                 } else {
                     mine.insert(key)
@@ -1409,5 +1576,22 @@ pub fn edit_panel(app: &mut App, ui: &mut egui::Ui, name: &str) {
                 });
             });
         }
+    }
+}
+
+/// The sky a weather code says (WMO, as Open-Meteo gives it): its sign, in English, in French.
+pub fn sky(code: i64, day: bool) -> (&'static str, &'static str, &'static str) {
+    match code {
+        0 if day => ("sun", "clear", "dégagé"),
+        0 => ("moon", "clear", "dégagé"),
+        1 | 2 if day => ("cloud-sun", "partly cloudy", "quelques nuages"),
+        1 | 2 => ("cloud-moon", "partly cloudy", "quelques nuages"),
+        3 => ("cloud", "overcast", "couvert"),
+        45 | 48 => ("cloud-fog", "fog", "brouillard"),
+        51..=57 => ("cloud-drizzle", "drizzle", "bruine"),
+        61..=67 | 80..=82 => ("cloud-rain", "rain", "pluie"),
+        71..=77 | 85 | 86 => ("cloud-snow", "snow", "neige"),
+        95..=99 => ("cloud-lightning", "storm", "orage"),
+        _ => ("cloud", "…", "…"),
     }
 }

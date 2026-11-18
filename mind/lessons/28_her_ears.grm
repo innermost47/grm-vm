@@ -1,0 +1,7 @@
+# Lesson: nothing but her ears
+# Leçon : rien que ses oreilles
+# No rule but the key she hears: she joins it, the major scale in it.
+repeat k in 1 .. 16: set {name}_open{k} = 1 when {here}
+set {name}_breathw = 0.5 when {here}
+set {name}_join = 1 when {here}
+set {name}_chords = 1 when {here}
