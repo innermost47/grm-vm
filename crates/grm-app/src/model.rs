@@ -77,6 +77,27 @@ pub struct Picture {
     pub glance: grm_engine::witness::Glance,
     /// In a simulation: what moved from its reality (node, before, now, spread now).
     pub differences: Vec<(String, f64, f64, f64)>,
+    /// Where each node is in `nodes`, by its name (found at once, not searched for).
+    pub by_name: std::collections::HashMap<String, usize>,
+}
+
+/// A picture let go: freed on a thread of its own, not in the window's frame.
+pub fn free_later(p: std::sync::Arc<Picture>) {
+    use std::sync::mpsc::{channel, Sender};
+    use std::sync::{Mutex, OnceLock};
+    static FREE: OnceLock<Mutex<Sender<std::sync::Arc<Picture>>>> = OnceLock::new();
+    let tx = FREE.get_or_init(|| {
+        let (tx, rx) = channel::<std::sync::Arc<Picture>>();
+        let _ = std::thread::Builder::new().name("free".into()).spawn(move || {
+            for p in rx {
+                drop(p)
+            }
+        });
+        Mutex::new(tx)
+    });
+    if let Ok(tx) = tx.lock() {
+        let _ = tx.send(p);
+    }
 }
 
 impl Picture {
@@ -121,7 +142,7 @@ impl Picture {
     pub fn of(w: &World) -> Picture {
         let m = &w.machine;
         let net = &m.net;
-        let nodes = net
+        let nodes: Vec<NodeView> = net
             .nodes
             .iter()
             .filter(|(n, _)| !n.contains("__next"))
@@ -186,7 +207,9 @@ impl Picture {
             })
             .collect();
         let start = w.journal.len().saturating_sub(300);
+        let by_name = nodes.iter().enumerate().map(|(k, n): (usize, &NodeView)| (n.name.clone(), k)).collect();
         Picture {
+            by_name,
             nodes,
             relations,
             harmony: m.harmony(),
@@ -214,8 +237,35 @@ impl Picture {
         }
     }
 
+    /// What its drawing depends on, as one number: its nodes and relations, their names, sources and links (not
+    /// their values). Two pictures of one shape are drawn from the same preparation.
+    pub fn shape(&self) -> u64 {
+        let mut h: u64 = 1469598103934665603;
+        let mut eat = |s: &str| {
+            for b in s.bytes().chain([0xff]) {
+                h = (h ^ b as u64).wrapping_mul(1099511628211);
+            }
+        };
+        for n in &self.nodes {
+            eat(&n.name);
+            eat(&n.source);
+        }
+        for r in &self.relations {
+            eat(&r.name);
+            eat(&r.source);
+            for n in &r.nodes {
+                eat(n);
+            }
+        }
+        h ^ (self.nodes.len() as u64) << 32 ^ self.relations.len() as u64
+    }
+
     pub fn node(&self, name: &str) -> Option<&NodeView> {
-        self.nodes.iter().find(|n| n.name == name)
+        // by its index when it holds (a picture changed by hand since is searched)
+        match self.by_name.get(name).and_then(|&k| self.nodes.get(k)).filter(|n| n.name == name) {
+            Some(n) => Some(n),
+            None => self.nodes.iter().find(|n| n.name == name),
+        }
     }
 }
 

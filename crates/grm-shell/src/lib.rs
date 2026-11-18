@@ -318,6 +318,10 @@ pub struct Shell {
     /// The mixer the sound device plays (or nothing plays it: `render` still works).
     pub mixer: Arc<Mutex<Mixer>>,
     feel_at: Option<(Instant, u64, usize)>,
+    /// What the sound was last told of each parameter, and how many times it was told only what changed (every so
+    /// often it is told everything again: a channel or a world that came since hears it all).
+    tuned: std::collections::HashMap<String, f64>,
+    tunings: u32,
     /// The last picture each eye saw, cleaned, surprised, changed (for a window to show).
     pub sights: IndexMap<String, grm_engine::vision::Sight>,
     pub(crate) rt: runtime::Runtime,
@@ -359,6 +363,8 @@ impl Shell {
             history: vec![],
             mixer,
             feel_at: None,
+            tuned: Default::default(),
+            tunings: 0,
             sights: IndexMap::new(),
             rt: Default::default(),
             keep_desk: true,
@@ -1003,26 +1009,45 @@ impl Shell {
                 let net = &w.machine.net;
                 // (a set: thousands of nodes are looked up at each pass, a list made it grow with their square)
                 let mut known: std::collections::HashSet<String> = net.sets.iter().map(|s| s.target.clone()).collect();
-                loop {
-                    let mut grew = false;
-                    for rel in &net.relations {
-                        let nodes = rel.nodes();
-                        if !nodes.iter().any(|n| known.contains(n)) {
-                            continue;
-                        }
-                        for n in &nodes {
-                            let free = !known.contains(n)
-                                && !n.contains("__next")
-                                && !net.measured.contains_key(n)
-                                && !net.nodes.get(n).is_some_and(|s| s.fixed);
-                            if free && r.follow(&w.machine, n).is_ok() {
-                                known.insert(n.clone());
-                                grew = true;
+                // (what the reflex does not compute: a set's next value, what is measured or fixed)
+                let settled = |n: &String| {
+                    n.contains("__next") || net.measured.contains_key(n) || net.nodes.get(n).is_some_and(|s| s.fixed)
+                };
+                // (what it reads as it is: an input, a variable no set writes)
+                let given = |n: &String| net.nodes.get(n).is_some_and(|s| s.input || s.var);
+                // first, each node by a relation all of whose other nodes are already computed (in the order they
+                // are reached: what it reads is up to date); then, what is left, by any relation that gives it
+                for strict in [true, false] {
+                    loop {
+                        let mut grew = false;
+                        for rel in &net.relations {
+                            let nodes = rel.nodes();
+                            if !nodes.iter().any(|n| known.contains(n)) {
+                                continue;
+                            }
+                            if strict && nodes.iter().any(|n| n.contains("__next")) {
+                                continue;
+                            }
+                            for n in &nodes {
+                                let free = !known.contains(n) && !settled(n);
+                                if !free {
+                                    continue;
+                                }
+                                let done = if strict {
+                                    nodes.iter().all(|m| m == n || known.contains(m) || settled(m) || given(m))
+                                        && r.follow_by(rel, n).is_ok()
+                                } else {
+                                    r.follow(&w.machine, n).is_ok()
+                                };
+                                if done {
+                                    known.insert(n.clone());
+                                    grew = true;
+                                }
                             }
                         }
-                    }
-                    if !grew {
-                        break;
+                        if !grew {
+                            break;
+                        }
                     }
                 }
                 for node in &nodes {
@@ -1042,6 +1067,17 @@ impl Shell {
     }
 
     fn sound(&mut self, engine: &Engine, word: &str, rest: &str) -> Vec<Line> {
+        // unplugged and plugged in again: the world's sound made anew from the network as it is now (what she
+        // learned kept)
+        if word == "sound" && rest.trim() == "again" {
+            let memories = self.mixer.lock().map(|m| m.world_memories()).unwrap_or_default();
+            self.refresh_channels(engine);
+            if let Ok(mut m) = self.mixer.lock() {
+                m.reset();
+                m.world_restore(&memories);
+            }
+            return vec![Line::said("the sound unplugged and plugged in again")];
+        }
         let mut words = rest.split_whitespace();
         let first = words.next().unwrap_or("").to_string();
         let number = words.next().and_then(|v| v.parse::<f64>().ok());
@@ -1057,7 +1093,7 @@ impl Shell {
                     mixer.ambient_on = false;
                     vec![Line::said("its voice goes quiet")]
                 }
-                _ => vec![Line::warn("? sound on|off")],
+                _ => vec![Line::warn("? sound on|off|again")],
             },
             "voice" => {
                 let kind = match first.as_str() {
@@ -1236,8 +1272,21 @@ impl Shell {
             })
             .unwrap_or_default();
         let params = self.mixer.lock().map(|m| m.params()).unwrap_or_default();
-        let values: IndexMap<String, f64> =
-            params.iter().filter_map(|p| s.values.get(p).map(|v| (p.clone(), v.0))).collect();
+        // only what moved since it was last told (the sound's lock is held for what changed, not for thousands of
+        // nodes that did not)
+        self.tunings = (self.tunings + 1) % 20;
+        if self.tunings == 0 {
+            self.tuned.clear();
+        }
+        let mut values: IndexMap<String, f64> = IndexMap::new();
+        for p in &params {
+            if let Some(v) = s.values.get(p).map(|v| v.0) {
+                if self.tuned.get(p) != Some(&v) {
+                    self.tuned.insert(p.clone(), v);
+                    values.insert(p.clone(), v);
+                }
+            }
+        }
         if let Ok(mut m) = self.mixer.lock() {
             m.ambient
                 .feel(Feeling { activity, harmony: s.harmony, pleasure: 2.0 * s.harmony - 1.0, key: 1.0 }, &voices);
@@ -1426,6 +1475,7 @@ mod tests {
                 -1.0
             };
             notes.push((v("elle_semi"), v("elle_choice"), v("elle_gate"), kick));
+
             // never a note a semitone above her bass (a minor ninth), and always in her scale
             if v("elle_gate") > 0.5 && v("elle_ev") < 0.5 {
                 let deg = v("elle_deg").round() as i64;
@@ -1445,6 +1495,134 @@ mod tests {
         engine.stop();
         let _ = std::fs::remove_dir_all(&dir);
         notes
+    }
+
+    #[test]
+    fn the_bars_turn_as_a_clock_s_hands_and_the_sound_can_be_plugged_in_again() {
+        // sixteen bars make a turn, and move the dial above by one: nothing counts on without end
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let dir = std::env::temp_dir().join(format!("grm-dials-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let app = format!(
+            "app T\ninput bpm = 2400 positive\ninput playing = 1\nnode tr_step\nrelate s: tr_step = 0.00000138888889 * bpm\nuse {r}/apps/networks/lfo.grm\nuse {r}/apps/networks/transport.grm\ncall transport(name=tr, step=tr_step, run=playing)\n",
+            r = root.display()
+        );
+        let file = dir.join("t.grm");
+        std::fs::write(&file, app).unwrap();
+        let engine = Engine::start(World::new(), Duration::from_millis(4));
+        let mixer = Arc::new(Mutex::new(Mixer::new(48000)));
+        let mut sh = Shell::new(dir.join("w.world"), mixer.clone());
+        sh.run(&engine, &format!("app open {}", file.display()));
+        let mut r = Shell::reflex_of(&engine, "tr_click", 48000).unwrap();
+        // a bar at 2400 bpm: 4800 samples; 17 bars and a half
+        let (mut most, mut turned) = (0.0f64, false);
+        for _ in 0..(4800 * 35 / 2) {
+            r.step();
+            most = most.max(r.value("tr_bar").unwrap_or(0.0));
+            turned |= r.value("tr_bar2").unwrap_or(0.0) > 0.5;
+        }
+        assert!(most <= 15.0 && turned, "the bar went to {most}");
+        assert_eq!(r.value("tr_bar"), Some(1.0));
+        // unplugged and plugged in again: it plays on
+        sh.run(&engine, "play tr_click");
+        let (out, _) = sh.run(&engine, "sound again");
+        assert!(out[0].text.contains("plugged in again"), "{out:?}");
+        assert!(mixer.lock().unwrap().has_world());
+        engine.stop();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_drum_machine_has_two_bars_of_steps() {
+        // a kick on the first step of the second bar only: heard there, and not in the first bar; one bar long, the
+        // first bar's steps again (and so no kick at all)
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let dir = std::env::temp_dir().join(format!("grm-drums-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let mut app = String::from("app D\ninput bpm = 600 positive\ninput playing = 1\ninput z = 0\nnode tr_step\n");
+        app.push_str("relate s: tr_step = 0.00000138888889 * bpm\n");
+        for n in ["lfo", "adsr", "noise", "transport", "drums"] {
+            app.push_str(&format!("use {}/apps/networks/{n}.grm\n", root.display()));
+        }
+        app.push_str("call transport(name=tr, step=tr_step, run=playing)\n");
+        app.push_str(
+            "call drums(name=d, clock_i=tr_i, clock_f=tr_f, clock_h=tr_h, her_k=z, her_s=z, her_h=z, her_t=z)\n",
+        );
+        let file = dir.join("d.grm");
+        std::fs::write(&file, app).unwrap();
+        let engine = Engine::start(World::new(), Duration::from_millis(4));
+        let mixer = Arc::new(Mutex::new(Mixer::new(48000)));
+        let mut sh = Shell::new(dir.join("w.world"), mixer);
+        let (out, _) = sh.run(&engine, &format!("app open {}", file.display()));
+        assert!(out.iter().all(|l| l.kind != Kind::Error), "{out:?}");
+        let mut r = Shell::reflex_of(&engine, "d_out", 48000).unwrap();
+        for x in ["k", "s", "h", "t"] {
+            for k in 1..=32 {
+                let i = r.slot_of(&format!("d_{x}_s{k}")).unwrap();
+                r.values[i] = if x == "k" && k == 17 { 1.0 } else { 0.0 };
+            }
+        }
+        let kicks = |r: &mut grm_engine::reflex::Reflex| {
+            let mut at = vec![];
+            let mut was = false;
+            for _ in 0..(3 * 16 * 1200) {
+                r.step();
+                let on = r.value("d_k_g").unwrap_or(0.0) > 0.5;
+                if on && !was {
+                    at.push((r.value("tr_h").unwrap_or(-1.0), r.value("tr_i").unwrap_or(-1.0)));
+                }
+                was = on;
+            }
+            at
+        };
+        let at = kicks(&mut r);
+        assert!(!at.is_empty() && at.iter().all(|(h, i)| *h == 1.0 && *i == 0.0), "{at:?}");
+        let long = r.slot_of("d_long").unwrap();
+        r.values[long] = 0.0;
+        assert!(kicks(&mut r).is_empty());
+        engine.stop();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_sound_is_never_held_long_by_what_tunes_it() {
+        // her world (thousands of nodes) with a channel beside it: what the machine tells the sound, a few times a
+        // second, must hold the sound's lock for a moment, not for the time of many blocks (the clicks it made)
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let dir = std::env::temp_dir().join(format!("grm-tune-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let engine = Engine::start(World::new(), Duration::from_millis(4));
+        let mixer = Arc::new(Mutex::new(Mixer::new(48000)));
+        let mut sh = Shell::new(dir.join("w.world"), mixer.clone());
+        sh.always = Some(root.join("mind/home.grm"));
+        sh.wake(&engine);
+        let app = format!(
+            "app Tone\nuse {r}/apps/networks/lfo.grm\ninput tstep = 0.0183333 positive\ncall lfo(name=tl, step=tstep, shape=0)\nnode tone signed\nrelate t: tone = 0.3 * tl_out\n",
+            r = root.display()
+        );
+        let file = dir.join("tone.grm");
+        std::fs::write(&file, app).unwrap();
+        sh.run(&engine, &format!("app open {}", file.display()));
+        sh.run(&engine, "play tone");
+        let params = mixer.lock().unwrap().params();
+        assert!(params.len() > 1000, "{}", params.len());
+        let t0 = std::time::Instant::now();
+        let p = mixer.lock().unwrap().params();
+        assert!(t0.elapsed() < Duration::from_millis(20), "params held it {:?}", t0.elapsed());
+        let values: IndexMap<String, f64> = p.iter().map(|n| (n.clone(), 0.5)).collect();
+        let t0 = std::time::Instant::now();
+        mixer.lock().unwrap().tune(&values);
+        assert!(t0.elapsed() < Duration::from_millis(20), "tune held it {:?}", t0.elapsed());
+        for _ in 0..3 {
+            let t0 = std::time::Instant::now();
+            sh.feel(&engine);
+            assert!(t0.elapsed() < Duration::from_millis(200), "feel took {:?}", t0.elapsed());
+        }
+        // what did not move is not told again
+        let before = sh.tuned.len();
+        sh.feel(&engine);
+        assert!(sh.tuned.len() >= before && before > 0, "{before} of {}", params.len());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

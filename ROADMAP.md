@@ -42,8 +42,11 @@
       them, calm. *Player done* (MP3, FLAC, OGG, WAV, M4A by Symphonia, lists, a mixed order without
       chance), heard by her through the room; *her reverie done* (three veils of colour from her state, lit by what
       she hears and sees). Next: video for her eye, her ear telling her own voice from the room's. *The sound keeps up* (computed ahead, a load meter,
-      what is slow computed slowly). Next for the speed: what does not change not computed again (a cache), and
-      groups seen from afar as their master equation, computed coarsely until looked at. *The universe of the GRM done*
+      what is slow computed slowly; *steady in silence*: no subnormal numbers, the sound's lock held for a moment,
+      only what moved told to it, her ear resting when nothing sounds; *shared among the cores*: her, the instruments
+      that follow her, what mixes them; what a knob alone moves computed when it moves; *the view light*: prepared
+      once a shape, its layout resting, packets from afar). Next for the speed, if needed: her own network split
+      (she is now the heaviest part), and her formulas compiled rather than read. *The universe of the GRM done*
       (grm-core's network in the machine, in three dimensions, its equations found by itself). Next: the
       simulation of the universe's eras, and her discoveries said back into the network as relations to weigh.
    3. *Apps of its own, written in GRM*: a spreadsheet (a cell a node with its spread, a formula a relation;

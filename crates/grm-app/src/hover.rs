@@ -64,19 +64,28 @@ pub fn curve(ui: &mut egui::Ui, values: &[f32], colour: Color32, ink: &Ink, labe
 
 /// Keeps each node's and relation's recent values (a curve to show, moving).
 pub fn remember(app: &mut App) {
-    for n in &app.picture.nodes {
-        let tr = app.traces.entry(n.name.clone()).or_default();
-        tr.push_back(n.value as f32);
-        while tr.len() > TRACE {
-            tr.pop_front();
+    // (a name is copied only the first time it is seen: thousands of nodes, twenty times a second)
+    let mut push = |key: &str, v: f32| {
+        if !app.traces.contains_key(key) {
+            app.traces.insert(key.to_string(), Default::default());
         }
+        if let Some(tr) = app.traces.get_mut(key) {
+            tr.push_back(v);
+            while tr.len() > TRACE {
+                tr.pop_front();
+            }
+        }
+    };
+    let picture = app.picture.clone();
+    for n in &picture.nodes {
+        push(&n.name, n.value as f32);
     }
-    for r in &app.picture.relations {
-        let tr = app.traces.entry(format!("rel:{}", r.name)).or_default();
-        tr.push_back(r.tension as f32);
-        while tr.len() > TRACE {
-            tr.pop_front();
-        }
+    let mut key = String::new();
+    for r in &picture.relations {
+        key.clear();
+        key.push_str("rel:");
+        key.push_str(&r.name);
+        push(&key, r.tension as f32);
     }
 }
 

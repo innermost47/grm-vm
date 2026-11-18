@@ -29,9 +29,39 @@ pub fn oklab(l: f64, a: f64, b: f64, alpha: f32) -> Color32 {
     Color32::from_rgba_unmultiplied(gamma(r), gamma(g), gamma(bl), (alpha.clamp(0.0, 1.0) * 255.0) as u8)
 }
 
+/// Whether this app is hers (always there: it neither closes nor goes to the trash).
+pub fn always(app: &str) -> bool {
+    app == APP
+}
+
 /// Her reverie, painted in a rectangle: a dark ground of her mood, three soft veils where her state is.
 pub fn reverie(app: &App, ui: &mut egui::Ui, size: egui::Vec2) -> bool {
-    let read = |n: &str| app.mixer.lock().ok().and_then(|m| m.world_value(n));
+    // all she shows, read in one look (the sound is not held up a score of times each frame)
+    const NAMES: [&str; 21] = [
+        "rv_l2",
+        "rv_a2",
+        "rv_b2",
+        "rv_x1",
+        "rv_y1",
+        "rv_r1",
+        "rv_l1",
+        "rv_a1",
+        "rv_b1",
+        "rv_x2",
+        "rv_y2",
+        "rv_r2",
+        "rv_x3",
+        "rv_y3",
+        "rv_r3",
+        "rv_l3",
+        "rv_a3",
+        "rv_b3",
+        "rv_sglow",
+        "elle_pleasure",
+        "elle_seen_n",
+    ];
+    let seen = app.mixer.lock().map(|m| m.world_values(&NAMES)).unwrap_or_default();
+    let read = |n: &str| NAMES.iter().position(|x| *x == n).and_then(|k| seen.get(k).copied().flatten());
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
     let Some(l2) = read("rv_l2") else {
         ui.painter().rect_filled(rect, 8.0, Color32::from_gray(12));

@@ -275,7 +275,7 @@ impl App {
                     pos: std::mem::replace(&mut self.graph.pos, pos),
                     pinned: std::mem::replace(&mut self.graph.pinned, pinned),
                 };
-                self.graph.motion = 1.0;
+                self.graph.wake();
                 was
             }
             Change::Settings(s) => Change::Settings(Box::new(std::mem::replace(&mut self.settings, *s))),

@@ -52,6 +52,10 @@ pub struct NodeSpec {
     /// Its dimension [M L T Q K]: given and read in SI, counted inside in the machine's units.
     #[serde(default)]
     pub dim: Option<[f64; 5]>,
+    /// Its rail (`rail NAME R`): what it can never go beyond, as a circuit cannot go beyond its supply. Near it,
+    /// it bends softly towards it (it saturates), never past it.
+    #[serde(default)]
+    pub rail: Option<f64>,
     #[serde(default)]
     pub origin: Provenance,
 }
@@ -68,6 +72,7 @@ impl NodeSpec {
             output: false,
             memory: false,
             dim: None,
+            rail: None,
             origin: Provenance::default(),
         }
     }

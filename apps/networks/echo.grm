@@ -4,4 +4,6 @@ network echo(name, input, time, feedback)
   node {name}_wet signed
   delay {name}_back = {name}_wet by {time}
   relate {name}_loop: {name}_wet = {input} + {feedback} * {name}_back
+  # its potential: a feedback past 1 sings on its rail, never to the infinite
+  rail {name}_wet 8
 end

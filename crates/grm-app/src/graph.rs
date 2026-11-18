@@ -22,6 +22,9 @@ pub struct Graph {
     pub motion: f32,
     /// Steps left to go back quickly to a free layout (after a flow: the points far from where they settle).
     pub hurry: u32,
+    /// How warm it is (1: just changed; it cools at each step, and at nothing it rests: a network of thousands
+    /// finds its place in a few seconds, then costs nothing).
+    warmth: f32,
 }
 
 fn hash(s: &str) -> u64 {
@@ -29,6 +32,12 @@ fn hash(s: &str) -> u64 {
 }
 
 impl Graph {
+    /// Woken (a point moved by hand, a layout given back): it moves again, warm, and cools.
+    pub fn wake(&mut self) {
+        self.motion = 1.0;
+        self.warmth = self.warmth.max(0.6);
+    }
+
     /// One step. `items`: every point (nodes and relations); `links`: (a, b) pairs.
     pub fn step(&mut self, items: &[String], links: &[(String, String)]) {
         // the new ones: beside what they are linked to, or on a spiral (deterministic: the same each time)
@@ -37,35 +46,36 @@ impl Graph {
         let pinned = self.pinned.clone();
         self.pos.retain(|k, _| present.contains(k) || pinned.contains(k));
         self.vel.retain(|k, _| present.contains(k));
-        for (k, item) in items.iter().enumerate() {
-            if self.pos.contains_key(item) {
-                continue;
+        // the new ones, beside what they are linked to: their neighbours found once (not every link searched for
+        // every new point: a network of thousands came in in one go)
+        if items.iter().any(|i| !self.pos.contains_key(i)) {
+            self.warmth = 1.0;
+            let mut near_of: HashMap<&String, Vec<&String>> = HashMap::new();
+            for (a, b) in links {
+                near_of.entry(a).or_default().push(b);
+                near_of.entry(b).or_default().push(a);
             }
-            let near: Vec<[f32; 2]> = links
-                .iter()
-                .filter_map(|(a, b)| {
-                    if a == item {
-                        Some(b)
-                    } else if b == item {
-                        Some(a)
-                    } else {
-                        None
-                    }
-                })
-                .filter_map(|o| self.pos.get(o).copied())
-                .collect();
-            let h = hash(item);
-            let angle = (h % 6283) as f32 / 1000.0;
-            let p = if near.is_empty() {
-                let r = 40.0 * (k as f32 + 1.0).sqrt();
-                [r * angle.cos(), r * angle.sin()]
-            } else {
-                let n = near.len() as f32;
-                let c = near.iter().fold([0.0, 0.0], |s, p| [s[0] + p[0] / n, s[1] + p[1] / n]);
-                [c[0] + 30.0 * angle.cos(), c[1] + 30.0 * angle.sin()]
-            };
-            self.pos.insert(item.clone(), p);
-            self.vel.insert(item.clone(), [0.0, 0.0]);
+            for (k, item) in items.iter().enumerate() {
+                if self.pos.contains_key(item) {
+                    continue;
+                }
+                let near: Vec<[f32; 2]> = near_of
+                    .get(item)
+                    .map(|v| v.iter().filter_map(|o| self.pos.get(*o).copied()).collect())
+                    .unwrap_or_default();
+                let h = hash(item);
+                let angle = (h % 6283) as f32 / 1000.0;
+                let p = if near.is_empty() {
+                    let r = 40.0 * (k as f32 + 1.0).sqrt();
+                    [r * angle.cos(), r * angle.sin()]
+                } else {
+                    let n = near.len() as f32;
+                    let c = near.iter().fold([0.0, 0.0], |s, p| [s[0] + p[0] / n, s[1] + p[1] / n]);
+                    [c[0] + 30.0 * angle.cos(), c[1] + 30.0 * angle.sin()]
+                };
+                self.pos.insert(item.clone(), p);
+                self.vel.insert(item.clone(), [0.0, 0.0]);
+            }
         }
         let n = items.len();
         if n == 0 {
@@ -78,23 +88,39 @@ impl Graph {
         let pts: Vec<[f32; 2]> = items.iter().map(|i| self.pos[i]).collect();
         let index: HashMap<&String, usize> = items.iter().enumerate().map(|(k, i)| (i, k)).collect();
         let mut force = vec![[0.0f32; 2]; n];
-        // a soft push between everything (only near ones count, beyond 4 rest lengths it is nothing)
-        if n <= 1500 {
-            for a in 0..n {
-                for b in (a + 1)..n {
-                    let dx = pts[a][0] - pts[b][0];
-                    let dy = pts[a][1] - pts[b][1];
-                    let d2 = (dx * dx + dy * dy).max(1.0);
-                    if d2 > 16.0 * REST * REST {
-                        continue;
+        // a soft push between everything (only near ones count, beyond 4 rest lengths it is nothing): each point
+        // meets only those in its square of the grid and the squares around (not all the others: thousands of
+        // points cost thousands, not millions)
+        // (a big network: the push reaches half as far)
+        let reach = if n > 2000 { 2.0 * REST } else { 4.0 * REST };
+        let cell = reach;
+        let mut grid: HashMap<(i32, i32), Vec<usize>> = HashMap::new();
+        for (k, p) in pts.iter().enumerate() {
+            grid.entry(((p[0] / cell).floor() as i32, (p[1] / cell).floor() as i32)).or_default().push(k);
+        }
+        for a in 0..n {
+            let (cx, cy) = ((pts[a][0] / cell).floor() as i32, (pts[a][1] / cell).floor() as i32);
+            for dx in -1..=1 {
+                for dy in -1..=1 {
+                    let Some(others) = grid.get(&(cx + dx, cy + dy)) else { continue };
+                    for &b in others {
+                        if b <= a {
+                            continue;
+                        }
+                        let dx = pts[a][0] - pts[b][0];
+                        let dy = pts[a][1] - pts[b][1];
+                        let d2 = (dx * dx + dy * dy).max(1.0);
+                        if d2 > reach * reach {
+                            continue;
+                        }
+                        let f = REST * REST / d2;
+                        let d = d2.sqrt();
+                        let (fx, fy) = (f * dx / d, f * dy / d);
+                        force[a][0] += fx;
+                        force[a][1] += fy;
+                        force[b][0] -= fx;
+                        force[b][1] -= fy;
                     }
-                    let f = REST * REST / d2;
-                    let d = d2.sqrt();
-                    let (fx, fy) = (f * dx / d, f * dy / d);
-                    force[a][0] += fx;
-                    force[a][1] += fy;
-                    force[b][0] -= fx;
-                    force[b][1] -= fy;
                 }
             }
         }
@@ -129,7 +155,7 @@ impl Graph {
             v[1] = 0.6 * v[1] + 0.05 * force[k][1];
             let speed = (v[0] * v[0] + v[1] * v[1]).sqrt();
             // calm, except just after a flow, when the points have far to go
-            let most = if self.hurry > 0 { MAX_STEP * 8.0 } else { MAX_STEP };
+            let most = if self.hurry > 0 { MAX_STEP * 8.0 } else { MAX_STEP * (0.3 + 2.0 * self.warmth) };
             if speed > most {
                 v[0] *= most / speed;
                 v[1] *= most / speed;
@@ -142,17 +168,9 @@ impl Graph {
             p[1] += v[1];
             motion = motion.max(speed.min(most));
         }
-        self.motion = motion;
+        self.warmth *= 0.99;
+        self.motion = if self.warmth < 0.03 && self.hurry == 0 { 0.0 } else { motion };
         self.hurry = self.hurry.saturating_sub(1);
-    }
-
-    /// The box around everything: (min x, min y, max x, max y).
-    pub fn bounds(&self) -> Option<[f32; 4]> {
-        let mut it = self.pos.values();
-        let first = it.next()?;
-        Some(it.fold([first[0], first[1], first[0], first[1]], |b, p| {
-            [b[0].min(p[0]), b[1].min(p[1]), b[2].max(p[0]), b[3].max(p[1])]
-        }))
     }
 }
 

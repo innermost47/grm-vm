@@ -58,6 +58,40 @@ pub(crate) fn mix(a: Color32, b: Color32, k: f32) -> Color32 {
 /// Below this zoom, networks begin to gather into one node each; below the second, they are only that.
 const COLLAPSE_FROM: f32 = 0.42;
 const COLLAPSE_FULL: f32 = 0.24;
+/// Below this zoom, the nodes a `repeat` wrote are seen as their packet (one point each).
+const PACKETS_FROM: f32 = 0.7;
+
+/// What a view shows of the picture: its nodes and relations (borrowed, not copied).
+struct Shown<'a> {
+    nodes: Vec<&'a crate::model::NodeView>,
+    relations: Vec<&'a crate::model::RelationView>,
+    #[allow(dead_code)]
+    full: &'a crate::model::Picture,
+}
+
+/// The labels already placed, by squares of the screen: a new one is looked at only against those near it.
+#[derive(Default)]
+struct Placed {
+    cells: std::collections::HashMap<(i32, i32), Vec<Rect>>,
+}
+
+impl Placed {
+    const CELL: f32 = 80.0;
+    fn cells_of(r: Rect) -> impl Iterator<Item = (i32, i32)> {
+        let (x0, x1) = ((r.left() / Self::CELL).floor() as i32, (r.right() / Self::CELL).floor() as i32);
+        let (y0, y1) = ((r.top() / Self::CELL).floor() as i32, (r.bottom() / Self::CELL).floor() as i32);
+        (x0..=x1).flat_map(move |x| (y0..=y1).map(move |y| (x, y)))
+    }
+    fn free(&self, r: Rect) -> bool {
+        let r = r.expand(2.0);
+        !Self::cells_of(r).any(|c| self.cells.get(&c).is_some_and(|v| v.iter().any(|o| o.intersects(r))))
+    }
+    fn put(&mut self, r: Rect) {
+        for c in Self::cells_of(r) {
+            self.cells.entry(c).or_default().push(r);
+        }
+    }
+}
 
 pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
     let ink = Ink::of(ui.ctx());
@@ -65,12 +99,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
     let (resp, painter) = ui.allocate_painter(ui.available_size(), Sense::click_and_drag());
     let rect = resp.rect;
     painter.rect_filled(rect, 0.0, ink.surface);
-    let mut pic = app.picture.clone();
-    if let Some(src) = only {
-        pic.relations.retain(|r| r.source == src);
-        let touched: std::collections::HashSet<String> = pic.relations.iter().flat_map(|r| r.nodes.clone()).collect();
-        pic.nodes.retain(|n| n.source == src || touched.contains(&n.name));
-    }
+    // what this view needs of the picture, made once for each new picture (not at every frame)
+    let prep = app.prepared(only);
+    let full = app.picture.clone();
+    let pic = Shown {
+        nodes: prep.nodes.iter().map(|&k| &full.nodes[k]).collect(),
+        relations: prep.rels.iter().map(|&i| &full.relations[i]).collect(),
+        full: &full,
+    };
     resp.widget_info(|| {
         egui::WidgetInfo::labeled(
             egui::WidgetType::Other,
@@ -79,7 +115,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
                 "network: {} nodes, {} relations, harmony {:.2}",
                 pic.nodes.len(),
                 pic.relations.len(),
-                pic.harmony
+                full.harmony
             ),
         )
     });
@@ -111,36 +147,26 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
         return;
     }
     // the points and links of the graph
-    let quarantined = |s: &str| pic.quarantine.iter().any(|q| q == s);
+    let quarantined = |s: &str| full.quarantine.iter().any(|q| q == s);
     // an eye's glance is many inputs: they are drawn as one point (the eye)
-    let mut groups: indexmap::IndexMap<String, (usize, String)> = indexmap::IndexMap::new();
-    let mut items: Vec<String> = vec![];
-    for n in &pic.nodes {
-        let key = item_of(&n.name);
-        if let Some(eye) = key.strip_prefix("g:") {
-            let e = groups.entry(eye.to_string()).or_insert((0, n.source.clone()));
-            e.0 += 1;
-            if e.0 == 1 {
-                items.push(key);
-            }
-        } else {
-            items.push(key);
+    let groups = &prep.groups;
+    let items = &prep.items;
+    // the layout is the world's: what is gone from the world (an app closed) leaves no place behind, and it takes
+    // one step a frame, whatever the views that show it
+    let pass = ui.ctx().cumulative_pass_nr();
+    let world = app.prepared(None);
+    if app.layout_pass != pass && !app.flow.on {
+        app.layout_pass = pass;
+        let missing = world.items.iter().any(|k| !app.graph.pos.contains_key(k));
+        if missing || app.graph.pos.len() > world.items.len() + app.graph.pinned.len() {
+            let here: std::collections::HashSet<&String> = world.items.iter().collect();
+            let pinned = app.graph.pinned.clone();
+            app.graph.pos.retain(|k, _| here.contains(k) || pinned.contains(k));
         }
-    }
-    let mut links: Vec<(String, String)> = vec![];
-    for r in &pic.relations {
-        items.push(format!("r:{}", r.name));
-        for n in &r.nodes {
-            let link = (format!("r:{}", r.name), item_of(n));
-            if !links.contains(&link) {
-                links.push(link);
-            }
+        let moving = app.graph.motion > 0.02 || missing || app.view.dragging.is_some();
+        if moving {
+            app.graph.step(&world.items, &world.links);
         }
-    }
-    // what is gone (an app closed) leaves no place behind
-    {
-        let here: std::collections::HashSet<&String> = items.iter().collect();
-        app.graph.pos.retain(|k, _| here.contains(k));
     }
     // what is near the pointer stays still (to take it, or stop it, without a fight)
     app.graph.held.clear();
@@ -159,7 +185,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
     let played: std::collections::HashSet<String> =
         app.mixer.lock().map(|m| m.playing().into_iter().collect()).unwrap_or_default();
     if app.flow.on {
-        let targets = crate::flow::layout(&pic, &played);
+        let shown = crate::model::Picture {
+            nodes: pic.nodes.iter().map(|n| (*n).clone()).collect(),
+            relations: pic.relations.iter().map(|r| (*r).clone()).collect(),
+            ..Default::default()
+        };
+        let targets = crate::flow::layout(&shown, &played);
         let mut moved = 0.0f32;
         for (k, t) in &targets {
             if app.graph.held.contains(k) {
@@ -186,30 +217,49 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
             app.flow.listen(&values);
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(33));
         }
-    } else {
-        let moving = app.graph.motion > 0.02 || app.graph.pos.len() != items.len() || app.view.dragging.is_some();
-        if moving {
-            app.graph.step(&items, &links);
-        }
     }
     // the first time: everything in view
     // until the human moves the view, it follows the network gently (everything in view)
     if !app.view.fitted && !items.is_empty() {
-        glide_to_fit(app, rect);
+        glide_to_fit(app, rect, items);
     }
     let (zoom, centre) = (app.view.zoom, rect.center() + app.view.offset);
     let to_screen = |p: [f32; 2]| pos2(centre.x + p[0] * zoom, centre.y + p[1] * zoom);
     let from_screen = |s: Pos2| [(s.x - centre.x) / zoom, (s.y - centre.y) / zoom];
-    let positions = app.graph.pos.clone();
-    let at = |key: &str| positions.get(key).map(|p| to_screen(*p));
+    // where each of its points is on the screen, read once (the world's places are not copied at every frame)
+    let screen: std::collections::HashMap<&str, Pos2> =
+        items.iter().filter_map(|k| app.graph.pos.get(k).map(|p| (k.as_str(), to_screen(*p)))).collect();
+    let at = |key: &str| screen.get(key).copied();
+    // what is drawn: what is on the screen (and a little around it); far away, the packets; farther, the networks
+    let vis = rect.expand(40.0);
+    let collapse = if only.is_none() && !app.flow.on {
+        ((COLLAPSE_FROM - zoom) / (COLLAPSE_FROM - COLLAPSE_FULL)).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let detail = collapse < 0.999 || prep.counts.len() < 2;
+    let far = zoom < PACKETS_FROM && !app.flow.on && !prep.packets.is_empty();
+    let packet_at: Vec<Option<Pos2>> = prep
+        .packets
+        .iter()
+        .map(|pk| {
+            let pts: Vec<Pos2> = pk.members.iter().filter_map(|&m| at(&prep.node_key[m])).collect();
+            (!pts.is_empty())
+                .then(|| (pts.iter().fold(vec2(0.0, 0.0), |a, p| a + p.to_vec2()) / pts.len() as f32).to_pos2())
+        })
+        .collect();
+    let end_at = |e: &crate::prepared::End| match e {
+        crate::prepared::End::Item(k) => at(k),
+        crate::prepared::End::Packet(p) => packet_at.get(*p).copied().flatten(),
+    };
     let painter = painter.with_clip_rect(rect);
     // the triangle: the container in which the content is reflected, and the content reflecting the container (two,
     // and their relation: three). It is no centre of the network: it stays above it, at the top and in the middle of
     // the view, and the light goes both ways through it, coming back changed
     let below = (app.view.eq_below + 30.0).max(48.0);
-    let witness_at = (!positions.is_empty()).then(|| rect.center_top() + vec2(0.0, below));
+    let witness_at = (!screen.is_empty()).then(|| rect.center_top() + vec2(0.0, below));
     if let Some(c) = witness_at {
-        let g = &pic.glance;
+        let g = &full.glance;
         let passing: Vec<String> = g
             .surprised
             .iter()
@@ -222,8 +272,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
         let faint = ink.accent.gamma_multiply(0.06);
         let inwards = ink.accent.gamma_multiply(0.32);
         let back = mix(ink.text, ink.accent, 0.25).gamma_multiply(0.22);
-        for (k, (_, p)) in positions.iter().filter(|(k, _)| k.starts_with("n:")).take(240).enumerate() {
-            let p = to_screen(*p);
+        for (k, p) in prep.node_key.iter().filter(|k| k.starts_with("n:")).filter_map(|k| at(k)).take(240).enumerate() {
             painter.line_segment([p, c], Stroke::new(0.5_f32, faint));
             let f = ((time / 7.0 + k as f64 * 0.137) % 1.0) as f32;
             painter.circle_filled(p + (c - p) * f, 1.3, inwards.gamma_multiply(0.4 + 0.6 * f));
@@ -248,27 +297,36 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
             }
         }
     }
-    // links
-    for r in &pic.relations {
-        let Some(rp) = at(&format!("r:{}", r.name)) else { continue };
-        let q = quarantined(&r.source);
-        let colour = if q { faded(ink.faint, 0.4) } else { ink.faint };
-        let mut drawn: Vec<String> = vec![];
-        for n in &r.nodes {
-            let key = item_of(n);
-            if drawn.contains(&key) {
+    // links: each relation to its nodes; from afar, what joins the packets (once each, as thick as how many)
+    if detail && far {
+        for (a, b, n) in &prep.far_links {
+            let (Some(pa), Some(pb)) = (end_at(a), end_at(b)) else { continue };
+            if !vis.contains(pa) && !vis.contains(pb) {
                 continue;
             }
-            let Some(np) = at(&key) else { continue };
-            drawn.push(key);
-            // in a flow, what passes through it now: a link brighter and thicker with it
-            let live = if app.flow.on { app.flow.live.get(n).copied().unwrap_or(0.0) } else { 0.0 };
-            if r.strength < 0.999 || !r.awake {
-                painter.extend(Shape::dashed_line(&[rp, np], Stroke::new(1.0_f32, colour), 4.0, 4.0));
-            } else if live > 0.02 {
-                painter.line_segment([rp, np], Stroke::new(1.0 + 2.5 * live, mix(colour, ink.accent, live)));
-            } else {
-                painter.line_segment([rp, np], Stroke::new(1.0_f32, colour));
+            let w = (1.0 + (*n as f32).ln() * 0.5).min(3.5);
+            painter.line_segment([pa, pb], Stroke::new(w, ink.faint));
+        }
+    } else if detail {
+        for (i, r) in pic.relations.iter().enumerate() {
+            let Some(rp) = at(&prep.rel_key[i]) else { continue };
+            let q = quarantined(&r.source);
+            let colour = if q { faded(ink.faint, 0.4) } else { ink.faint };
+            for key in &prep.rel_ends[i] {
+                let Some(np) = at(key) else { continue };
+                if !vis.contains(rp) && !vis.contains(np) {
+                    continue;
+                }
+                // in a flow, what passes through it now: a link brighter and thicker with it
+                let n = key.strip_prefix("n:").unwrap_or(key);
+                let live = if app.flow.on { app.flow.live.get(n).copied().unwrap_or(0.0) } else { 0.0 };
+                if r.strength < 0.999 || !r.awake {
+                    painter.extend(Shape::dashed_line(&[rp, np], Stroke::new(1.0_f32, colour), 4.0, 4.0));
+                } else if live > 0.02 {
+                    painter.line_segment([rp, np], Stroke::new(1.0 + 2.5 * live, mix(colour, ink.accent, live)));
+                } else {
+                    painter.line_segment([rp, np], Stroke::new(1.0_f32, colour));
+                }
             }
         }
     }
@@ -280,8 +338,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
     let mut pressed_on: Option<String> = None;
     let mut hover_text: Option<String> = None;
     let mut hover_rel: Option<String> = None;
-    for r in &pic.relations {
-        let Some(p) = at(&format!("r:{}", r.name)) else { continue };
+    for (i, r) in pic.relations.iter().enumerate() {
+        if !detail || (far && prep.rel_hidden[i]) {
+            continue;
+        }
+        let Some(p) = at(&prep.rel_key[i]) else { continue };
+        if !vis.contains(p) {
+            continue;
+        }
         let strain = app.tension.get(&r.name).copied().unwrap_or(0.0);
         let q = quarantined(&r.source);
         let mut colour = mix(ink.muted, ink.amber, (strain - 0.5) / 2.0);
@@ -345,9 +409,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
     // every label where there is room (the ones that would fall on others wait for the pointer)
     let label_all = zoom > 0.45 && pic.nodes.len() < 3000;
     // the labels already placed: a label that would fall on another goes above its node, or waits for the pointer
-    let mut placed: Vec<Rect> = vec![];
+    let mut placed = Placed::default();
     let mut over_eye: Option<String> = None;
-    for (eye, (count, source)) in &groups {
+    for (eye, (count, source)) in groups.iter() {
         let Some(p) = at(&format!("g:{eye}")) else { continue };
         let k = app.colours.get(source).copied().unwrap_or(0);
         let r = 11.0 * zoom.clamp(0.6, 1.6);
@@ -388,8 +452,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
     if !scopes.is_empty() {
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(33));
     }
-    for n in pic.nodes.iter().filter(|n| !n.name.contains("_glance_")) {
-        let Some(p) = at(&format!("n:{}", n.name)) else { continue };
+    for (k, n) in pic.nodes.iter().enumerate() {
+        if !detail || n.name.contains("_glance_") || (far && prep.packet_of[k].is_some()) {
+            continue;
+        }
+        let Some(p) = at(&prep.node_key[k]) else { continue };
+        if !vis.contains(p) {
+            continue;
+        }
         let k = app.colours.get(&n.source).copied().unwrap_or(0);
         let mut colour = ink.source(k);
         if quarantined(&n.source) {
@@ -450,8 +520,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
                 .collect();
             painter.add(Shape::closed_line(pts, Stroke::new(1.5_f32, colour)));
             let loud = wave.iter().map(|v| v.abs()).fold(0.0, f32::max).min(1.0);
-            for rel in pic.relations.iter().filter(|rel| rel.nodes.contains(&n.name)) {
-                if let Some(rp) = at(&format!("r:{}", rel.name)) {
+            for (i, _) in pic.relations.iter().enumerate().filter(|(_, rel)| rel.nodes.contains(&n.name)) {
+                if let Some(rp) = at(&prep.rel_key[i]) {
                     painter
                         .line_segment([p, rp], Stroke::new(1.0 + 2.5 * loud, colour.gamma_multiply(0.3 + 0.5 * loud)));
                 }
@@ -485,20 +555,57 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
             let h = name.size().y + how.size().y;
             let below = Rect::from_min_size(pos2(p.x - w / 2.0, p.y + r + 3.0), vec2(w, h));
             let above = Rect::from_min_size(pos2(p.x - w / 2.0, p.y - r - 3.0 - h), vec2(w, h));
-            let spot = [below, above].into_iter().find(|b| !placed.iter().any(|o| o.expand(2.0).intersects(*b)));
+            let spot = [below, above].into_iter().find(|b| placed.free(*b));
             let spot = if over || selected { spot.or(Some(below)) } else { spot };
             if let Some(b) = spot {
-                placed.push(b);
+                placed.put(b);
                 let ny = name.size().y;
                 painter.galley(pos2(p.x - name.size().x / 2.0, b.top()), name, ink.text);
                 painter.galley(pos2(p.x - how.size().x / 2.0, b.top() + ny), how, ink.muted);
             }
         }
     }
+    // from afar, the packets: one point each for the nodes a `repeat` wrote, as big as how many, its name beside it
+    let mut over_packet: Option<usize> = None;
+    if detail && far {
+        for (i, pk) in prep.packets.iter().enumerate() {
+            let Some(p) = packet_at[i].filter(|p| vis.contains(*p)) else { continue };
+            let k = app.colours.get(&pk.source).copied().unwrap_or(0);
+            let mut colour = ink.source(k);
+            let in_focus = app.focus.as_ref().is_none_or(|f| *f == pk.source);
+            if !in_focus {
+                colour = faded(colour, 0.25);
+            }
+            let r = (6.0 + 3.0 * (pk.members.len() as f32).ln()) * zoom.clamp(0.6, 1.6);
+            let over = pointer.is_some_and(|m| m.distance(p) < r + 4.0);
+            painter.circle_filled(p, r, colour.gamma_multiply(if over { 0.45 } else { 0.28 }));
+            painter.circle_stroke(p, r, Stroke::new(if over { 2.0_f32 } else { 1.2_f32 }, colour));
+            // the packet's points inside it, quietly: a few dots in a ring
+            for j in 0..pk.members.len().min(12) {
+                let a = j as f32 / pk.members.len().min(12) as f32 * std::f32::consts::TAU;
+                painter.circle_filled(p + vec2(a.cos(), a.sin()) * r * 0.55, 1.4, colour);
+            }
+            if over {
+                over_packet = Some(i);
+                hovered = None;
+                hover_rel = None;
+            }
+            let g = painter.layout_no_wrap(
+                format!("{} ×{}", pk.name, pk.members.len()),
+                egui::FontId::proportional(11.0),
+                ink.muted,
+            );
+            let b = Rect::from_min_size(pos2(p.x - g.size().x / 2.0, p.y + r + 3.0), g.size());
+            if over || (in_focus && placed.free(b)) {
+                placed.put(b);
+                painter.galley(b.min, g, ink.muted);
+            }
+        }
+    }
     // the relations' names too, and how well each holds (where there is room: the nodes' labels come first)
-    if label_all {
-        for r in &pic.relations {
-            let Some(p) = at(&format!("r:{}", r.name)) else { continue };
+    if label_all && detail && !far {
+        for (i, r) in pic.relations.iter().enumerate() {
+            let Some(p) = at(&prep.rel_key[i]).filter(|p| vis.contains(*p)) else { continue };
             let held = format!("{:.1} σ", r.tension);
             let g = painter.layout_no_wrap(
                 format!("{} · {held}", r.name),
@@ -506,8 +613,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
                 if r.tension > 1.0 { ink.amber } else { ink.faint },
             );
             let b = Rect::from_min_size(pos2(p.x + 8.0, p.y - g.size().y / 2.0), g.size());
-            if !placed.iter().any(|o| o.expand(2.0).intersects(b)) {
-                placed.push(b);
+            if placed.free(b) {
+                placed.put(b);
                 painter.galley(b.min, g, ink.faint);
             }
         }
@@ -515,17 +622,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
     // far away, each network becomes one node holding its master equation; coming closer, it unfolds again
     // (from the infinitely large to the small: a double click goes into one)
     let mut over_net: Option<String> = None;
-    let collapse = if only.is_none() && !app.flow.on {
-        ((COLLAPSE_FROM - zoom) / (COLLAPSE_FROM - COLLAPSE_FULL)).clamp(0.0, 1.0)
-    } else {
-        0.0
-    };
-    let mut sources: Vec<String> = vec![];
-    for n in &pic.nodes {
-        if !sources.contains(&n.source) {
-            sources.push(n.source.clone());
-        }
-    }
+    let sources: Vec<String> = prep.counts.iter().map(|c| c.0.clone()).collect();
     if collapse > 0.0 && sources.len() >= 2 {
         painter.rect_filled(rect, 0.0, faded(ink.surface, 0.985 * collapse));
         // the triangle stays, behind the networks gathered
@@ -540,8 +637,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
         }
         let mut centres: indexmap::IndexMap<String, (Pos2, f32, usize)> = indexmap::IndexMap::new();
         for s in &sources {
-            let pts: Vec<Pos2> =
-                pic.nodes.iter().filter(|n| &n.source == s).filter_map(|n| at(&item_of(&n.name))).collect();
+            let pts: Vec<Pos2> = pic
+                .nodes
+                .iter()
+                .zip(&prep.node_key)
+                .filter(|(n, _)| &n.source == s)
+                .filter_map(|(_, k)| at(k))
+                .collect();
             if pts.is_empty() {
                 continue;
             }
@@ -550,7 +652,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
             // its size says how many it holds (gently: a few hundred is not a hundred times a few), not how its
             // nodes are spread
             let _ = spread;
-            let radius = (16.0 + 9.0 * (pts.len() as f32).ln_1p()).min(84.0);
+            let radius = (16.0_f32 + 9.0 * (pts.len() as f32).ln_1p()).min(84.0);
             centres.insert(s.clone(), (c.to_pos2(), radius, pts.len()));
         }
         // gathered, they must not lie on one another: they push each other apart (a few rounds), keeping room
@@ -583,18 +685,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
             }
         }
         // what joins networks: relations that hold nodes of several, as thick as how many
-        let mut joins: indexmap::IndexMap<(String, String), usize> = indexmap::IndexMap::new();
-        for r in &pic.relations {
-            let mut srcs: Vec<String> = r.nodes.iter().filter_map(|n| pic.node(n).map(|v| v.source.clone())).collect();
-            srcs.sort();
-            srcs.dedup();
-            for a in 0..srcs.len() {
-                for b in a + 1..srcs.len() {
-                    *joins.entry((srcs[a].clone(), srcs[b].clone())).or_insert(0) += 1;
-                }
-            }
-        }
-        for ((a, b), n) in &joins {
+        for (a, b, n) in &prep.joins {
             if let (Some(pa), Some(pb)) = (centres.get(a), centres.get(b)) {
                 let w = (1.0 + (*n as f32).sqrt() * 1.5).min(8.0);
                 painter.line_segment([pa.0, pb.0], Stroke::new(w, faded(ink.muted, collapse)));
@@ -626,6 +717,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
             if over {
                 over_net = Some(s.clone());
             }
+            // a ground of its own under its colour: a network gathered stands in front of the triangle, never seen
+            // through to it
+            painter.circle_filled(*c, *radius, faded(ink.surface, collapse));
             painter.circle_filled(*c, *radius, faded(colour, (if over { 0.35 } else { 0.22 }) * collapse));
             painter.circle_stroke(
                 *c,
@@ -664,10 +758,22 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
     } else if resp.double_clicked() {
         if let Some(net) = over_net.clone() {
             // a network gathered into one node: the view comes close to it, until it unfolds (its nodes fill it)
-            zoom_to_net(app, rect, &pic, &net);
-        } else if let Some(n) = hovered.as_ref().and_then(|n| pic.node(n)).filter(|_| only.is_none()) {
+            zoom_to_net(app, rect, &full, &net);
+        } else if let Some(n) = hovered.as_ref().and_then(|n| full.node(n)).filter(|_| only.is_none()) {
             let s = n.source.clone();
             app.dive(&s);
+        }
+    } else if resp.clicked() && over_packet.is_some() {
+        let pk = &prep.packets[over_packet.unwrap_or(0)];
+        let pts: Vec<[f32; 2]> =
+            pk.members.iter().filter_map(|&m| app.graph.pos.get(&prep.node_key[m]).copied()).collect();
+        if !pts.is_empty() {
+            let c = pts.iter().fold([0.0, 0.0], |a, p| [a[0] + p[0], a[1] + p[1]]);
+            let c = [c[0] / pts.len() as f32, c[1] / pts.len() as f32];
+            let zoom = (PACKETS_FROM + 0.3).max(app.view.zoom);
+            app.view.zoom = zoom;
+            app.view.offset = vec2(-c[0] * zoom, -c[1] * zoom);
+            app.view.fitted = true;
         }
     } else if resp.clicked() {
         if let Some(net) = &over_net {
@@ -702,7 +808,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
             // back to the free layout: a few seconds of quicker steps, then calm again
             if !app.flow.on {
                 app.graph.hurry = 240;
-                app.graph.motion = 1.0;
+                app.graph.wake();
             }
             app.view.fitted = false;
         }
@@ -716,7 +822,29 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
             egui::Id::new("net-tip"),
             egui::PopupAnchor::Pointer,
         );
-        if let Some(net) = &over_net {
+        if let Some(i) = over_packet {
+            let pk = prep.packets[i].clone();
+            tip.show(|ui| {
+                ui.label(RichText::new(&pk.name).strong().size(14.0));
+                ui.label(
+                    RichText::new(format!(
+                        "{} · {} {} · {} {}",
+                        pk.source,
+                        pk.members.len(),
+                        t(lang, "all_nodes"),
+                        pk.relations,
+                        t(lang, "packet_relations")
+                    ))
+                    .small()
+                    .color(ink.muted),
+                );
+                if !pk.form.is_empty() {
+                    ui.label(RichText::new(t(lang, "packet_form")).small().color(ink.muted));
+                    ui.label(RichText::new(&pk.form).monospace().size(11.0));
+                }
+                ui.label(RichText::new(t(lang, "packet_open")).small().color(ink.muted));
+            });
+        } else if let Some(net) = &over_net {
             let net = net.clone();
             tip.show(|ui| {
                 ui.label(RichText::new(&net).strong().size(15.0));
@@ -768,13 +896,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
         app.view.eq_below = y - rect.top();
         // the networks in the network: a list on the left, searched, scrolled (as many as there are)
         if !app.view.passive {
-            let mut counts: Vec<(String, usize)> = vec![];
-            for n in &pic.nodes {
-                match counts.iter_mut().find(|c| c.0 == n.source) {
-                    Some(c) => c.1 += 1,
-                    None => counts.push((n.source.clone(), 1)),
-                }
-            }
+            let counts = &prep.counts;
             let list =
                 Rect::from_min_max(pos2(rect.left() + 6.0, y + 2.0), pos2(rect.left() + 206.0, rect.bottom() - 28.0));
             let mut child =
@@ -820,7 +942,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
                                 })
                                 .inner;
                             if r.double_clicked() {
-                                zoom_to_net(app, rect, &pic, s);
+                                zoom_to_net(app, rect, &full, s);
                             } else if r.clicked() {
                                 app.focus = if on { None } else { Some(s.clone()) };
                             }
@@ -872,7 +994,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
                 let key = format!("n:{n}");
                 app.graph.pos.insert(key.clone(), from_screen(m));
                 app.graph.pinned.insert(key);
-                app.graph.motion = 1.0;
+                app.graph.wake();
             }
         } else if app.view.box_from.is_none() && resp.dragged_by(egui::PointerButton::Primary) {
             app.view.offset += resp.drag_delta();
@@ -1075,9 +1197,9 @@ fn legend(painter: &egui::Painter, rect: Rect, ink: &Ink, lang: crate::text::Lan
     word(&mut x, "legend_faded");
 }
 
-fn glide_to_fit(app: &mut App, rect: Rect) {
+fn glide_to_fit(app: &mut App, rect: Rect, items: &[String]) {
     let (zoom, offset) = (app.view.zoom, app.view.offset);
-    fit(app, rect);
+    fit(app, rect, items);
     // the view follows slowly (a window resized does not shake the network)
     let k = 0.04;
     app.view.zoom = zoom + (app.view.zoom - zoom) * k;
@@ -1087,8 +1209,13 @@ fn glide_to_fit(app: &mut App, rect: Rect) {
     }
 }
 
-fn fit(app: &mut App, rect: Rect) {
-    if let Some(b) = app.graph.bounds() {
+/// Everything this view shows in view (its points only: the world's others are not its own).
+fn fit(app: &mut App, rect: Rect, items: &[String]) {
+    let mut it = items.iter().filter_map(|k| app.graph.pos.get(k));
+    let b = it.next().map(|f| {
+        it.fold([f[0], f[1], f[0], f[1]], |b, p| [b[0].min(p[0]), b[1].min(p[1]), b[2].max(p[0]), b[3].max(p[1])])
+    });
+    if let Some(b) = b {
         let w = (b[2] - b[0]).max(1.0) + 80.0;
         let h = (b[3] - b[1]).max(1.0) + 80.0;
         let zoom = (rect.width() / w).min(rect.height() / h).clamp(0.2, 2.0);

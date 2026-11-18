@@ -754,7 +754,12 @@ learns is a word of the language, not a feature of one module. What she holds th
 (until they take it back with its switch). In the studio her synthesiser reads her through a relation: its second
 voice plays what her network chooses (below). Her hand on the drums comes back as GRML in the next step.
 
-![The studio: the transport, her network (what she feels, her wants), a drum machine, her notes on the roll, the mixer](docs/studio.png)
+The space bar plays and stops. A drum machine holds its steps in it, under its knobs: two bars of sixteen (or
+one, played again), the step playing framed. The mixer folds like the prompt, and the instruments take its room; a
+keyboard given more room has more keys, not wider ones. Her wants are said above their bars (one for each step from
+her note, seven semitones down to seven up, and a rest).
+
+![The studio: the transport, her network (what she feels, her wants), her notes on the roll, a synthesiser with all its keys, the mixer folded](docs/studio.png)
 
 ### Her own network: she is GRML now
 
@@ -912,6 +917,33 @@ her reverie are computed one sample in 32 (`{name}_tick`, written in GRML), and 
 through the general one. Here, four seconds of the studio with her in it take less than two to compute (four
 before). An app of thousands of lines opens in a moment (a quarter of a second for the studio, forty before): the
 network is no longer copied for each line said, and what an app said before is taken away in one pass.
+
+**Steady in silence.** A filter fading out in silence comes, after a while, to numbers so small (subnormal) that
+the processor computes them a hundred times slower: with nothing playing, the sound's load grew minute after minute
+until it broke. What a network writes that is below 1e-150 is now nothing; her ear rests when nothing sounds (and
+wakes within a millisecond); what tunes the sound holds it for a moment (its parameters known once, only what moved
+told). With her alone, a second of sound takes about a fifth of a second to compute here, and stays there.
+
+**Nothing goes to the infinite.** Every node has its potential, as a circuit has its supply: `rail NAME R`
+(within half of it a value is exactly what it is, beyond it bends softly towards the rail, never past it; what is
+not a number leaves the node as it was). What counts turns as a clock's hands, circles within circles: the bars
+sixteen to a turn, each turn a step of the dial above. If the sound runs away all the same, the message names the
+node; twice in ten seconds, it is unplugged and plugged in again (`sound again`).
+
+**Shared among the cores.** The world's network is split by the first word of its names (`elle`, `t1`, `t2`, …)
+into parts that never read one another, or only read a part that reads nothing (her: the instruments follow her
+hand); what reads several of them mixes them, last. Her block is computed while the instruments compute the block
+before, each of their samples reading her at that sample, as kept: what is computed is exactly what one core would
+compute, one block later (2.7 ms). Up to four cores; `GRM_CORES=1` keeps one. What only changes when a knob turns
+(a coefficient made of parameters alone) is computed when it turns, not at every sample.
+
+**The network view, light.** What a view needs of the world (its points, its links, its packets) is prepared once
+for each new shape of the world, not again when only values move; the world's layout takes one step a frame
+whatever the views, cools and rests (a network of thousands in a few seconds, then nothing to compute); what is off
+the screen is not drawn; the picture let go is freed on a thread of its own. From afar, the nodes a `repeat` wrote
+are one packet each (`t1_v{k}_cut ×4`), holding the form of their equations; a click comes closer, and it opens.
+
+![The studio's network from afar: its packets](docs/packets.png)
 
 **The player** (an app of the window): the human's Music folder (or another), every MP3, FLAC, OGG, WAV and M4A
 in it (read by Symphonia, made stereo at the mixer's rate, beside the sound), lists of one's own (a right click

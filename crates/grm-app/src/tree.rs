@@ -612,13 +612,15 @@ pub fn network_menu(app: &mut App, ui: &mut egui::Ui, source: &str, outputs: &[S
         app.say(format!("quarantine {source}"));
         ui.close();
     }
+    let always = source.strip_prefix("app:").is_some_and(crate::elle::always);
     if !grm_engine::world::factory(source)
+        && !always
         && crate::menu::item(ui, "trash-2", t(lang, "t_trash_net"), t(lang, "t_trash_net_d"))
     {
         app.ask_trash(source, false);
         ui.close();
     }
-    if let Some(a) = source.strip_prefix("app:") {
+    if let Some(a) = source.strip_prefix("app:").filter(|_| !always) {
         let a = a.to_string();
         if crate::menu::item(ui, "x", t(lang, "close_app"), t(lang, "m_close_app_d")) {
             app.say(format!("app close {a}"));

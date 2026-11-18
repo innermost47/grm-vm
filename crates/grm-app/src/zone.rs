@@ -83,7 +83,8 @@ pub fn apply(app: &mut App, ctx: &egui::Context, kind: &Kind, act: Act) {
     }
 }
 
-/// What a zone shows (in whatever place it is). `small`: on the space (the wheel is the space's).
+/// What a zone shows (in whatever place it is). `small`: on the space (the wheel is the space's, but over a list
+/// that scrolls: the list's).
 pub fn body(app: &mut App, ui: &mut egui::Ui, kind: &Kind, view: &mut crate::view::View, small: bool) {
     let lang = app.settings.lang;
     match kind {
@@ -99,9 +100,10 @@ pub fn body(app: &mut App, ui: &mut egui::Ui, kind: &Kind, view: &mut crate::vie
                 } else if a == crate::universe::APP {
                     crate::universe::panel(app, ui);
                 } else {
-                    egui::ScrollArea::vertical()
+                    let out = egui::ScrollArea::vertical()
                         .id_salt(("zone-app", a, small))
                         .show(ui, |ui| crate::surface::show(app, ui, a));
+                    crate::space::wheel_to(ui, &out);
                 }
                 app.editing = editing;
             } else {
@@ -139,15 +141,19 @@ pub fn body(app: &mut App, ui: &mut egui::Ui, kind: &Kind, view: &mut crate::vie
             crate::files::show(app, ui, k);
         }
         Kind::Feelings => {
-            egui::ScrollArea::vertical().id_salt(("zone-feel", small)).show(ui, |ui| {
+            let out = egui::ScrollArea::vertical().id_salt(("zone-feel", small)).show(ui, |ui| {
                 crate::panels::feelings(app, ui);
                 crate::panels::witness(app, ui);
             });
+            crate::space::wheel_to(ui, &out);
         }
         Kind::Plots => crate::plot::show(app, ui, None),
         Kind::Clock => crate::space::clock(ui, &Ink::of(ui.ctx()), lang),
         Kind::Inspector => {
-            egui::ScrollArea::vertical().id_salt(("zone-inspector", small)).show(ui, |ui| crate::tree::show(app, ui));
+            let out = egui::ScrollArea::vertical()
+                .id_salt(("zone-inspector", small))
+                .show(ui, |ui| crate::tree::show(app, ui));
+            crate::space::wheel_to(ui, &out);
         }
     }
 }

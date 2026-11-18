@@ -23,4 +23,15 @@ network ladder(name, input, cut, res)
   set {name}_s2 = {name}_y2
   set {name}_s3 = {name}_y3
   set {name}_s4 = {name}_y4
+  # its potential: a sound is a unit or so; its resonance pushed to the top, it sings on its rails (as an
+  # analogue filter does), never to the infinite
+  rail {name}_s1 8
+  rail {name}_s2 8
+  rail {name}_s3 8
+  rail {name}_s4 8
+  rail {name}_in 8
+  rail {name}_y1 8
+  rail {name}_y2 8
+  rail {name}_y3 8
+  rail {name}_y4 8
 end

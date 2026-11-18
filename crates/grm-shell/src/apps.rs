@@ -77,6 +77,9 @@ pub enum WidgetKind {
     Series,
     /// Its nodes two by two (a low and a high: a day's coldest and warmest), each pair a bar on LO .. HI.
     Range,
+    /// A drum machine's steps (its words: the machine's name, `t3`): a row per drum, its pad, its steps on the
+    /// transport, the one playing lit.
+    Drums,
 }
 
 impl WidgetKind {
@@ -105,6 +108,7 @@ impl WidgetKind {
             "sky" => WidgetKind::Sky,
             "series" => WidgetKind::Series,
             "range" => WidgetKind::Range,
+            "drums" => WidgetKind::Drums,
             _ => return None,
         })
     }
@@ -134,13 +138,14 @@ impl WidgetKind {
             WidgetKind::Sky => "sky",
             WidgetKind::Series => "series",
             WidgetKind::Range => "range",
+            WidgetKind::Drums => "drums",
         }
     }
 
     /// How many nodes it is bound to.
     pub fn nodes(self) -> usize {
         match self {
-            WidgetKind::Text | WidgetKind::Section | WidgetKind::Roll | WidgetKind::Rec => 0,
+            WidgetKind::Text | WidgetKind::Section | WidgetKind::Roll | WidgetKind::Rec | WidgetKind::Drums => 0,
             WidgetKind::Pad | WidgetKind::Keys | WidgetKind::Step | WidgetKind::Range => 2,
             _ => 1,
         }
@@ -169,10 +174,11 @@ impl WidgetKind {
             WidgetKind::Sky => (3, 3),
             WidgetKind::Series => (12, 3),
             WidgetKind::Range => (12, 4),
+            WidgetKind::Drums => (12, 4),
         }
     }
 
-    pub const ALL: [WidgetKind; 23] = [
+    pub const ALL: [WidgetKind; 24] = [
         WidgetKind::Slider,
         WidgetKind::Toggle,
         WidgetKind::Button,
@@ -196,6 +202,7 @@ impl WidgetKind {
         WidgetKind::Sky,
         WidgetKind::Series,
         WidgetKind::Range,
+        WidgetKind::Drums,
     ];
 }
 

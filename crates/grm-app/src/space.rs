@@ -265,6 +265,17 @@ pub fn first(app: &App) -> Space {
     s
 }
 
+const WHEEL_INSIDE: &str = "space-wheel-inside";
+
+/// A list that scrolls, on the space: when the pointer is over it and it has more than it shows, the wheel is its
+/// own (the table does not move under it).
+pub fn wheel_to<R>(ui: &egui::Ui, out: &egui::scroll_area::ScrollAreaOutput<R>) {
+    let more = out.content_size.y > out.inner_rect.height() + 1.0 || out.content_size.x > out.inner_rect.width() + 1.0;
+    if more && ui.rect_contains_pointer(out.inner_rect) {
+        ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(WHEEL_INSIDE), true));
+    }
+}
+
 /// The space, in the middle.
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     if crate::zone::center(app, ui) {
@@ -316,7 +327,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let scene = egui::Scene::new().zoom_range(0.1..=2.0);
     let mut order: Option<usize> = None;
     let mut acts: Vec<(Kind, crate::zone::Act)> = vec![];
+    // the wheel over a list that scrolls is the list's (it said so the frame before): the table does not move then
+    let inside = ui.ctx().data_mut(|d| d.remove_temp::<bool>(egui::Id::new(WHEEL_INSIDE))).unwrap_or(false);
+    let held = if inside { ui.ctx().input_mut(|i| std::mem::take(&mut i.smooth_scroll_delta)) } else { vec2(0.0, 0.0) };
     scene.show(ui, &mut seen, |ui| {
+        if inside {
+            ui.ctx().input_mut(|i| i.smooth_scroll_delta = held);
+        }
         // nothing of the table is drawn outside its place on the screen (not over the side, not over the prompt)
         if let Some(to_screen) = ui.ctx().layer_transform_to_global(ui.layer_id()) {
             ui.set_clip_rect(to_screen.inverse() * back);
@@ -351,6 +368,12 @@ enum Act {
 }
 
 fn put_menu(app: &mut App, ui: &mut egui::Ui) {
+    // a long list scrolls (it never runs off the screen)
+    let high = (ui.ctx().content_rect().height() * 0.7).max(200.0);
+    egui::ScrollArea::vertical().max_height(high).auto_shrink([false, true]).show(ui, |ui| put_list(app, ui));
+}
+
+fn put_list(app: &mut App, ui: &mut egui::Ui) {
     let lang = app.settings.lang;
     let mut put: Option<Kind> = None;
     ui.label(RichText::new(t(lang, "space_apps")).strong());
@@ -368,7 +391,9 @@ fn put_menu(app: &mut App, ui: &mut egui::Ui) {
         }
     }
     for n in names {
-        if crate::icons::button(ui, "app-window", &n).clicked() {
+        // an app by its title (hers is her name, not the file it is written in)
+        let title = app.apps.iter().find(|a| a.name == n).map(|a| a.title.clone()).unwrap_or_else(|| n.clone());
+        if crate::icons::button(ui, "app-window", &title).clicked() {
             if !app.apps.iter().any(|a| a.name == n) {
                 app.say(format!("app open {n}"));
             }

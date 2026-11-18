@@ -99,7 +99,7 @@ pub fn node_menu(app: &mut App, ui: &mut egui::Ui, n: &str) {
     }
     if app.graph.pinned.contains(&format!("n:{n}")) && item(ui, "pin-off", t(lang, "unpin"), t(lang, "m_unpin_d")) {
         app.graph.pinned.remove(&format!("n:{n}"));
-        app.graph.motion = 1.0;
+        app.graph.wake();
         ui.close();
     }
     if let Some(src) = node.as_ref().map(|x| x.source.clone()) {

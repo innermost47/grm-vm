@@ -761,7 +761,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, ws: &str, view: &mut crate::view::
                 match picture.clone() {
                     Some(p) if !p.nodes.is_empty() => {
                         let master = (p.master.clone(), None);
-                        let saved = std::mem::replace(&mut app.picture, p);
+                        let saved = std::mem::replace(&mut app.picture, std::sync::Arc::new(p));
                         let saved_master = std::mem::replace(&mut app.master, master);
                         std::mem::swap(&mut app.view, view);
                         app.view.passive = small;

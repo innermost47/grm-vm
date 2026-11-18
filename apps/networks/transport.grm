@@ -1,6 +1,6 @@
 # The transport: one clock for the whole studio. {step}: how far it goes at each sample (sixteenths a second /
 # 48 000); {run}: 1 while it plays, 0 stopped. {name}_f goes from 0 to 1 within each sixteenth, {name}_i counts the
-# sixteenths of the bar (0 .. 15), {name}_bar the bars. Every instrument reads it: they are in time together.
+# sixteenths of the bar (0 .. 15), {name}_bar the bars, {name}_h which of two bars (0, 1). Every instrument reads it: they are in time together.
 # {name}_click is the metronome: a click on each beat, the first of the bar louder.
 network transport(name, step, run)
   var {name}_f = 0
@@ -9,8 +9,27 @@ network transport(name, step, run)
   var {name}_i = 0
   set {name}_i = {name}_i + 1 when {name}_f in 1 .. 3 and {name}_i in -1 .. 14.5
   set {name}_i = 0 when {name}_f in 1 .. 3 and {name}_i in 14.5 .. 99
+  # the bars: circles within circles, as a clock's hands (nothing counts on without end: sixteen bars make a turn,
+  # which moves the circle above it by one, as the minutes move the hour). 16 x 16 x 16 x 16 bars, and round again
   var {name}_bar = 0
-  set {name}_bar = {name}_bar + 1 when {name}_f in 1 .. 3 and {name}_i in 14.5 .. 99
+  set {name}_bar = {name}_bar + 1 when {name}_f in 1 .. 3 and {name}_i in 14.5 .. 99 and {name}_bar in -1 .. 14.5
+  set {name}_bar = 0 when {name}_f in 1 .. 3 and {name}_i in 14.5 .. 99 and {name}_bar in 14.5 .. 99
+  var {name}_bar2 = 0
+  set {name}_bar2 = {name}_bar2 + 1 when {name}_f in 1 .. 3 and {name}_i in 14.5 .. 99 and {name}_bar in 14.5 .. 99 and {name}_bar2 in -1 .. 14.5
+  set {name}_bar2 = 0 when {name}_f in 1 .. 3 and {name}_i in 14.5 .. 99 and {name}_bar in 14.5 .. 99 and {name}_bar2 in 14.5 .. 99
+  var {name}_bar3 = 0
+  set {name}_bar3 = {name}_bar3 + 1 when {name}_f in 1 .. 3 and {name}_i in 14.5 .. 99 and {name}_bar in 14.5 .. 99 and {name}_bar2 in 14.5 .. 99 and {name}_bar3 in -1 .. 14.5
+  set {name}_bar3 = 0 when {name}_f in 1 .. 3 and {name}_i in 14.5 .. 99 and {name}_bar in 14.5 .. 99 and {name}_bar2 in 14.5 .. 99 and {name}_bar3 in 14.5 .. 99
+  var {name}_bar4 = 0
+  set {name}_bar4 = {name}_bar4 + 1 when {name}_f in 1 .. 3 and {name}_i in 14.5 .. 99 and {name}_bar in 14.5 .. 99 and {name}_bar2 in 14.5 .. 99 and {name}_bar3 in 14.5 .. 99 and {name}_bar4 in -1 .. 14.5
+  set {name}_bar4 = 0 when {name}_f in 1 .. 3 and {name}_i in 14.5 .. 99 and {name}_bar in 14.5 .. 99 and {name}_bar2 in 14.5 .. 99 and {name}_bar3 in 14.5 .. 99 and {name}_bar4 in 14.5 .. 99
+  # every one of them on its dial (its rail twice its turn: exact all the way round)
+  rail {name}_bar 32
+  rail {name}_bar2 32
+  rail {name}_bar3 32
+  rail {name}_bar4 32
+  var {name}_h = 0
+  set {name}_h = 1 - {name}_h when {name}_f in 1 .. 3 and {name}_i in 14.5 .. 99
   var {name}_e = 0
   set {name}_e = 1 when {name}_f in 1 .. 3 and {name}_i in 14.5 .. 99
   set {name}_e = 0.55 when {name}_f in 1 .. 3 and {name}_i in 2.5 .. 3.5

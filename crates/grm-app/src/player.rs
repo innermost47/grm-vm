@@ -378,7 +378,7 @@ pub fn panel(app: &mut App, ui: &mut egui::Ui) {
     let mut play: Option<usize> = None;
     let mut add_to: Option<(usize, PathBuf)> = None;
     let mut remove: Option<usize> = None;
-    egui::ScrollArea::vertical().id_salt("player-list").auto_shrink([false, false]).show(ui, |ui| {
+    let out = egui::ScrollArea::vertical().id_salt("player-list").auto_shrink([false, false]).show(ui, |ui| {
         for (k, &i) in ord.iter().enumerate() {
             let path = &tracks[i];
             let name = title_of(path);
@@ -434,6 +434,7 @@ pub fn panel(app: &mut App, ui: &mut egui::Ui) {
             ui.label(RichText::new(t(lang, "player_empty")).small().color(ink.muted));
         }
     });
+    crate::space::wheel_to(ui, &out);
     if let Some(k) = play {
         p.play_at(&mixer, k);
     }

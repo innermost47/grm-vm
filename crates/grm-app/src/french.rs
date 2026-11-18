@@ -100,6 +100,7 @@ fn rules() -> &'static Vec<Rule> {
             r(r"^(\S+) fades out$", "$1 s'éteint doucement"),
             r(r"^its voice rises, slowly$", "sa voix monte, lentement"),
             r(r"^its voice goes quiet$", "sa voix se tait"),
+            r(r"^the sound unplugged and plugged in again$", "le son débranché et rebranché"),
             r(r"^its voice: (\S+)$", "sa voix : $1"),
             r(r"^everything down, in a breath$", "tout baisse, en un souffle"),
             r(r"^volume ([0-9.]+)$", "volume $1"),

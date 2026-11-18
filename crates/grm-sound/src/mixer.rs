@@ -59,6 +59,12 @@ const RUNAWAY: f64 = 64.0;
 /// A node of a network played at the speed of sound: its reflex runs its sets, sample after sample.
 pub struct ReflexSource {
     pub reflex: Reflex,
+    /// The world shared among the processor's cores (its instruments, her, each on one), when it has parts heavy
+    /// enough; for what nodes the channels listen to.
+    parts: Option<grm_engine::reflex::Parts>,
+    parts_taps: Vec<usize>,
+    /// How many cores it may take (1: one, as before).
+    cores: usize,
     slot: usize,
     /// Its right side, when it plays in stereo.
     right: Option<usize>,
@@ -72,13 +78,125 @@ impl ReflexSource {
         let slot = reflex.slot_of(node)?;
         // a node NAME with a NAME_r beside it plays in stereo: NAME on the left, NAME_r on the right
         let right = reflex.slot_of(&format!("{node}_r"));
-        Some(ReflexSource { reflex, slot, right, fused: 0 })
+        Some(ReflexSource { reflex, slot, right, fused: 0, parts: None, parts_taps: vec![], cores: 1 })
     }
 
     /// The whole of a world's network, played once for every channel that listens to one of its nodes (and for
     /// what runs in it even when nothing is heard: her).
     pub fn whole(reflex: Reflex) -> ReflexSource {
-        ReflexSource { reflex, slot: 0, right: None, fused: 0 }
+        // the cores there are (but four at most: beyond, the parts are too small for it to pay)
+        let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1).min(4);
+        let cores = std::env::var("GRM_CORES").ok().and_then(|c| c.parse().ok()).unwrap_or(cores);
+        ReflexSource { reflex, slot: 0, right: None, fused: 0, parts: None, parts_taps: vec![], cores }
+    }
+
+    /// Its parts given back to one reflex (before it is shared out again otherwise).
+    fn join(&mut self) {
+        if let Some(p) = self.parts.take() {
+            self.reflex.values = p.values();
+            self.reflex.touch();
+        }
+    }
+
+    /// How many cores compute it now (1: not shared).
+    pub fn cores_used(&self) -> usize {
+        self.parts.as_ref().map(|p| p.count()).unwrap_or(1)
+    }
+
+    /// A block of the world: `room` what the room heard (one a sample), `taps` what the channels listen to. Each
+    /// channel's samples written to `tapped` (one list a tap, in their order); true when it ran away (and started
+    /// again).
+    pub fn block(
+        &mut self,
+        frames: usize,
+        room: &[(f32, f32)],
+        room_slots: (Option<usize>, Option<usize>),
+        taps: &[(usize, Option<usize>)],
+        tapped: &mut [Vec<(f64, f64)>],
+    ) -> Option<String> {
+        let mut slots: Vec<usize> = taps.iter().flat_map(|(l, r)| std::iter::once(*l).chain(*r)).collect();
+        slots.sort();
+        slots.dedup();
+        // (shared out again only when what the channels listen to changed: not tried again at every block)
+        if self.cores > 1 && (self.parts_taps != slots || self.parts_taps.is_empty() && self.parts.is_none()) {
+            self.join();
+            self.parts = self.reflex.parts(self.cores, &slots);
+            self.parts_taps = slots;
+        }
+        let heard = |k: usize| room.get(k).copied().unwrap_or((0.0, 0.0));
+        let mut ran_away = false;
+        let mut culprit: Option<String> = None;
+        if let Some(p) = self.parts.as_mut() {
+            let inputs: Vec<Vec<(usize, f64)>> = (0..frames)
+                .map(|k| {
+                    let h = heard(k);
+                    let mut v = vec![];
+                    if let Some(i) = room_slots.0 {
+                        v.push((i, h.0 as f64));
+                    }
+                    if let Some(i) = room_slots.1 {
+                        v.push((i, h.1 as f64));
+                    }
+                    v
+                })
+                .collect();
+            p.block(frames, &inputs);
+            for k in 0..frames {
+                for (t, (l, r)) in taps.iter().enumerate() {
+                    let a = p.tapped(*l, k).unwrap_or(0.0);
+                    let b = r.and_then(|r| p.tapped(r, k)).unwrap_or(a);
+                    if !(a.is_finite() && b.is_finite() && a.abs() < RUNAWAY && b.abs() < RUNAWAY) {
+                        ran_away = true;
+                    }
+                    tapped[t].push(if ran_away { (0.0, 0.0) } else { (a, b) });
+                }
+            }
+            if ran_away {
+                // what ran away, named (the wildest of every part) before all starts again from nothing
+                let wild = p
+                    .all_mut()
+                    .filter_map(|r| r.wildest())
+                    .max_by(|a, b| a.1.abs().partial_cmp(&b.1.abs()).unwrap_or(std::cmp::Ordering::Equal));
+                for r in p.all_mut() {
+                    r.reset();
+                }
+                return Some(wild.map(|w| w.0).unwrap_or_default());
+            }
+            return None;
+        }
+        for k in 0..frames {
+            let h = heard(k);
+            if let Some(i) = room_slots.0 {
+                self.reflex.values[i] = h.0 as f64;
+            }
+            if let Some(i) = room_slots.1 {
+                self.reflex.values[i] = h.1 as f64;
+            }
+            self.reflex.step();
+            let mut away = false;
+            for (t, (l, r)) in taps.iter().enumerate() {
+                let v = (self.reflex.values[*l], self.reflex.values[r.unwrap_or(*l)]);
+                if !(v.0.is_finite() && v.1.is_finite() && v.0.abs() < RUNAWAY && v.1.abs() < RUNAWAY) {
+                    away = true;
+                }
+                tapped[t].push(v);
+            }
+            if away {
+                // the fuse: it starts again from nothing (what it learned kept), silent for this sample; what ran
+                // away named first
+                if !ran_away {
+                    culprit = self.reflex.wildest().map(|w| w.0);
+                }
+                self.reflex.reset();
+                ran_away = true;
+                for t in tapped.iter_mut() {
+                    if let Some(v) = t.last_mut() {
+                        *v = (0.0, 0.0);
+                    }
+                }
+            }
+        }
+        ran_away.then(|| culprit.unwrap_or_default())
     }
 }
 
@@ -107,34 +225,59 @@ impl Source for ReflexSource {
     }
     fn reset(&mut self) {
         self.reflex.reset();
+        if let Some(p) = self.parts.as_mut() {
+            for r in p.all_mut() {
+                r.reset();
+            }
+        }
     }
     fn fused(&self) -> u64 {
         self.fused
     }
     fn params(&self) -> Vec<String> {
-        self.reflex.params()
+        self.reflex.params().to_vec()
     }
     fn tune(&mut self, values: &IndexMap<String, f64>) {
-        self.reflex.tune_values(values)
+        self.reflex.tune_values(values);
+        if let Some(p) = self.parts.as_mut() {
+            for r in p.all_mut() {
+                r.tune_values(values);
+            }
+        }
     }
     fn state(&self) -> IndexMap<String, f64> {
-        self.reflex.names.iter().map(|(n, &i)| (n.clone(), self.reflex.values[i])).collect()
+        match &self.parts {
+            Some(p) => self.reflex.names.iter().map(|(n, &i)| (n.clone(), p.value_at(i))).collect(),
+            None => self.reflex.names.iter().map(|(n, &i)| (n.clone(), self.reflex.values[i])).collect(),
+        }
     }
     fn value(&self, node: &str) -> Option<f64> {
-        self.reflex.value(node)
+        match &self.parts {
+            Some(p) => self.reflex.slot_of(node).map(|i| p.value_at(i)),
+            None => self.reflex.value(node),
+        }
     }
     fn memories(&self) -> IndexMap<String, f64> {
-        self.reflex.memories()
+        let kept = self.reflex.memories();
+        match &self.parts {
+            Some(p) => kept.keys().filter_map(|n| self.reflex.slot_of(n).map(|i| (n.clone(), p.value_at(i)))).collect(),
+            None => kept,
+        }
     }
     fn set_state(&mut self, state: &IndexMap<String, f64>) {
         // what it writes itself goes on from where it was (its parameters come from the machine)
-        let params = self.reflex.params();
-        for (n, v) in state {
-            if let Some(&i) = self.reflex.names.get(n) {
-                if !params.contains(n) && v.is_finite() && v.abs() < RUNAWAY {
-                    self.reflex.values[i] = *v;
-                }
+        let base = &self.reflex;
+        let writes: Vec<(usize, f64)> = state
+            .iter()
+            .filter_map(|(n, v)| base.names.get(n).map(|&i| (i, *v)))
+            .filter(|(i, v)| !base.is_param(*i) && v.is_finite() && v.abs() < RUNAWAY)
+            .collect();
+        let parts = self.parts.as_mut().map(|p| p.all_mut().collect::<Vec<_>>()).unwrap_or_default();
+        for r in std::iter::once(&mut self.reflex).chain(parts) {
+            for &(i, v) in &writes {
+                r.values[i] = v;
             }
+            r.touch();
         }
     }
 }
@@ -177,6 +320,8 @@ pub struct Mixer {
     pub rate: u32,
     pub ambient: Ambient,
     pub ambient_on: bool,
+    /// What ran away last (the node, most likely), when the sound did.
+    pub ran_away: Option<String>,
     pub ambient_gain: f64,
     ambient_envelope: f64,
     pub channels: IndexMap<String, Channel>,
@@ -206,6 +351,7 @@ impl Mixer {
             rate: rate.max(1),
             ambient: Ambient::new(Kind::Pad, 0.8, rate.max(1)),
             ambient_on: false,
+            ran_away: None,
             ambient_gain: 0.6,
             ambient_envelope: 0.0,
             channels: IndexMap::new(),
@@ -255,6 +401,13 @@ impl Mixer {
         self.world = world;
         let w = self.world.as_ref();
         self.room_slots = (w.and_then(|w| w.reflex.slot_of("room_l")), w.and_then(|w| w.reflex.slot_of("room_r")));
+        // what the room hears comes in at every sample: what reads it is never computed slowly
+        if let Some(w) = self.world.as_mut() {
+            for s in [self.room_slots.0, self.room_slots.1].into_iter().flatten() {
+                w.reflex.audio_input(s);
+            }
+        }
+        let w = self.world.as_ref();
         for (name, c) in self.channels.iter_mut() {
             if c.tap.is_some() {
                 match w.and_then(|w| w.reflex.slot_of(name)) {
@@ -268,6 +421,16 @@ impl Mixer {
     /// How big the world's network is (its sets, what follows, its delays, its nodes).
     pub fn world_sizes(&self) -> Option<(usize, usize, usize, usize)> {
         self.world.as_ref().map(|w| w.reflex.sizes())
+    }
+
+    /// How much of the world's network is slow (sets, what follows): computed only when a parameter moves.
+    pub fn world_slow(&self) -> Option<(usize, usize)> {
+        self.world.as_ref().map(|w| w.reflex.slow_sizes())
+    }
+
+    /// How many cores compute the world's network now.
+    pub fn world_cores(&self) -> usize {
+        self.world.as_ref().map(|w| w.cores_used()).unwrap_or(0)
     }
 
     /// Whether the world's network runs.
@@ -296,6 +459,11 @@ impl Mixer {
     /// A node of the world's network, as the sound has it now.
     pub fn world_value(&self, node: &str) -> Option<f64> {
         self.world.as_ref().and_then(|w| w.value(node))
+    }
+
+    /// Several nodes of the world's network at once (one look, one lock).
+    pub fn world_values(&self, nodes: &[&str]) -> Vec<Option<f64>> {
+        nodes.iter().map(|n| self.world_value(n)).collect()
     }
 
     /// What the world's network learned (its `memory` nodes).
@@ -416,16 +584,15 @@ impl Mixer {
 
     /// What the channels listen to (the nodes to tune them with).
     pub fn params(&self) -> Vec<String> {
-        let mut all: Vec<String> = vec![];
-        let world = self.world.as_ref().map(|w| w.params()).unwrap_or_default();
+        let mut all: indexmap::IndexSet<String> = indexmap::IndexSet::new();
         for c in self.channels.values() {
-            for p in c.source.params().into_iter().chain(world.iter().cloned()) {
-                if !all.contains(&p) {
-                    all.push(p);
-                }
-            }
+            all.extend(c.source.params());
         }
-        all
+        // the world's network listens even when no channel does (she runs on)
+        if let Some(w) = self.world.as_ref() {
+            all.extend(w.reflex.params().iter().cloned());
+        }
+        all.into_iter().collect()
     }
 
     pub fn tune(&mut self, values: &IndexMap<String, f64>) {
@@ -480,35 +647,16 @@ impl Mixer {
             for c in self.channels.values_mut() {
                 c.tapped.clear();
             }
-            let (rl, rr) = self.room_slots;
-            for k in 0..frames {
-                let heard = self.room.get(k).copied().unwrap_or((0.0, 0.0));
-                if let Some(i) = rl {
-                    w.reflex.values[i] = heard.0 as f64;
-                }
-                if let Some(i) = rr {
-                    w.reflex.values[i] = heard.1 as f64;
-                }
-                w.reflex.step();
-                let mut ran_away = false;
-                for c in self.channels.values_mut() {
-                    if let Some((l, r)) = c.tap {
-                        let v = (w.reflex.values[l], w.reflex.values[r.unwrap_or(l)]);
-                        if !(v.0.is_finite() && v.1.is_finite() && v.0.abs() < RUNAWAY && v.1.abs() < RUNAWAY) {
-                            ran_away = true;
-                        }
-                        c.tapped.push(v);
-                    }
-                }
-                if ran_away {
-                    // the fuse: it starts again from nothing (what it learned kept), silent for this sample
-                    w.reflex.reset();
-                    self.world_fused += 1;
-                    for c in self.channels.values_mut() {
-                        if let Some(v) = c.tapped.last_mut() {
-                            *v = (0.0, 0.0);
-                        }
-                    }
+            let taps: Vec<(usize, Option<usize>)> = self.channels.values().filter_map(|c| c.tap).collect();
+            let mut tapped: Vec<Vec<(f64, f64)>> = vec![Vec::with_capacity(frames); taps.len()];
+            if let Some(node) = w.block(frames, &self.room, self.room_slots, &taps, &mut tapped) {
+                self.world_fused += 1;
+                self.ran_away = Some(node);
+            }
+            let mut it = tapped.into_iter();
+            for c in self.channels.values_mut() {
+                if c.tap.is_some() {
+                    c.tapped = it.next().unwrap_or_default();
                 }
             }
         }

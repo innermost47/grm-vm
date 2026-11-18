@@ -33,6 +33,7 @@ mod notes;
 mod panels;
 mod player;
 mod plot;
+mod prepared;
 mod settings;
 mod space;
 mod studio;

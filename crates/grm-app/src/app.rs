@@ -111,7 +111,17 @@ pub struct App {
     fresh: bool,
     pub layout: Layout,
     pub graph: Graph,
-    pub picture: Picture,
+    /// What the network views need of the picture, made once for each new one (by what they show: "" everything,
+    /// else a source).
+    pub prepared: std::collections::HashMap<String, std::sync::Arc<crate::prepared::Prepared>>,
+    /// The pass of the window at which the layout last took its step (one step a frame, however many views).
+    pub layout_pass: u64,
+    /// When the sound last ran away (twice in a little while, it is plugged in again).
+    last_fuse: Option<std::time::Instant>,
+    /// The picture's shape, known for the picture it was taken of (by where it is).
+    picture_shape: (usize, u64),
+    /// The world as last seen (shared: the views read it without copying it).
+    pub picture: std::sync::Arc<Picture>,
     pull: Pull<Picture>,
     pub detail: Option<Detail>,
     detail_pull: Pull<Option<Detail>>,
@@ -300,6 +310,8 @@ pub struct App {
     /// its line.
     pub side_open: bool,
     pub prompt_open: bool,
+    /// The studio's mixer unfolded (folded, its strips give their room to the instruments).
+    pub mixer_open: bool,
     /// What went wrong, said softly in a corner for a few seconds (and kept in the prompt's lines).
     toasts: Vec<(LineKind, String, Instant)>,
     /// The window was full screen when it was left.
@@ -503,7 +515,11 @@ impl App {
             fresh: args.fresh,
             layout: Layout::new(),
             graph: Graph::default(),
-            picture: Picture::default(),
+            prepared: Default::default(),
+            layout_pass: 0,
+            last_fuse: None,
+            picture_shape: (0, 0),
+            picture: Default::default(),
             pull: Pull::new(Duration::from_millis(200)),
             detail: None,
             detail_pull: Pull::new(Duration::from_millis(1000)),
@@ -640,6 +656,7 @@ impl App {
             collide: None,
             side_open: true,
             prompt_open: true,
+            mixer_open: true,
             toasts: vec![],
             fullscreen_back: false,
             maximized_back: false,
@@ -699,6 +716,7 @@ impl App {
         self.zone_center = w.zone_center.as_deref().and_then(crate::space::kind_of);
         self.detached = w.detached.iter().filter_map(|d| crate::space::kind_of(d)).collect();
         self.prompt_open = w.prompt_open;
+        self.mixer_open = w.mixer_open;
         self.fullscreen_back = w.fullscreen || w.launched;
         self.maximized_back = w.maximized;
         let kind = |c: char| match c {
@@ -745,6 +763,7 @@ impl App {
             zone_center: self.zone_center.as_ref().map(|k| k.word()),
             detached: self.detached.iter().map(|k| k.word()).collect(),
             prompt_open: self.prompt_open,
+            mixer_open: self.mixer_open,
             fullscreen: ctx.input(|i| i.viewport().fullscreen.unwrap_or(false)),
             maximized: ctx.input(|i| i.viewport().maximized.unwrap_or(false)),
             history: self.history.iter().rev().take(500).rev().cloned().collect(),
@@ -840,6 +859,25 @@ impl App {
         crate::surface::observe(self, node, v);
     }
 
+    /// What the network view needs of the picture now: made again only when its shape changed (a node or a
+    /// relation came or went), not when its values move.
+    pub fn prepared(&mut self, only: Option<&str>) -> std::sync::Arc<crate::prepared::Prepared> {
+        let ptr = std::sync::Arc::as_ptr(&self.picture) as usize;
+        if self.picture_shape.0 != ptr {
+            self.picture_shape = (ptr, self.picture.shape());
+        }
+        let shape = self.picture_shape.1;
+        let key = only.unwrap_or("").to_string();
+        match self.prepared.get(&key) {
+            Some(p) if p.shape == shape => p.clone(),
+            _ => {
+                let p = std::sync::Arc::new(crate::prepared::Prepared::of(&self.picture, only, shape));
+                self.prepared.insert(key, p.clone());
+                p
+            }
+        }
+    }
+
     /// The studio's file written again from its song, and opened again (its sound goes on).
     pub fn studio_rewrite(&mut self) {
         // her lessons read again (one may have been written meanwhile)
@@ -868,7 +906,21 @@ impl App {
         }
         if fused > self.fused_seen {
             self.fused_seen = fused;
-            self.toast(self.tr("sound_ran_away").to_string());
+            let node = self.mixer.lock().ok().and_then(|m| m.ran_away.clone()).filter(|n| !n.is_empty());
+            let said = match node {
+                Some(n) => format!("{} ({n})", self.tr("sound_ran_away")),
+                None => self.tr("sound_ran_away").to_string(),
+            };
+            self.toast(said);
+            // twice in a little while: it is unplugged and plugged in again (made anew from the network)
+            let now = std::time::Instant::now();
+            if self.last_fuse.is_some_and(|t| now.duration_since(t).as_secs_f64() < 10.0) {
+                self.last_fuse = None;
+                self.say("sound again".to_string());
+                self.toast(self.tr("sound_again").to_string());
+            } else {
+                self.last_fuse = Some(now);
+            }
         }
     }
 
@@ -1491,6 +1543,9 @@ impl App {
     }
 
     pub fn colour_of(&mut self, source: &str) -> usize {
+        if let Some(&k) = self.colours.get(source) {
+            return k;
+        }
         let n = self.colours.len();
         *self.colours.entry(source.to_string()).or_insert(n)
     }
@@ -1528,15 +1583,20 @@ impl App {
             self.masters = m.2;
         }
         if let Some(p) = self.pull.poll(&self.engine, |w| Picture::of(w)) {
-            for n in &p.nodes {
-                let s = n.source.clone();
-                self.colour_of(&s);
+            // a colour for each source (each looked at once, not for every node)
+            let sources: std::collections::HashSet<&str> = p
+                .nodes
+                .iter()
+                .map(|n| n.source.as_str())
+                .chain(p.relations.iter().map(|r| r.source.as_str()))
+                .collect();
+            for s in sources {
+                self.colour_of(s);
             }
-            for r in &p.relations {
-                let s = r.source.clone();
-                self.colour_of(&s);
-            }
-            self.picture = p;
+            // the picture before is let go away from the window (its thousands of names freed on a thread of their
+            // own: freed here, they took the time of a frame)
+            let old = std::mem::replace(&mut self.picture, std::sync::Arc::new(p));
+            crate::model::free_later(old);
             self.picture_frame += 1;
             crate::hover::remember(self);
             self.selected.retain(|s| self.picture.node(s).is_some());
@@ -1569,8 +1629,13 @@ impl App {
         // what is shown changes slowly: strain and harmony glide
         let k = 0.08f32;
         for r in &self.picture.relations {
-            let v = self.tension.entry(r.name.clone()).or_insert(0.0);
-            *v += ((r.tension as f32).min(4.0) - *v) * k;
+            let target = (r.tension as f32).min(4.0);
+            match self.tension.get_mut(&r.name) {
+                Some(v) => *v += (target - *v) * k,
+                None => {
+                    self.tension.insert(r.name.clone(), target * k);
+                }
+            }
         }
         self.harmony_shown += (self.picture.harmony as f32 - self.harmony_shown) * k;
     }
@@ -2560,7 +2625,9 @@ impl App {
                         ui.ctx().send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
                         ui.close();
                     }
-                    if crate::menu::item(ui, "x", t(lang, "close_app"), t(lang, "m_close_app_d")) {
+                    // she is always there: she neither closes nor goes to the trash
+                    let always = crate::elle::always(&a.name);
+                    if !always && crate::menu::item(ui, "x", t(lang, "close_app"), t(lang, "m_close_app_d")) {
                         self.say(format!("app close {}", a.name));
                         ui.close();
                     }
@@ -2570,7 +2637,7 @@ impl App {
                         self.space.seen = egui::Rect::NOTHING;
                         ui.close();
                     }
-                    if crate::menu::item(ui, "trash-2", t(lang, "m_trash_app"), t(lang, "m_trash_app_d")) {
+                    if !always && crate::menu::item(ui, "trash-2", t(lang, "m_trash_app"), t(lang, "m_trash_app_d")) {
                         self.ask_trash(&a.name.clone(), true);
                         ui.close();
                     }
@@ -2703,7 +2770,7 @@ impl App {
             }
             match self.sandbox_picture.clone() {
                 Some(p) => {
-                    let saved = std::mem::replace(&mut self.picture, p);
+                    let saved = std::mem::replace(&mut self.picture, std::sync::Arc::new(p));
                     if self.desk_mode == Mode::Plot {
                         crate::plot::show(self, ui, None);
                     } else {
@@ -2736,7 +2803,7 @@ impl App {
             }
             match self.sandbox_picture.clone() {
                 Some(p) => {
-                    let saved = std::mem::replace(&mut self.picture, p);
+                    let saved = std::mem::replace(&mut self.picture, std::sync::Arc::new(p));
                     crate::view::show(self, ui, None);
                     self.picture = saved;
                 }
@@ -2793,7 +2860,10 @@ impl App {
                 ui.ctx().send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
             }
             let docked = self.code_dock.is_some();
-            if crate::icons::toggle(ui, "code", t(lang, "code_beside"), docked).on_hover_text("Ctrl+K").clicked() {
+            // only its sign, <> (what it does is said when the pointer rests on it)
+            let colour = if docked { ui.visuals().selection.stroke.color } else { ui.visuals().text_color() };
+            let code = egui::Button::image(crate::icons::image("code", 15.0, colour)).selected(docked);
+            if ui.add(code).on_hover_text(format!("{} (Ctrl+K)", t(lang, "code_beside"))).clicked() {
                 self.code_dock = if docked { None } else { Some(self.settings.dock) };
             }
             if docked {

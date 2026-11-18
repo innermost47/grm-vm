@@ -244,7 +244,7 @@ impl Song {
                     ))
                 }
                 Kind::Drums => a(format!(
-                    "call drums(name={n}, clock_i=tr_i, clock_f=tr_f, her_k=elle_strike1, her_s=elle_strike2, her_h=elle_strike3, her_t=elle_strike4)"
+                    "call drums(name={n}, clock_i=tr_i, clock_f=tr_f, clock_h=tr_h, her_k=elle_strike1, her_s=elle_strike2, her_h=elle_strike3, her_t=elle_strike4)"
                 )),
             }
             // its strip on the mixer: level, pan (0 left .. 1 right), sends, on
@@ -285,6 +285,8 @@ impl Song {
         a(format!("relate rev_send: rev_in = {} + 0.3 * fxe_wet", sum(&|n| format!("{n}_rev * {n}_on * {n}_out"))));
         a("call reverb(name=fxr, input=rev_in, decay=room)".into());
         a("node out signed".into());
+        // the master's potential: what comes out is a unit or so; never the infinite, whatever happens upstream
+        a("rail out 16".into());
         a(format!(
             "relate master_left: out = {} + master * echo_return * fxe_wet + master * rev_return * fxr_out + metro_on * metro_level * tr_click",
             sum(&|n| format!("master * {n}_l"))
@@ -294,6 +296,7 @@ impl Song {
             "relate master_right: out_r = {} + master * echo_return * fxe_wet + master * rev_return * fxr_out + metro_on * metro_level * tr_click",
             sum(&|n| format!("master * {n}_r"))
         ));
+        a("rail out_r 16".into());
         // the surface: what she plays, then each instrument's knobs (the transport and the mixer are the window's)
         a("widget roll: roll at 0 0 size 12 3 \"what she plays\"".into());
         let mut row = 3;
@@ -370,7 +373,7 @@ impl Song {
                     row += 12;
                 }
                 Kind::Drums => {
-                    a(format!("widget {n}sec: section at 0 {row} size 12 4 \"{} · t{}\" icon drum", t.label, t.id));
+                    a(format!("widget {n}sec: section at 0 {row} size 12 8 \"{} · t{}\" icon drum", t.label, t.id));
                     for (k, (x, name)) in DRUMS.iter().enumerate() {
                         let (tlo, thi) = match *x {
                             "k" => ("30", "120"),
@@ -399,7 +402,9 @@ impl Song {
                             row + 3
                         ));
                     }
-                    row += 4;
+                    // its steps, under its knobs, in it
+                    a(format!("widget {n}grid: drums at 0 {} size 12 4 \"{n}\"", row + 4));
+                    row += 8;
                 }
             }
         }
@@ -416,12 +421,17 @@ pub fn panel(app: &mut App, ui: &mut egui::Ui) {
         ui.ctx().request_repaint();
     }
     let lang = app.settings.lang;
-    transport(app, ui, &ink);
+    // the space bar plays and stops (when nothing is being typed): taken before anything is drawn, so that a step
+    // or a button clicked last does not take it for itself
+    let space =
+        !ui.ctx().wants_keyboard_input() && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Space));
+    transport(app, ui, &ink, space);
     ui.separator();
     her(app, ui, &ink);
     ui.separator();
-    let mixer_h = 236.0;
-    let middle = (ui.available_height() - mixer_h - 12.0).max(120.0);
+    // the mixer folds as the prompt does: folded, its strips give their room to the instruments
+    let mixer_h = if app.mixer_open { 236.0 } else { 0.0 };
+    let middle = (ui.available_height() - mixer_h - 36.0).max(120.0);
     // its scroll bar always there: the width does not come and go with it (everything inside would shake)
     egui::ScrollArea::vertical()
         .id_salt("studio-tracks")
@@ -429,25 +439,30 @@ pub fn panel(app: &mut App, ui: &mut egui::Ui) {
         .auto_shrink([false, false])
         .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
         .show(ui, |ui| {
-            let drums: Vec<Track> =
-                app.song.tracks.iter().filter(|t| t.kind == Kind::Drums && t.power).cloned().collect();
-            for t in drums {
-                drum_grid(app, ui, &t, &ink);
-                ui.add_space(6.0);
-            }
             crate::surface::show(app, ui, APP);
         });
-    ui.separator();
-    egui::ScrollArea::horizontal().id_salt("studio-mixer").show(ui, |ui| {
-        ui.horizontal(|ui| {
-            let tracks = app.song.tracks.clone();
-            for t in &tracks {
-                strip(app, ui, t, &ink);
-            }
-            master(app, ui, &ink);
-        });
+    ui.horizontal(|ui| {
+        let (sign, what) = if app.mixer_open {
+            ("panel-bottom-close", t(lang, "fold_mixer"))
+        } else {
+            ("panel-bottom-open", t(lang, "unfold_mixer"))
+        };
+        if crate::icons::sign(ui, sign, what).clicked() {
+            app.mixer_open = !app.mixer_open;
+        }
+        ui.label(RichText::new(t(lang, "mixer_word")).small().color(ink.muted));
     });
-    let _ = lang;
+    if app.mixer_open {
+        egui::ScrollArea::horizontal().id_salt("studio-mixer").show(ui, |ui| {
+            ui.horizontal(|ui| {
+                let tracks = app.song.tracks.clone();
+                for t in &tracks {
+                    strip(app, ui, t, &ink);
+                }
+                master(app, ui, &ink);
+            });
+        });
+    }
 }
 
 fn value(app: &App, node: &str) -> f64 {
@@ -566,9 +581,15 @@ fn her(app: &mut App, ui: &mut egui::Ui, ink: &Ink) {
         let wants: Vec<f64> = (1..=16).map(|k| read(&format!("elle_want{k}")).unwrap_or(0.0)).collect();
         let lo = wants.iter().cloned().fold(f64::MAX, f64::min);
         let hi = wants.iter().cloned().fold(f64::MIN, f64::max).max(lo + 1e-6);
-        let (rect, r) = ui.allocate_exact_size(vec2(16.0 * 9.0, 26.0), Sense::hover());
+        // said what they are, above them (as her mood's bars are), and more on the pointer
+        let (rect, r) = ui
+            .vertical(|ui| {
+                ui.label(RichText::new(t(lang, "elle_wants_word")).size(9.0).color(ink.muted));
+                ui.allocate_exact_size(vec2(16.0 * 9.0, 22.0), Sense::hover())
+            })
+            .inner;
         for (k, w) in wants.iter().enumerate() {
-            let h = 4.0 + 20.0 * ((w - lo) / (hi - lo)) as f32;
+            let h = 3.0 + 17.0 * ((w - lo) / (hi - lo)) as f32;
             let x = rect.left() + k as f32 * 9.0;
             let col = if (choice.round() as usize) == k + 1 { ink.accent } else { ink.muted.gamma_multiply(0.6) };
             ui.painter().rect_filled(
@@ -582,6 +603,12 @@ fn her(app: &mut App, ui: &mut egui::Ui, ink: &Ink) {
             .enumerate()
             .map(|(k, w)| if k == 15 { format!("rest {w:.2}") } else { format!("{:+} {w:.2}", k as i64 - 7) })
             .collect();
+        // the middle (her note again) and the rest marked under them, quietly
+        let mid = rect.left() + 7.0 * 9.0 + 4.5;
+        ui.painter().line_segment(
+            [pos2(mid, rect.bottom() + 1.0), pos2(mid, rect.bottom() + 3.0)],
+            Stroke::new(1.0_f32, ink.muted),
+        );
         r.on_hover_text(format!("{}\n{}", t(lang, "elle_wants"), hover.join("  ")));
     });
 }
@@ -596,14 +623,14 @@ pub fn key_names(lang: crate::text::Lang) -> [&'static str; 12] {
 }
 
 /// The transport: play or stop, the tempo, where it is (bar and beat), the click, the echo's time, the tracks.
-fn transport(app: &mut App, ui: &mut egui::Ui, ink: &Ink) {
+fn transport(app: &mut App, ui: &mut egui::Ui, ink: &Ink, space: bool) {
     let lang = app.settings.lang;
     ui.horizontal_wrapped(|ui| {
         let sounding = app.mixer.lock().map(|m| m.playing().iter().any(|p| p == "out")).unwrap_or(false);
         let running = value(app, "playing") > 0.5;
         let on = sounding && running;
         let (icon, word) = if on { ("square", t(lang, "stop")) } else { ("play", t(lang, "play")) };
-        if crate::icons::button(ui, icon, word).clicked() {
+        if crate::icons::button(ui, icon, word).on_hover_text(t(lang, "space_bar")).clicked() || space {
             if on {
                 app.write("playing", 0.0);
             } else {
@@ -618,7 +645,12 @@ fn transport(app: &mut App, ui: &mut egui::Ui, ink: &Ink) {
             .mixer
             .lock()
             .ok()
-            .and_then(|m| Some((m.value("out", "tr_i")?, m.value("out", "tr_bar")?)))
+            .and_then(|m| {
+                // the bar read off its dials (sixteen to a turn, each turn a step of the dial above)
+                let dial = |n: &str| m.value("out", n).unwrap_or(0.0).round().max(0.0);
+                let bar = ((dial("tr_bar4") * 16.0 + dial("tr_bar3")) * 16.0 + dial("tr_bar2")) * 16.0 + dial("tr_bar");
+                Some((m.value("out", "tr_i")?, bar))
+            })
             .unwrap_or((0.0, 0.0));
         ui.label(
             RichText::new(format!("{:>3} . {}", bar as i64 + 1, (i / 4.0).floor() as i64 + 1))
@@ -688,16 +720,36 @@ fn beats_name(b: f64) -> &'static str {
     }
 }
 
-/// A drum machine's grid: a row per drum, sixteen steps, the one playing lit; the human's pads beside; a drum she
-/// holds is hers (its steps move by her: the human sees them, cannot touch them).
-fn drum_grid(app: &mut App, ui: &mut egui::Ui, track: &Track, ink: &Ink) {
+/// A drum machine's grid: a row per drum, its steps (two bars of sixteen, or one), the one playing lit; the
+/// human's pads beside; a drum she holds is hers (she strikes it too: the human sees it). Drawn inside the drum
+/// machine's section of the studio (a `drums` widget).
+pub fn drum_grid(app: &mut App, ui: &mut egui::Ui, n: &str, ink: &Ink) {
     let lang = app.settings.lang;
-    let n = format!("t{}", track.id);
-    let now_i = app.mixer.lock().ok().and_then(|m| m.value("out", "tr_i")).unwrap_or(-1.0).round() as i64;
-    ui.label(RichText::new(format!("{} · {n}", track.label)).strong());
+    let long = value(app, &format!("{n}_long")) > 0.5;
+    let steps = if long { 32 } else { 16 };
+    let (now_i, half) = app
+        .mixer
+        .lock()
+        .ok()
+        .and_then(|m| Some((m.value("out", "tr_i")?, m.value("out", "tr_h").unwrap_or(0.0))))
+        .unwrap_or((-1.0, 0.0));
+    let now = now_i.round() as i64 + if long { 16 * half.round() as i64 } else { 0 };
+    // its length: one bar, or two
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(t(lang, "drum_steps")).small().color(ink.muted));
+        for (word, on) in [("16", false), ("32", true)] {
+            if ui.selectable_label(long == on, RichText::new(word).small()).clicked() && long != on {
+                app.write(&format!("{n}_long"), if on { 1.0 } else { 0.0 });
+            }
+        }
+    });
+    // the steps share the width there is (never narrower than a finger's tip, never wider than they were)
+    let room = ui.available_width() - 70.0 - 44.0 - 16.0 - 60.0 - 4.0 * (steps / 4) as f32;
+    let w = (room / steps as f32).clamp(11.0, 24.0);
     for (x, name) in DRUMS {
         let hers = value(app, &format!("{n}_{x}_hers")) > 0.5;
         ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 0.0;
             ui.add_sized([70.0, 22.0], egui::Label::new(RichText::new(name).small()));
             // the human's pad: it sounds while pressed
             let pad = format!("{n}_{x}_pad");
@@ -716,14 +768,14 @@ fn drum_grid(app: &mut App, ui: &mut egui::Ui, track: &Track, ink: &Ink) {
             if down != was {
                 app.write(&pad, if down { 1.0 } else { 0.0 });
             }
-            ui.add_space(6.0);
-            for k in 0..16 {
+            ui.add_space(16.0);
+            for k in 0..steps {
                 let node = format!("{n}_{x}_s{}", k + 1);
                 let on = value(app, &node) > 0.5;
-                let (rect, r) = ui.allocate_exact_size(vec2(24.0, 22.0), Sense::click());
+                let (rect, r) = ui.allocate_exact_size(vec2(w, 22.0), Sense::click());
                 // how strong its place in the bar is: the first beat, the other beats, the eighths between, the
                 // sixteenths (shades of one grey: what is lit stays what is seen first)
-                let weight = match k {
+                let weight = match k % 16 {
                     0 => 0.34,
                     4 | 8 | 12 => 0.24,
                     2 | 6 | 10 | 14 => 0.13,
@@ -739,7 +791,7 @@ fn drum_grid(app: &mut App, ui: &mut egui::Ui, track: &Track, ink: &Ink) {
                     crate::view::mix(ink.surface, ink.text, weight)
                 };
                 ui.painter().rect_filled(rect.shrink(1.5), 3.0, fill);
-                if k as i64 == now_i {
+                if k as i64 == now {
                     ui.painter().rect_stroke(
                         rect.shrink(0.5),
                         3.0,
@@ -747,12 +799,13 @@ fn drum_grid(app: &mut App, ui: &mut egui::Ui, track: &Track, ink: &Ink) {
                         egui::StrokeKind::Inside,
                     );
                 }
+                let r = r.on_hover_cursor(egui::CursorIcon::PointingHand);
                 let r = if hers { r.on_hover_text(t(lang, "drum_hers")) } else { r };
                 if r.clicked() {
                     app.write(&node, if on { 0.0 } else { 1.0 });
                 }
                 if k % 4 == 3 {
-                    ui.add_space(4.0);
+                    ui.add_space(if k % 16 == 15 { 10.0 } else { 4.0 });
                 }
             }
             ui.add_space(6.0);

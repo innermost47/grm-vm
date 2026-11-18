@@ -71,9 +71,24 @@ network elle(name, ear, clock_i, clock_f, ctx_song, ctx_human, lessons)
   repeat b in 1 .. 36: var {name}_lo{b} = 0
   repeat b in 1 .. 36: var {name}_bp{b} = 0
   repeat b in 1 .. 36: var {name}_e{b} = 0
-  repeat b in 1 .. 36: set {name}_lo{b} = {name}_lo{b} + {2*sin(pi*110*2^((b-1)/12)/48000)} * {name}_bp{b}
-  repeat b in 1 .. 36: set {name}_bp{b} = {1 - (2*sin(pi*110*2^((b-1)/12)/48000))^2 - 0.025*2*sin(pi*110*2^((b-1)/12)/48000)} * {name}_bp{b} + {2*sin(pi*110*2^((b-1)/12)/48000)} * {ear} - {2*sin(pi*110*2^((b-1)/12)/48000)} * {name}_lo{b}
-  repeat b in 1 .. 36: set {name}_e{b} = {name}_e{b} + 0.0007 * {name}_bp{b} * {name}_bp{b} - 0.0007 * {name}_e{b}
+  # their potential: a resonator rings up to a few units; pushed past (a sound too loud, a sound of her own fed
+  # back), it bends on its rail and never goes to the infinite
+  repeat b in 1 .. 36: rail {name}_lo{b} 64
+  repeat b in 1 .. 36: rail {name}_bp{b} 64
+  repeat b in 1 .. 36: rail {name}_e{b} 4096
+  # it listens while there is something to hear: a sound in the room, or what still rings of one (looked at every
+  # tick); in silence it rests, its resonators back to nothing (a sound wakes it within a tick)
+  var {name}_ears = 1
+  set {name}_ears = 0 when {name}_tick in 0.5 .. 1.5
+  set {name}_ears = 1 when {name}_tick in 0.5 .. 1.5 and {ear} in -99 .. -0.000000000001
+  set {name}_ears = 1 when {name}_tick in 0.5 .. 1.5 and {ear} in 0.000000000001 .. 99
+  set {name}_ears = 1 when {name}_tick in 0.5 .. 1.5 and {name}_tot in 0.00000000101 .. 999
+  repeat b in 1 .. 36: set {name}_lo{b} = 0 when {name}_tick in 0.5 .. 1.5 and {name}_ears in -0.5 .. 0.5
+  repeat b in 1 .. 36: set {name}_bp{b} = 0 when {name}_tick in 0.5 .. 1.5 and {name}_ears in -0.5 .. 0.5
+  repeat b in 1 .. 36: set {name}_e{b} = 0 when {name}_tick in 0.5 .. 1.5 and {name}_ears in -0.5 .. 0.5
+  repeat b in 1 .. 36: set {name}_lo{b} = {name}_lo{b} + {2*sin(pi*110*2^((b-1)/12)/48000)} * {name}_bp{b} when {name}_ears in 0.5 .. 1.5
+  repeat b in 1 .. 36: set {name}_bp{b} = {1 - (2*sin(pi*110*2^((b-1)/12)/48000))^2 - 0.025*2*sin(pi*110*2^((b-1)/12)/48000)} * {name}_bp{b} + {2*sin(pi*110*2^((b-1)/12)/48000)} * {ear} - {2*sin(pi*110*2^((b-1)/12)/48000)} * {name}_lo{b} when {name}_ears in 0.5 .. 1.5
+  repeat b in 1 .. 36: set {name}_e{b} = {name}_e{b} + 0.0007 * {name}_bp{b} * {name}_bp{b} - 0.0007 * {name}_e{b} when {name}_ears in 0.5 .. 1.5
   # how clear: the energy in few places (the sum of squares over the square of the sum)
   node {name}_tot
   relate {name}_all: {name}_tot = sum(b in 1 .. 36: {name}_e{b}) + 0.000000001
@@ -170,10 +185,24 @@ network elle(name, ear, clock_i, clock_f, ctx_song, ctx_human, lessons)
   set {name}_mine = 1 when {name}_bmh in -0.5 .. 0.5
   set {name}_hcap = 1 when {name}_hwait in 0.5 .. 1.5 and {name}_clar in 0.05 .. 9 and {name}_mine in -9 .. 0.5
   # how many notes she began to hear, how many she took the pitch of (a count: what her ear did)
+  # (circles within circles, as a clock's hands: a thousand make a turn of the one above; nothing counts on
+  # without end)
   var {name}_onsets = 0
-  set {name}_onsets = {name}_onsets + 1 when {name}_hon in 0.5 .. 1.5
+  set {name}_onsets = {name}_onsets + 1 when {name}_hon in 0.5 .. 1.5 and {name}_onsets in -1 .. 998.5
+  set {name}_onsets = 0 when {name}_hon in 0.5 .. 1.5 and {name}_onsets in 998.5 .. 9999
+  var {name}_onsets2 = 0
+  set {name}_onsets2 = {name}_onsets2 + 1 when {name}_hon in 0.5 .. 1.5 and {name}_onsets in 998.5 .. 9999 and {name}_onsets2 in -1 .. 998.5
+  set {name}_onsets2 = 0 when {name}_hon in 0.5 .. 1.5 and {name}_onsets in 998.5 .. 9999 and {name}_onsets2 in 998.5 .. 9999
   var {name}_heard = 0
-  set {name}_heard = {name}_heard + 1 when {name}_hcap in 0.5 .. 1.5
+  set {name}_heard = {name}_heard + 1 when {name}_hcap in 0.5 .. 1.5 and {name}_heard in -1 .. 998.5
+  set {name}_heard = 0 when {name}_hcap in 0.5 .. 1.5 and {name}_heard in 998.5 .. 9999
+  var {name}_heard2 = 0
+  set {name}_heard2 = {name}_heard2 + 1 when {name}_hcap in 0.5 .. 1.5 and {name}_heard in 998.5 .. 9999 and {name}_heard2 in -1 .. 998.5
+  set {name}_heard2 = 0 when {name}_hcap in 0.5 .. 1.5 and {name}_heard in 998.5 .. 9999 and {name}_heard2 in 998.5 .. 9999
+  rail {name}_onsets 2000
+  rail {name}_onsets2 2000
+  rail {name}_heard 2000
+  rail {name}_heard2 2000
   var {name}_hprev = 0
   set {name}_hprev = {name}_band when {name}_hcap in 0.5 .. 1.5
   node {name}_hstep signed
@@ -222,7 +251,9 @@ network elle(name, ear, clock_i, clock_f, ctx_song, ctx_human, lessons)
   node {name}_pm signed
   relate {name}_cheung: {name}_pm = {name}_sur + {name}_unc - 2 * {name}_sur * {name}_unc
   node {name}_pleasure signed
-  relate {name}_pleased: {name}_pleasure = 0.6 * {name}_pm + 4 * {name}_cons - 0.3 * {name}_bore + 0.3 * {name}_sync - 0.15
+  # (how clear what she hears is, above what it usually is: her own clear notes swing it widely, so it weighs as
+  # much as the rest, not four times more)
+  relate {name}_pleased: {name}_pleasure = 0.6 * {name}_pm + 1 * {name}_cons - 0.3 * {name}_bore + 0.3 * {name}_sync - 0.15
   var {name}_pav = 0
   set {name}_pav = {name}_pav + 0.0003 * {name}_pleasure - 0.0003 * {name}_pav
   memory {name}_pexp = 0.3
@@ -268,11 +299,11 @@ network elle(name, ear, clock_i, clock_f, ctx_song, ctx_human, lessons)
 
   # ---- where she is: this song, this human (one of four each), as switches
   repeat c in 1 .. 4: var {name}_xs{c} = 0
-  repeat c in 1 .. 4: set {name}_xs{c} = 0
-  repeat c in 1 .. 4: set {name}_xs{c} = 1 when {ctx_song} in {c - 0.5} .. {c + 0.5}
+  repeat c in 1 .. 4: set {name}_xs{c} = 0 when {name}_tick in 0.5 .. 1.5
+  repeat c in 1 .. 4: set {name}_xs{c} = 1 when {name}_tick in 0.5 .. 1.5 and {ctx_song} in {c - 0.5} .. {c + 0.5}
   repeat h in 1 .. 4: var {name}_xh{h} = 0
-  repeat h in 1 .. 4: set {name}_xh{h} = 0
-  repeat h in 1 .. 4: set {name}_xh{h} = 1 when {ctx_human} in {h - 0.5} .. {h + 0.5}
+  repeat h in 1 .. 4: set {name}_xh{h} = 0 when {name}_tick in 0.5 .. 1.5
+  repeat h in 1 .. 4: set {name}_xh{h} = 1 when {name}_tick in 0.5 .. 1.5 and {ctx_human} in {h - 0.5} .. {h + 0.5}
 
   # ---- what she remembers: a direction in her state for each choice (15 intervals from -7 to +7 semitones, and
   # the 16th, a rest), her tastes, and what she learned in each song and with each human. Born from a formula.
@@ -301,16 +332,16 @@ network elle(name, ear, clock_i, clock_f, ctx_song, ctx_human, lessons)
   # ---- what holds her back: a choice that would leave her voice's range (A3 to A5), the fatigue of what she just
   # chose, and the margin of the one she holds
   repeat k in 1 .. 15: var {name}_bnd{k} = 0
-  repeat k in 1 .. 15: set {name}_bnd{k} = 0
-  repeat k in 1 .. 15: set {name}_bnd{k} = -3 when {name}_semi in -99 .. {11.5 - (k - 8)}
-  repeat k in 1 .. 15: set {name}_bnd{k} = -3 when {name}_semi in {36.5 - (k - 8)} .. 999
+  repeat k in 1 .. 15: set {name}_bnd{k} = 0 when {name}_tick in 0.5 .. 1.5
+  repeat k in 1 .. 15: set {name}_bnd{k} = -3 when {name}_tick in 0.5 .. 1.5 and {name}_semi in -99 .. {11.5 - (k - 8)}
+  repeat k in 1 .. 15: set {name}_bnd{k} = -3 when {name}_tick in 0.5 .. 1.5 and {name}_semi in {36.5 - (k - 8)} .. 999
   var {name}_bnd16 = 0
   repeat k in 1 .. 16: var {name}_fat{k} = 0
   repeat k in 1 .. 16: set {name}_fat{k} = 0.8 * {name}_fat{k} when {name}_ev in 0.5 .. 1.5
   repeat k in 1 .. 16: set {name}_fat{k} = 0.8 * {name}_fat{k} + 1 when {name}_ev in 0.5 .. 1.5 and {name}_choice in {k - 0.5} .. {k + 0.5}
   repeat k in 1 .. 16: var {name}_stay{k} = 0
-  repeat k in 1 .. 16: set {name}_stay{k} = 0
-  repeat k in 1 .. 16: set {name}_stay{k} = 1 when {name}_choice in {k - 0.5} .. {k + 0.5}
+  repeat k in 1 .. 16: set {name}_stay{k} = 0 when {name}_tick in 0.5 .. 1.5
+  repeat k in 1 .. 16: set {name}_stay{k} = 1 when {name}_tick in 0.5 .. 1.5 and {name}_choice in {k - 0.5} .. {k + 0.5}
 
 
   # ---- her lessons: one a file (mind/lessons/*.grm, in the order of their names), written in GRML by anyone. Here,
@@ -320,8 +351,8 @@ network elle(name, ear, clock_i, clock_f, ctx_song, ctx_human, lessons)
   memory {name}_lesson = 1
   memory {name}_ltime = 0
   repeat k in 1 .. 16: var {name}_open{k} = 1
-  repeat k in 1 .. 16: set {name}_open{k} = 0 when {lessons} in 0.5 .. 999
-  repeat k in 1 .. 16: set {name}_open{k} = 1 when {lessons} in -9 .. 0.5
+  repeat k in 1 .. 16: set {name}_open{k} = 0 when {name}_tick in 0.5 .. 1.5 and {lessons} in 0.5 .. 999
+  repeat k in 1 .. 16: set {name}_open{k} = 1 when {name}_tick in 0.5 .. 1.5 and {lessons} in -9 .. 0.5
   var {name}_beats = 0
   set {name}_beats = 0
   var {name}_quarter = 0
@@ -334,8 +365,8 @@ network elle(name, ear, clock_i, clock_f, ctx_song, ctx_human, lessons)
   repeat e in 0 .. 3: set {name}_offb = 1 when {clock_i} in {4*e + 1.5} .. {4*e + 2.5} and {name}_beats in 0.5 .. 9
   # each lesson a context: what she learns in it is kept apart (up to thirty-two)
   repeat l in 1 .. 32: var {name}_xl{l} = 0
-  repeat l in 1 .. 32: set {name}_xl{l} = 0
-  repeat l in 1 .. 32: set {name}_xl{l} = 1 when {name}_lesson in {l - 0.5} .. {l + 0.5} and {lessons} in 0.5 .. 999
+  repeat l in 1 .. 32: set {name}_xl{l} = 0 when {name}_tick in 0.5 .. 1.5
+  repeat l in 1 .. 32: set {name}_xl{l} = 1 when {name}_tick in 0.5 .. 1.5 and {name}_lesson in {l - 0.5} .. {l + 0.5} and {lessons} in 0.5 .. 999
   repeat k in 1 .. 16: repeat l in 1 .. 32: memory {name}_tl{k}_{l} = 0
   repeat k in 1 .. 16: var {name}_tlc{k} = 0
   repeat k in 1 .. 16: repeat l in 1 .. 32: set {name}_tlc{k} = {name}_tl{k}_{l} when {name}_tick in 0.5 .. 1.5 and {name}_xl{l} in 0.5 .. 1.5

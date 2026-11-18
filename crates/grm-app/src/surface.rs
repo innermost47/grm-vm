@@ -61,7 +61,9 @@ pub struct State {
     ghost: Option<(i32, i32, i32, i32)>,
     pub chosen: Option<String>,
     held: HashMap<String, bool>,
-    keys_down: std::collections::BTreeSet<i32>,
+    /// The keys held on each keyboard (by its pitch node): each its own, so that one keyboard let alone does not
+    /// let go of what is held on another (her synthesiser's, drawn after the human's, let go of every key at once).
+    keys_down: HashMap<String, std::collections::BTreeSet<i32>>,
     /// The keys held on a polyphonic instrument (MIDI numbers, the octave counted), and its prefix: the window
     /// gives each a voice.
     pub keys_held: std::collections::BTreeSet<i32>,
@@ -742,6 +744,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                 }
             }
             WidgetKind::Keys => keys(app, ui, &painter, rect, id, w, &ink),
+            WidgetKind::Drums => {
+                // a drum machine's steps, in its own place on the surface (inside the machine's section)
+                let mut inner = ui.new_child(egui::UiBuilder::new().max_rect(rect).id_salt(id));
+                crate::studio::drum_grid(app, &mut inner, w.text.trim(), &ink);
+            }
             WidgetKind::Knob => {
                 if let Some(n) = node(0) {
                     // a round knob, as on a desk: its scale of ticks, its cap, its words under it; dragged up and
@@ -1323,8 +1330,14 @@ fn keys(app: &mut App, ui: &mut egui::Ui, painter: &egui::Painter, rect: Rect, i
         ink.text,
     );
     let shift = 12 * app.surface.octave;
-    let (lo, hi) = (w.lo.round() as i32, w.hi.round() as i32);
-    let white: Vec<i32> = (lo..=hi).filter(|m| ![1, 3, 6, 8, 10].contains(&m.rem_euclid(12))).collect();
+    let (lo0, hi0) = (w.lo.round() as i32, w.hi.round() as i32);
+    // a wide keyboard has more keys, not wider ones: whole octaves added above and below (a piano's 88 at most)
+    let is_white = |m: &i32| ![1, 3, 6, 8, 10].contains(&m.rem_euclid(12));
+    let whites = (lo0..=hi0).filter(is_white).count() as i32;
+    let more = ((rect.width() / 24.0) as i32 - whites).max(0) / 7;
+    let hi = (hi0 + 12 * ((more + 1) / 2)).min(108);
+    let lo = (lo0 - 12 * (more / 2)).max(21);
+    let white: Vec<i32> = (lo..=hi).filter(is_white).collect();
     let kw = rect.width() / white.len().max(1) as f32;
     let r = ui.interact(rect, id, Sense::click_and_drag());
     let mut boxes: Vec<(i32, Rect, bool)> = vec![];
@@ -1356,9 +1369,10 @@ fn keys(app: &mut App, ui: &mut egui::Ui, painter: &egui::Painter, rect: Rect, i
         .into_iter()
         .collect();
     // the computer's keys play only alone (Ctrl+E is not an E), and not while something is typed
+    // (they stay where they were, from the keyboard's first key as it is written)
     for k in &app.surface.phys_down {
-        if lo + k <= hi {
-            held.insert(lo + k);
+        if lo0 + k <= hi {
+            held.insert(lo0 + k);
         }
     }
     // her keyboard plays only by her
@@ -1436,8 +1450,9 @@ fn keys(app: &mut App, ui: &mut egui::Ui, painter: &egui::Painter, rect: Rect, i
     // a polyphonic instrument (a `poly` node beside its pitch): each key held takes a voice (the window shares them
     // out); otherwise the last key held plays, alone
     let poly = app.is_poly(&w.nodes[0]);
-    if held != app.surface.keys_down {
-        for m in held.difference(&app.surface.keys_down) {
+    let before = app.surface.keys_down.get(&w.nodes[0]).cloned().unwrap_or_default();
+    if held != before {
+        for m in held.difference(&before) {
             app.surface.played.push(m + shift);
         }
         // the keys held, for the arpeggiator (and, on a polyphonic instrument, each its voice)
@@ -1453,7 +1468,7 @@ fn keys(app: &mut App, ui: &mut egui::Ui, painter: &egui::Painter, rect: Rect, i
                 None => observe(app, &w.nodes[1], 0.0),
             }
         }
-        app.surface.keys_down = held.clone();
+        app.surface.keys_down.insert(w.nodes[0].clone(), held.clone());
         ui.ctx().request_repaint();
     }
     r.widget_info(|| {

@@ -45,6 +45,9 @@ pub struct Window {
     pub detached: Vec<String>,
     #[serde(default = "yes")]
     pub prompt_open: bool,
+    /// The studio's mixer unfolded.
+    #[serde(default = "yes")]
+    pub mixer_open: bool,
     /// The window was full screen.
     pub fullscreen: bool,
     /// The window was maximised (as large as the screen, with its title bar).

@@ -652,6 +652,7 @@ pub fn statement(
             format!("repeated: {said} statements")
         }
         "set" => set(net, rest, origin)?,
+        "rail" => rail(net, rest)?,
         "delay" => delay(net, rest, origin)?,
         "audio" => audio(net, rest, base.unwrap_or(std::path::Path::new(".")), origin)?,
         "carry" => carry(net, rest, origin)?,
@@ -952,6 +953,20 @@ const ROLES: [(&str, &str); 5] = [
 ];
 
 /// var / learn / input / output NAME [= value] [positive] [dim]: a signed node with a role.
+/// `rail NAME R`: what NAME can never go beyond (in SI, either way): its potential. A node near its rail bends
+/// softly towards it, as a circuit saturates at its supply; never past it, never to the infinite.
+fn rail(net: &mut Network, rest: &str) -> Result<String> {
+    let words: Vec<&str> = rest.split(|c: char| c.is_whitespace() || c == '=').filter(|w| !w.is_empty()).collect();
+    let [name, r] = words[..] else { bail!("rail NAME R") };
+    let r = number(r)?;
+    if !(r > 0.0 && r.is_finite()) {
+        bail!("a rail is a positive number");
+    }
+    let Some(spec) = net.nodes.get_mut(name) else { bail!("rail {name}: no node {name} (say it first)") };
+    spec.rail = Some(r);
+    Ok(format!("rail: {name} within ±{}", g(r)))
+}
+
 fn role(net: &mut Network, word: &str, rest: &str, origin: &Provenance) -> Result<String> {
     let (dim, rest) = dim_of(rest)?;
     let Some(m) = re_role().captures(&rest) else { bail!("{word} NAME [= value] [positive] [M L T Q K]") };

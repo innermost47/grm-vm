@@ -14,6 +14,10 @@ network reverb(name, input, decay)
   relate {name}_m2: {name}_f2 = {input} + 0.5 * {decay} * {name}_d1 - 0.5 * {decay} * {name}_d2 + 0.5 * {decay} * {name}_d3 - 0.5 * {decay} * {name}_d4
   relate {name}_m3: {name}_f3 = {input} + 0.5 * {decay} * {name}_d1 + 0.5 * {decay} * {name}_d2 - 0.5 * {decay} * {name}_d3 - 0.5 * {decay} * {name}_d4
   relate {name}_m4: {name}_f4 = {input} + 0.5 * {decay} * {name}_d1 - 0.5 * {decay} * {name}_d2 - 0.5 * {decay} * {name}_d3 + 0.5 * {decay} * {name}_d4
+  rail {name}_f1 8
+  rail {name}_f2 8
+  rail {name}_f3 8
+  rail {name}_f4 8
   node {name}_out signed
   relate {name}_sum: {name}_out = 0.25 * {name}_d1 + 0.25 * {name}_d2 + 0.25 * {name}_d3 + 0.25 * {name}_d4
 end
