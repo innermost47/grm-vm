@@ -70,7 +70,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, k: usize) {
     let mut said: Option<String> = None;
     let mut close = false;
     ui.horizontal(|ui| {
-        ui.label(RichText::new(f.path.display().to_string()).monospace().small().color(ink.muted));
+        ui.label(RichText::new(f.path.display().to_string()).small().color(ink.muted));
         let save = ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::S));
         if ui
             .add_enabled(
@@ -117,7 +117,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, k: usize) {
             let before = ui.memory(|m| m.has_focus(id)).then(|| text.clone());
             let r = ui.add_sized(
                 [120.0, 22.0],
-                egui::TextEdit::singleline(text).margin(crate::style::FIELD).id(id).font(egui::TextStyle::Monospace),
+                egui::TextEdit::singleline(text).margin(crate::style::field()).id(id).font(egui::TextStyle::Monospace),
             );
             if r.changed() {
                 *changed = true;
@@ -178,7 +178,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, k: usize) {
                 } else {
                     egui::text::LayoutJob::simple(
                         text.as_str().to_string(),
-                        egui::FontId::monospace(13.0),
+                        crate::style::code(crate::style::Size::Text),
                         ink.text,
                         f32::INFINITY,
                     )
@@ -188,7 +188,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, k: usize) {
             };
             ui.add(
                 egui::TextEdit::multiline(&mut f.text)
-                    .margin(crate::style::FIELD)
+                    .margin(crate::style::field())
                     .code_editor()
                     .desired_width(f32::INFINITY)
                     .desired_rows(30)
@@ -206,8 +206,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, k: usize) {
         app.journey.record(crate::journey::Change::Table { path: path.clone(), table }, what);
     }
     if close {
-        app.files.remove(k);
-        app.current_file = None;
+        app.close_file(k);
     }
     if let Some(l) = said {
         app.say(l);
@@ -223,7 +222,7 @@ pub fn columns(app: &mut App, ctx: &egui::Context) {
     egui::Window::new(t(lang, "which_columns")).open(&mut open).collapsible(false).default_width(420.0).show(
         ctx,
         |ui| {
-            ui.label(RichText::new(path.display().to_string()).monospace().small());
+            ui.label(RichText::new(path.display().to_string()).small());
             egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
                 for (k, (n, w)) in names.iter().zip(&written).enumerate() {
                     let label = if n == w { n.clone() } else { format!("{w}  →  {n}") };
@@ -278,16 +277,16 @@ pub fn collide(app: &mut App, ctx: &egui::Context) {
         .default_width(460.0)
         .show(ctx, |ui| {
             ui.label(t(lang, "collide_d"));
-            ui.label(RichText::new(c.path.display().to_string()).monospace().small().color(ink.muted));
+            ui.label(RichText::new(c.path.display().to_string()).small().color(ink.muted));
             ui.add_space(6.0);
             egui::Grid::new("collide").num_columns(3).spacing([10.0, 6.0]).show(ui, |ui| {
                 for (col, node, clash) in c.rows.iter_mut() {
-                    ui.label(RichText::new(col.as_str()).monospace());
+                    ui.label(RichText::new(col.as_str()));
                     crate::icons::show(ui, "arrow-right", 14.0, ink.muted);
                     ui.horizontal(|ui| {
                         ui.add(
                             egui::TextEdit::singleline(node)
-                                .margin(crate::style::FIELD)
+                                .margin(crate::style::field())
                                 .font(egui::TextStyle::Monospace)
                                 .desired_width(200.0),
                         );

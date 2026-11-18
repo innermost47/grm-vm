@@ -62,12 +62,12 @@ pub fn apply(app: &mut App, ctx: &egui::Context, kind: &Kind, act: Act) {
     match act {
         Act::Space => {
             app.space.put(kind.clone());
-            app.space_on = true;
+            app.go(crate::front::Front::Space);
         }
         Act::Center => {
             app.space.put(kind.clone());
             app.zone_center = Some(kind.clone());
-            app.space_on = true;
+            app.go(crate::front::Front::Space);
         }
         Act::Screen => {
             app.zone_screen = Some(kind.clone());
@@ -170,7 +170,7 @@ fn title(app: &App, ui: &mut egui::Ui, kind: &Kind, now: Act) -> Option<Act> {
     let mut act = None;
     ui.horizontal(|ui| {
         crate::icons::show(ui, &kind.sign(app), 16.0, ink.accent);
-        ui.label(RichText::new(kind.title(app)).strong().size(15.0));
+        ui.label(RichText::new(kind.title(app)).strong().size(crate::style::size(crate::style::Size::Subtitle)));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| act = signs(ui, lang, now));
     });
     ui.separator();

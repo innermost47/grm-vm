@@ -18,8 +18,8 @@ const STEPS: &[(&str, &str, &str, &str, &str)] = &[
         "À la main", "Clic droit : ce qui peut être fait, en mots. Glisser avec le bouton droit d'un nœud à un autre : une relation. Glisser un nœud : il reste là. Molette : zoom."),
     ("prompt", "The prompt", "Talk to it: node mass = 2, relate newton: force = mass * acceleration, ask force, why force. Tab completes, ↑ ↓ the history. ls, cd, load data.csv work as in a shell.",
         "Le prompteur", "Lui parler : node mass = 2, relate newton: force = mass * acceleration, ask force, why force. Tab complète, ↑ ↓ l'historique. ls, cd, load data.csv marchent comme dans un shell."),
-    ("side", "The inspector", "A node chosen: its value ± sigma, where it comes from, its relations, its time and why. The other tabs: workshops (networks made apart, let in through an airlock), sources and quarantine, the journal, the eye, the sound.",
-        "L'inspecteur", "Un nœud choisi : sa valeur ± sigma, d'où il vient, ses relations, son temps et pourquoi. Les autres onglets : ateliers (des réseaux faits à part, qu'un sas laisse entrer), sources et quarantaine, journal, œil, son."),
+    ("side", "The inspector", "A node chosen: its value ± sigma, where it comes from, its relations, its time and why. The other tabs: workshops (networks made apart, let in through an airlock), sources and quarantine, the journal, the sound.",
+        "L'inspecteur", "Un nœud choisi : sa valeur ± sigma, d'où il vient, ses relations, son temps et pourquoi. Les autres onglets : ateliers (des réseaux faits à part, qu'un sas laisse entrer), sources et quarantaine, journal, son."),
     ("tabs", "Apps", "+ opens an app or makes one. An app is one file: its network, its surface, its APIs. Code, network, plots, app: four views of one thing, all live.",
         "Les apps", "+ ouvre une app ou en crée une. Une app est un fichier : son réseau, sa surface, ses API. Code, réseau, tracés, app : quatre vues d'une même chose, toutes vivantes."),
     ("tabs", "Edit while it runs", "Ctrl+E: edit mode (widgets moved, added, their lines changed) while the app keeps sounding. Ctrl+R: x-ray (what each widget is bound to). F5: launched alone, full screen.",
@@ -57,7 +57,12 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             painter.rect_filled(Rect::from_min_max(pos2(screen.min.x, t.max.y), screen.max), 0.0, dim);
             painter.rect_filled(Rect::from_min_max(pos2(screen.min.x, t.min.y), pos2(t.min.x, t.max.y)), 0.0, dim);
             painter.rect_filled(Rect::from_min_max(pos2(t.max.x, t.min.y), pos2(screen.max.x, t.max.y)), 0.0, dim);
-            painter.rect_stroke(t, 8.0, egui::Stroke::new(2.0_f32, ink.accent), egui::StrokeKind::Outside);
+            painter.rect_stroke(
+                t,
+                crate::style::corner(),
+                egui::Stroke::new(2.0_f32, ink.accent),
+                egui::StrokeKind::Outside,
+            );
         }
         None => {
             painter.rect_filled(screen, 0.0, dim);
@@ -89,7 +94,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 ui.label(
                     RichText::new(format!("{}  ·  {}/{}", title, k + 1, STEPS.len()))
                         .strong()
-                        .size(16.0)
+                        .size(crate::style::size(crate::style::Size::Subtitle))
                         .color(ink.accent),
                 );
                 ui.add_space(4.0);

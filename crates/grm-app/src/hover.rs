@@ -16,9 +16,15 @@ pub const TRACE: usize = 240;
 pub fn curve(ui: &mut egui::Ui, values: &[f32], colour: Color32, ink: &Ink, label: &str) {
     let (rect, _) = ui.allocate_exact_size(vec2(260.0, 64.0), Sense::hover());
     let p = ui.painter_at(rect);
-    p.rect_filled(rect, 4.0, ink.surface);
+    p.rect_filled(rect, crate::style::corner(), ink.surface);
     if values.len() < 2 {
-        p.text(rect.center(), egui::Align2::CENTER_CENTER, "…", egui::FontId::proportional(12.0), ink.muted);
+        p.text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "…",
+            crate::style::font(crate::style::Size::Text),
+            ink.muted,
+        );
         return;
     }
     let (mut lo, mut hi) = values.iter().fold((f32::INFINITY, f32::NEG_INFINITY), |(a, b), v| (a.min(*v), b.max(*v)));
@@ -43,21 +49,21 @@ pub fn curve(ui: &mut egui::Ui, values: &[f32], colour: Color32, ink: &Ink, labe
         rect.left_top() + vec2(4.0, 2.0),
         egui::Align2::LEFT_TOP,
         label,
-        egui::FontId::proportional(10.0),
+        crate::style::font(crate::style::Size::Small),
         ink.muted,
     );
     p.text(
         rect.right_top() + vec2(-4.0, 2.0),
         egui::Align2::RIGHT_TOP,
         grm_engine::lang::g(hi as f64),
-        egui::FontId::monospace(10.0),
+        crate::style::font(crate::style::Size::Small),
         ink.muted,
     );
     p.text(
         rect.right_bottom() + vec2(-4.0, -2.0),
         egui::Align2::RIGHT_BOTTOM,
         grm_engine::lang::g(lo as f64),
-        egui::FontId::monospace(10.0),
+        crate::style::font(crate::style::Size::Small),
         ink.muted,
     );
 }
@@ -115,9 +121,11 @@ pub fn node(app: &App, ui: &mut egui::Ui, name: &str) {
     ui.set_max_width(320.0);
     ui.horizontal(|ui| {
         crate::icons::show(ui, if n.observed { "circle-dot" } else { "circle" }, 16.0, ink.source(k));
-        ui.label(RichText::new(&n.name).strong().size(15.0).color(ink.source(k)));
+        ui.label(
+            RichText::new(&n.name).strong().size(crate::style::size(crate::style::Size::Subtitle)).color(ink.source(k)),
+        );
     });
-    ui.label(RichText::new(reading(n.value, n.sigma, n.signed)).monospace().size(15.0));
+    ui.label(RichText::new(reading(n.value, n.sigma, n.signed)).size(crate::style::size(crate::style::Size::Subtitle)));
     ui.horizontal_wrapped(|ui| {
         let mut what =
             vec![if n.observed { ("eye", t(lang, "observed")) } else { ("calculator", t(lang, "computed")) }];
@@ -185,7 +193,7 @@ pub fn relation(app: &App, ui: &mut egui::Ui, name: &str) {
     let strained = r.tension > 1.0;
     ui.horizontal(|ui| {
         crate::icons::show(ui, "diamond", 16.0, if strained { ink.amber } else { ink.accent });
-        ui.label(RichText::new(&r.name).strong().size(15.0));
+        ui.label(RichText::new(&r.name).strong().size(crate::style::size(crate::style::Size::Subtitle)));
     });
     // what it says, as mathematics
     crate::math::show(ui, &r.text, 15.0, lang);
@@ -248,8 +256,8 @@ pub fn relation(app: &App, ui: &mut egui::Ui, name: &str) {
             let k = app.colours.get(&v.source).copied().unwrap_or(0);
             ui.horizontal(|ui| {
                 crate::icons::show(ui, if v.observed { "circle-dot" } else { "circle" }, 11.0, ink.source(k));
-                ui.label(RichText::new(n).small().monospace().color(ink.source(k)));
-                ui.label(RichText::new(reading(v.value, v.sigma, v.signed)).small().monospace());
+                ui.label(RichText::new(n).small().color(ink.source(k)));
+                ui.label(RichText::new(reading(v.value, v.sigma, v.signed)).small());
             });
         }
     }

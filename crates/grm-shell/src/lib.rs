@@ -7,8 +7,6 @@
 //! machine feels moves the voice (`feel`).
 
 /// The longest side of a picture given to the eye (a bigger one is made smaller first).
-pub const SIGHT: usize = 160;
-
 pub mod apps;
 pub mod fs;
 pub mod runtime;
@@ -96,8 +94,6 @@ the world:      connect meteo LAT LON [DAYS]    the weather of a place, hour by 
                 connect file FILE.json|csv      an answer saved before
                 take NAME N N...                the fields chosen become sandbox NAME (then trial, merge)
                 feed NAME                       once merged: its rows come in, each at its moment
-the eye:        see FILE.png [NAME]             an eye sees it: cleaned, surprised, what changed (pictures written
-                                                beside it), its glance heard by the network as inputs
 apps:           apps                            those running, those that can be opened
                 app new NAME                    a new app (a file in the apps' folder)
                 app open FILE|NAME              it runs: its network in the world, its surface, its APIs
@@ -323,11 +319,10 @@ pub struct Shell {
     tuned: std::collections::HashMap<String, f64>,
     tunings: u32,
     /// The last picture each eye saw, cleaned, surprised, changed (for a window to show).
-    pub sights: IndexMap<String, grm_engine::vision::Sight>,
     pub(crate) rt: runtime::Runtime,
     /// Whether the desk is kept beside the world's memory (not in a test run).
     pub keep_desk: bool,
-    /// The app that is always there, opened before the desk and never closed (her: `mind/home.grm`).
+    /// The app that is always there, opened before the desk and never closed (her: `mind/her.grm`).
     pub always: Option<PathBuf>,
     /// What it asks of the window.
     pub orders: Vec<Order>,
@@ -365,7 +360,6 @@ impl Shell {
             feel_at: None,
             tuned: Default::default(),
             tunings: 0,
-            sights: IndexMap::new(),
             rt: Default::default(),
             keep_desk: true,
             always: None,
@@ -751,7 +745,6 @@ impl Shell {
                 let names: Vec<&str> = rest.split_whitespace().collect();
                 Ok(w.joint(&names)?.text())
             })),
-            "see" => self.see(engine, &rest),
             "embody" => said(engine.ask(move |w| w.embody(&rest))),
             "insights" => said(engine.ask(|w| {
                 Ok(w.time
@@ -826,87 +819,6 @@ impl Shell {
             }
         };
         (out, false)
-    }
-
-    fn see(&mut self, engine: &Engine, rest: &str) -> Vec<Line> {
-        let words = path_words(rest);
-        let file = crate::fs::expand(words.first().map(String::as_str).unwrap_or(""));
-        let name = words.get(1).cloned().unwrap_or("eye".into());
-        let picture = match grm_connect::read_picture(&file) {
-            Ok(p) => p,
-            Err(e) => return vec![Line::error(format!("! {e}"))],
-        };
-        // a big picture is made smaller first: the eye sees it in seconds, not in minutes
-        let (w0, h0) = (picture.width, picture.height);
-        let picture = picture.shrunk(SIGHT);
-        let smaller = (picture.width, picture.height) != (w0, h0);
-        let eye = name.clone();
-        let size = (picture.width, picture.height, picture.channels);
-        let colour = picture.mean_oklab();
-        let Some(sight) = engine.query(move |w| w.see(&eye, &picture, Duration::from_secs(20))) else {
-            return vec![Line::error("! the engine has stopped")];
-        };
-        let sight = match sight {
-            Ok(s) => s,
-            Err(e) => return vec![Line::error(format!("! {e}"))],
-        };
-        let stem = file.with_extension("");
-        let write = |tag: &str, p: &grm_engine::vision::Picture| {
-            let path = PathBuf::from(format!("{}-{tag}.png", stem.display()));
-            grm_connect::write_picture(&path, p).map(|_| path.display().to_string())
-        };
-        let mut out = vec![];
-        if smaller {
-            out.push(Line::dim(format!("made smaller to be seen: {w0}x{h0} -> {}x{}", size.0, size.1)));
-        }
-        out.push(Line::said(format!(
-            "{name} saw {}x{}x{} in {} rounds ({:.2?})",
-            size.0, size.1, size.2, sight.rounds, sight.elapsed
-        )));
-        match write("clean", &sight.clean) {
-            Ok(p) => out.push(Line::dim(format!("cleaned: {p}"))),
-            Err(e) => out.push(Line::error(format!("! {e}"))),
-        }
-        if let Ok(p) = write("surprise", &grm_connect::sigma_picture(&sight.surprise)) {
-            out.push(Line::dim(format!("surprise: {p}")));
-        }
-        if let Some(change) = &sight.change {
-            if let Ok(p) = write("change", &grm_connect::sigma_picture(change)) {
-                out.push(Line::dim(format!("what changed: {p}")));
-            }
-        }
-        let top: Vec<String> = sight.surprises(3).iter().map(|(x, y, s)| format!("({x}, {y}): {s:.1} sigma")).collect();
-        out.push(Line::said(format!("most surprised at {}", top.join(", "))));
-        out.push(Line::said(format!(
-            "its glance ({}x{}) is heard by the network as {name}_glance_*",
-            sight.glance.0, sight.glance.1
-        )));
-        self.sights.insert(name, sight);
-        // her eye: she is given the picture too (its colour, and that one more came), when she is there
-        let (l, a, b) = colour;
-        let given = engine
-            .query(move |w| -> grm_engine::Result<String> {
-                if !w.machine.net.nodes.contains_key("elle_seen_n") {
-                    return Ok(String::new());
-                }
-                let n = w.machine.value_si("elle_seen_n").round() + 1.0;
-                let origin = grm_engine::Provenance::of("eye:elle");
-                for line in [
-                    format!("observe elle_seen_l = {l:.4}"),
-                    format!("observe elle_seen_a = {a:.4}"),
-                    format!("observe elle_seen_b = {b:.4}"),
-                    format!("observe elle_seen_n = {n}"),
-                ] {
-                    w.say(&line, &origin)?;
-                }
-                Ok(format!("she sees it too ({l:.2}, {a:+.2}, {b:+.2})"))
-            })
-            .and_then(|r| r.ok())
-            .unwrap_or_default();
-        if !given.is_empty() {
-            out.push(Line::dim(given));
-        }
-        out
     }
 
     fn take(&mut self, engine: &Engine, rest: &str) -> Vec<Line> {
@@ -1594,7 +1506,7 @@ mod tests {
         let engine = Engine::start(World::new(), Duration::from_millis(4));
         let mixer = Arc::new(Mutex::new(Mixer::new(48000)));
         let mut sh = Shell::new(dir.join("w.world"), mixer.clone());
-        sh.always = Some(root.join("mind/home.grm"));
+        sh.always = Some(root.join("mind/her.grm"));
         sh.wake(&engine);
         let app = format!(
             "app Tone\nuse {r}/apps/networks/lfo.grm\ninput tstep = 0.0183333 positive\ncall lfo(name=tl, step=tstep, shape=0)\nnode tone signed\nrelate t: tone = 0.3 * tl_out\n",
@@ -1626,19 +1538,43 @@ mod tests {
     }
 
     #[test]
-    fn she_is_always_there_hears_the_room_sees_and_dreams() {
+    fn her_app_once_called_home_is_found_again_as_her() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let dir = std::env::temp_dir().join(format!("grm-her-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let mut world = World::new();
+        let home = grm_engine::Provenance::of("app:home");
+        for l in ["node old_a = 1", "node old_b = 2", "relate old_r: old_a = 2 * old_b"] {
+            world.say(l, &home).unwrap();
+        }
+        assert!(world.sources().iter().any(|(s, _)| s == "app:home"));
+        let engine = Engine::start(world, Duration::from_millis(4));
+        let mixer = Arc::new(Mutex::new(Mixer::new(48000)));
+        let mut sh = Shell::new(dir.join("w.world"), mixer);
+        sh.always = Some(root.join("mind/her.grm"));
+        let _ = sh.wake(&engine);
+        let sources = engine.query(|w| w.sources()).unwrap();
+        assert!(!sources.iter().any(|(s, _)| s == "app:home"), "{sources:?}");
+        assert!(sources.iter().any(|(s, _)| s == "app:her"), "{sources:?}");
+        assert_eq!(crate::runtime::now_called("home"), "her");
+        engine.stop();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn she_is_always_there_hears_the_room_and_dreams() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let dir = std::env::temp_dir().join(format!("grm-home-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let engine = Engine::start(World::new(), Duration::from_millis(4));
         let mixer = Arc::new(Mutex::new(Mixer::new(48000)));
         let mut sh = Shell::new(dir.join("w.world"), mixer.clone());
-        sh.always = Some(root.join("mind/home.grm"));
+        sh.always = Some(root.join("mind/her.grm"));
         let out = sh.wake(&engine);
         assert!(out.iter().all(|l| l.kind != Kind::Error && l.kind != Kind::Warning), "{out:?}");
         assert!(mixer.lock().unwrap().has_world(), "she runs with nothing played");
         // she does not close
-        let (out, _) = sh.run(&engine, "app close home");
+        let (out, _) = sh.run(&engine, "app close her");
         assert!(out[0].text.contains("always"), "{out:?}");
         // a tone in the room, from another app
         let app = format!(
@@ -1662,19 +1598,6 @@ mod tests {
         let l1 = m.world_value("rv_l1").unwrap();
         assert!(l1.is_finite() && (0.0..=1.0).contains(&l1));
         drop(m);
-        // a picture for her eye: a red one
-        let pic = dir.join("red.png");
-        let mut p = grm_engine::vision::Picture::new(8, 8, 3);
-        for y in 0..8 {
-            for x in 0..8 {
-                p.set(x, y, 0, 1.0);
-                p.set(x, y, 1, 0.0);
-                p.set(x, y, 2, 0.0);
-            }
-        }
-        grm_connect::write_picture(&pic, &p).unwrap();
-        let (out, _) = sh.run(&engine, &format!("see {}", pic.display()));
-        assert!(out.iter().any(|l| l.text.contains("she sees it too")), "{out:?}");
         engine.stop();
         let _ = std::fs::remove_dir_all(&dir);
     }

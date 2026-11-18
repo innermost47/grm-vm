@@ -35,7 +35,6 @@ pub struct Window {
     pub fitted: bool,
     pub side_wish: Option<f32>,
     pub bottom_wish: Option<f32>,
-    pub eye_path: String,
     #[serde(default = "yes")]
     pub side_open: bool,
     #[serde(default = "yes")]

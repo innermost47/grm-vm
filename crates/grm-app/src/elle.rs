@@ -9,8 +9,8 @@ use eframe::egui::{pos2, vec2, Color32, RichText, Sense};
 use crate::app::{App, Ink};
 use crate::text::t;
 
-/// Her app (`mind/home.grm`).
-pub const APP: &str = "home";
+/// Her app (`mind/her.grm`).
+pub const APP: &str = "her";
 
 /// A colour of OKLab (lightness, green to red, blue to yellow) in sRGB.
 pub fn oklab(l: f64, a: f64, b: f64, alpha: f32) -> Color32 {
@@ -64,12 +64,16 @@ pub fn reverie(app: &App, ui: &mut egui::Ui, size: egui::Vec2) -> bool {
     let read = |n: &str| NAMES.iter().position(|x| *x == n).and_then(|k| seen.get(k).copied().flatten());
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
     let Some(l2) = read("rv_l2") else {
-        ui.painter().rect_filled(rect, 8.0, Color32::from_gray(12));
+        ui.painter().rect_filled(rect, crate::style::corner(), Color32::from_gray(12));
         return false;
     };
     let v = |n: &str| read(n).unwrap_or(0.0);
     let painter = ui.painter_at(rect);
-    painter.rect_filled(rect, 8.0, oklab(0.12 + 0.3 * l2 * 0.4, v("rv_a2") * 0.4, v("rv_b2") * 0.4, 1.0));
+    painter.rect_filled(
+        rect,
+        crate::style::corner(),
+        oklab(0.12 + 0.3 * l2 * 0.4, v("rv_a2") * 0.4, v("rv_b2") * 0.4, 1.0),
+    );
     let span = rect.width().min(rect.height());
     // the dream under, then her mood, then now on top: each a soft round veil (rings fading outwards)
     for k in [3, 2, 1] {
@@ -111,14 +115,8 @@ pub fn panel(app: &mut App, ui: &mut egui::Ui) {
     ui.horizontal_wrapped(|ui| {
         let glow = read("rv_sglow").unwrap_or(0.0);
         let pleasure = read("elle_pleasure").unwrap_or(0.0);
-        let seen = read("elle_seen_n").unwrap_or(0.0);
         ui.label(RichText::new(format!("{} {:.2}", t(lang, "elle_hears"), glow)).small().color(ink.muted));
         ui.label(RichText::new(format!("{} {:+.2}", t(lang, "elle_pleasure"), pleasure)).small().color(ink.muted));
-        ui.label(RichText::new(format!("{} {seen:.0}", t(lang, "elle_saw"))).small().color(ink.muted));
-        if crate::icons::button(ui, "eye", t(lang, "elle_show_her")).on_hover_text(t(lang, "elle_show_her_d")).clicked()
-        {
-            app.pick(crate::app::Pick::Eye);
-        }
     });
     ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
 }

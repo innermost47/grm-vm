@@ -213,7 +213,7 @@ pub fn panel(app: &mut App, ui: &mut egui::Ui) {
     let mut changed = false;
 
     // what plays: its title, where it is, the controls
-    egui::Frame::new().fill(ink.panel).corner_radius(6.0).inner_margin(10.0).show(ui, |ui| {
+    egui::Frame::new().fill(ink.panel).corner_radius(crate::style::corner()).inner_margin(10.0).show(ui, |ui| {
         let now = p.playing.clone();
         let title = now
             .as_ref()
@@ -221,7 +221,7 @@ pub fn panel(app: &mut App, ui: &mut egui::Ui) {
             .unwrap_or_else(|| t(lang, "player_nothing").to_string());
         ui.horizontal(|ui| {
             crate::icons::show(ui, "disc-3", 18.0, ink.accent);
-            ui.label(RichText::new(title).size(16.0).strong());
+            ui.label(RichText::new(title).size(crate::style::size(crate::style::Size::Subtitle)).strong());
         });
         if let Some(n) = &now {
             if let Some(e) = n.error.lock().ok().and_then(|e| e.clone()) {
@@ -230,10 +230,10 @@ pub fn panel(app: &mut App, ui: &mut egui::Ui) {
             let (at, len) = n.seconds(rate);
             let clock = |s: f64| format!("{}:{:02}", (s / 60.0).floor() as u64, (s % 60.0).floor() as u64);
             ui.horizontal(|ui| {
-                ui.label(RichText::new(clock(at)).monospace().small());
+                ui.label(RichText::new(clock(at)).small());
                 let w = (ui.available_width() - 60.0).max(80.0);
                 let (rect, r) = ui.allocate_exact_size(vec2(w, 8.0), Sense::click_and_drag());
-                ui.painter().rect_filled(rect, 3.0, ink.surface);
+                ui.painter().rect_filled(rect, crate::style::corner(), ink.surface);
                 if len > 0.0 {
                     let f = (at / len).clamp(0.0, 1.0) as f32;
                     ui.painter().rect_filled(
@@ -246,7 +246,7 @@ pub fn panel(app: &mut App, ui: &mut egui::Ui) {
                         n.seek(f * len, rate);
                     }
                 }
-                ui.label(RichText::new(if len > 0.0 { clock(len) } else { "–".into() }).monospace().small());
+                ui.label(RichText::new(if len > 0.0 { clock(len) } else { "–".into() }).small());
             });
         }
         ui.horizontal(|ui| {
@@ -392,7 +392,7 @@ pub fn panel(app: &mut App, ui: &mut egui::Ui) {
             let row = ui.horizontal(|ui| {
                 ui.set_min_width(ui.available_width());
                 ui.add_space(4.0);
-                let number = ui.label(RichText::new(format!("{:>3}", k + 1)).monospace().small().color(ink.muted));
+                let number = ui.label(RichText::new(format!("{:>3}", k + 1)).small().color(ink.muted));
                 let text = RichText::new(&name).color(if here { ink.accent } else { ink.text });
                 ui.add(egui::Label::new(text).truncate().selectable(false));
                 number.rect
@@ -401,12 +401,15 @@ pub fn panel(app: &mut App, ui: &mut egui::Ui) {
             let r = ui.interact(rect, ui.id().with(("player-row", k)), Sense::click());
             if r.hovered() || here {
                 let tint = if r.hovered() { 0.16 } else { 0.08 };
-                ui.painter().set(ground, egui::Shape::rect_filled(rect, 4.0, ink.accent.gamma_multiply(tint)));
+                ui.painter().set(
+                    ground,
+                    egui::Shape::rect_filled(rect, crate::style::corner(), ink.accent.gamma_multiply(tint)),
+                );
             }
             if r.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                 let n = row.inner;
-                ui.painter().rect_filled(n, 2.0, ink.panel);
+                ui.painter().rect_filled(n, crate::style::corner(), ink.panel);
                 crate::icons::image("play", 12.0, ink.accent)
                     .paint_at(ui, egui::Rect::from_center_size(n.right_center() - vec2(6.0, 0.0), vec2(12.0, 12.0)));
             }

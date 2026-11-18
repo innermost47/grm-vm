@@ -108,12 +108,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
             rect.center(),
             egui::Align2::CENTER_CENTER,
             t(lang, "p_nothing"),
-            egui::FontId::proportional(14.0),
+            crate::style::font(crate::style::Size::Subtitle),
             ink.muted,
         );
         return;
     }
-    let font = egui::FontId::proportional(11.0);
+    let font = crate::style::font(crate::style::Size::Small);
     match app.plot_kind {
         Kind::Lines => {
             // small multiples: one track each, its own scale; the mouse reads them all at one moment
@@ -136,7 +136,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
                     band.left_top() + vec2(8.0, 6.0),
                     egui::Align2::LEFT_TOP,
                     name,
-                    egui::FontId::proportional(13.0),
+                    crate::style::font(crate::style::Size::Text),
                     *colour,
                 );
                 if let Some(n) = app.picture.node(name) {
@@ -172,7 +172,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
                             pos2(inner.left() - 6.0, yy),
                             egui::Align2::RIGHT_CENTER,
                             grm_engine::lang::g(val as f64),
-                            egui::FontId::monospace(10.0),
+                            crate::style::font(crate::style::Size::Small),
                             ink.muted,
                         );
                     }
@@ -211,7 +211,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
                         pos2(x(i) + 6.0, band.top() + 6.0),
                         egui::Align2::LEFT_TOP,
                         format!("{} ({} {})", grm_engine::lang::g(v[i] as f64), v.len() - 1 - i, t(lang, "p_ago")),
-                        egui::FontId::monospace(11.0),
+                        crate::style::font(crate::style::Size::Small),
                         ink.text,
                     );
                 }
@@ -223,7 +223,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
                     rect.center(),
                     egui::Align2::CENTER_CENTER,
                     t(lang, "p_two"),
-                    egui::FontId::proportional(14.0),
+                    crate::style::font(crate::style::Size::Subtitle),
                     ink.muted,
                 );
                 return;
@@ -245,14 +245,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
                 pos2(inner.center().x, inner.bottom() + 8.0),
                 egui::Align2::CENTER_TOP,
                 &series[0].0,
-                egui::FontId::proportional(13.0),
+                crate::style::font(crate::style::Size::Text),
                 series[0].2,
             );
             painter.text(
                 pos2(inner.left() - 8.0, inner.center().y),
                 egui::Align2::RIGHT_CENTER,
                 &series[1].0,
-                egui::FontId::proportional(13.0),
+                crate::style::font(crate::style::Size::Text),
                 series[1].2,
             );
             painter.text(
@@ -317,12 +317,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
                     pos2(rect.left() + 10.0, y + h / 2.0),
                     egui::Align2::LEFT_CENTER,
                     name,
-                    egui::FontId::proportional(13.0),
+                    crate::style::font(crate::style::Size::Text),
                     *colour,
                 );
                 let end = zero + (v * scale) as f32;
                 let bar = Rect::from_two_pos(pos2(zero, y + 6.0), pos2(end, y + h - 8.0));
-                painter.rect_filled(bar, 4.0, colour.gamma_multiply(0.8));
+                painter.rect_filled(bar, crate::style::corner(), colour.gamma_multiply(0.8));
                 // its spread
                 if s.is_finite() && s * scale < width as f64 {
                     let (a, b) = (zero + ((v - s) * scale) as f32, zero + ((v + s) * scale) as f32);

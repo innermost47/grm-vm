@@ -273,6 +273,14 @@
    coming in, with food, gestation, reproduction with mutation, selection; sandboxed (a genome is data, never code;
    its size capped; one that travels to another machine is signed and quarantined on arrival). What survives is
    something to look at, never a conclusion: the human draws the conclusions.
+   **Now, before any new function** (with Anthony, the rules in `CLAUDE.md`): make everything that is there work,
+   in this order. 0. the window's own tests (*done*: egui_kittest, each bug played again); 1. what breaks and what
+   is lost (*done*: a workshop erased leaves nothing, the airlock remembers, one logic for every tab, the way back,
+   the inspector's signs, Her named by the human, the eye put away; *next in it*: a walker that tries every menu of
+   every screen); 2. widgets and one style, written in GRML (the window an interpreter, as a browser is: *2a done*, the style file; then the widgets, with Anthony: *W1 done* (widgets that hold widgets, kinds of one's own, `tip`, `when`, tips by kind in the settings); *W2 done* (one field, one choice, one toggle, everywhere; `choice` and `field` in GRML); W3 list, tree, table, notifications; W4 text and LaTeX, chart, timeline, scope, steps, roll, transport, picture; W5 the composite widgets in GRML (mixer strip, transport, player, the inspector's list); W6 every app and the window itself moved onto them (the workshop, the space, the studio, the player, the universe, the weather), and the editor of each app made a real one; the style edited in the window, working files from JSON to GRML); 3. every
+   screen gone over (the space, the network, the workshop made easy, the code, the insights); 4. the studio (modes
+   held, the arpeggiator, the mixer, sound only for the tab in front); 5. then her screen made deep (what was the
+   reverie), the universe, the table view, an installer; the starry sky after.
 4. **The senses**: images (a pyramid of patches), sounds (bands of frequency), seeing the network pulse, dreaming.
 5. **The decentralised network**: the internet transport (no central server), public, private and closed networks,
    signatures, the sas (identity, form, permissions, quarantine, compatibility, earned trust), debates between

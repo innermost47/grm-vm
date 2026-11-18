@@ -26,3 +26,5 @@ space.grm
 *.takes/
 *.studio.json
 *.player.json
+
+CLAUDE.md

@@ -63,6 +63,32 @@ cargo build --release
 cargo test                         # everything, the parity with the Python machine included
 ```
 
+The window has tests of its own (`crates/grm-app/src/ui_tests.rs`, with egui_kittest): the whole window, opened in
+a home of its own (`--home DIR`: its world, its settings, its apps and her mind copied there) with no sound card
+(`--headless`), clicked and typed into by the words of its buttons, closed and opened again. Every bug fixed in the
+window is played again there. The rules the project keeps are in `CLAUDE.md`.
+
+The look of everything comes from one file, `style/style.grm`: its fonts (IBM Plex Sans; Courier Prime for the
+code only; both SIL Open Font License, in `assets/fonts`), five sizes of text, its corners, the room inside things,
+its colours, and its variants (`variant day from night`).
+
+Widgets hold widgets, as networks hold relations, and kinds of one's own are made as networks are:
+
+```
+kind strip(ch): card "{ch}"
+  widget gain: knob {ch}_gain 0 .. 1 tip "how loud"
+  widget pan: knob {ch}_pan -1 .. 1
+end
+widget mixer: row at 0 0 size 8 6
+  widget t1: strip(ch=t1)
+  widget t2: strip(ch=t2) when t2_on
+end
+```
+
+`row`, `column`, `grid N`, `stack`, `scroll`, `tabs`, `card` hold others; every widget can say `tip "words"` and
+`when NODE`. `choice NODE "a|b|c"` and `field NODE` (a number written with a comma or a point) are written as the
+others are.
+
 On Linux, the sound needs ALSA's development files to build (`libasound2-dev` on Debian and Ubuntu); the window
 needs nothing more than a graphics driver (OpenGL).
 
@@ -254,7 +280,8 @@ carries what they say to each node.
 
 ### The eye
 
-`see FILE.png [NAME]`: an eye sees a picture (grey or colour). It is a network of its own, as a retina is: every
+*The eye is put away from the window and the prompt until a real vision module comes (it brought too little as it
+was); the engine keeps it (`vision.rs`) as described here.* An eye sees a picture (grey or colour). It is a network of its own, as a retina is: every
 pixel a node, tied to its neighbours ("I look like the one beside me, more or less"), and a pyramid above them
 up to a glance of 8 x 8 nodes. It computes near what it sees and sends on only what is worth it:
 
@@ -423,7 +450,7 @@ STATEMENT` says anything of the language into that network (`style relate breath
   a table's cells and its rows and columns. One list, in the order the changes were made, shown in the journal
   (what can be taken back, and what was and can be given again). While words are written in a field, Ctrl+Z is the
   field's own.
-- **Files dropped on the window** are opened as what they are: a picture (PNG) is seen by the eye, an app runs,
+- **Files dropped on the window** are opened as what they are: an app runs,
   a table opens as a table, any other text opens to write; a folder becomes where the machine works. Or **Ctrl+O**
   (the folder sign): the system's own window to choose them (where the desktop has a file portal; otherwise it
   says so).
@@ -440,9 +467,7 @@ STATEMENT` says anything of the language into that network (`style relate breath
 - **What goes wrong is said softly** in a corner for a few seconds (it blocks nothing, comes and goes slowly, can
   be closed), and kept in the prompt's lines.
 - **Paths with spaces** are said between quotes (dropped or chosen files are quoted by the window); typed without
-  quotes, words that together name a file that exists are one (`see C:\Pictures\Capture d'écran 1.png eye`).
-- **A big picture** is made smaller before the eye sees it (its longest side at most 160 points: seconds, not
-  minutes).
+  quotes, words that together name a file that exists are one (`load C:\Données\relevés 2026.csv`).
 - **Two tables with the same column names**: before their data would be mixed in the same nodes, the window
   proposes other names (`load FILE COLUMN=NODE`, or `--mix` to mix them on purpose).
 - The code beside **wraps** its long lines (each number stays on its line's first row); fields have room inside
@@ -897,7 +922,8 @@ times at full): the gap of pleasure moves what made her choice by her concentrat
 
 ### She is always there: her home, the player, her reverie
 
-**Her home** (`mind/home.grm`): she no longer lives inside the studio. Her app opens before anything else and never
+**Her home** (`mind/her.grm`, her app `app:her`; it was `home`, and what was kept under that name is found under
+the new one): she no longer lives inside the studio. Her app opens before anything else and never
 closes; one network for her, the same in every app. Her ear is the room: what the speakers give (every channel, the
 machine's own voice too), handed to her by the sound at each sample (`room_l`, `room_r`, a block late: five
 milliseconds). An app that has a time gives it to her (the studio writes `elle_clock_i`, `elle_clock_f` from its
@@ -961,9 +987,8 @@ change, the dream fifteen. Her home's window paints it.
 
 ![Her home on the space: her reverie, three veils of colour where her state is](docs/reverie.png)
 
-**Her eye.** A picture given to the eye (PNG or JPEG now) is given to her too: its colour (OKLab) and that one more
-came. The first stone of her vision; video comes later (a decoder, and an eye fast enough for twenty-five pictures a
-second).
+**Her name** is the one the human gives her in the settings (*Her* until then); her tab and her place on the space
+say it.
 
 ### The universe of the GRM
 

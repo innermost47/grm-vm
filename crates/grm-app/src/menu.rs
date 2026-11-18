@@ -35,7 +35,8 @@ pub fn item_if(ui: &mut egui::Ui, enabled: bool, sign: &str, title: &str, what: 
     let sense = if enabled { egui::Sense::click() } else { egui::Sense::hover() };
     let r = ui.interact(rect, id, sense);
     if enabled && r.hovered() {
-        ui.painter().set(ground, egui::Shape::rect_filled(rect, 4.0, ink.accent.gamma_multiply(0.14)));
+        ui.painter()
+            .set(ground, egui::Shape::rect_filled(rect, crate::style::corner(), ink.accent.gamma_multiply(0.14)));
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     ui.add_space(2.0);
@@ -46,8 +47,13 @@ pub fn item_if(ui: &mut egui::Ui, enabled: bool, sign: &str, title: &str, what: 
 pub fn node_menu(app: &mut App, ui: &mut egui::Ui, n: &str) {
     let lang = app.settings.lang;
     let ink = Ink::of(ui.ctx());
-    ui.label(RichText::new(n).strong().size(15.0).color(ink.accent));
+    ui.label(RichText::new(n).strong().size(crate::style::size(crate::style::Size::Subtitle)).color(ink.accent));
     ui.separator();
+    // in a workshop, what is done is done in it (never in the main network, where the node is not)
+    if let Some(ws) = app.write_into.clone() {
+        workshop_node_menu(app, ui, &ws, n);
+        return;
+    }
     let node = app.picture.node(n).cloned();
     let tracked = node.as_ref().is_some_and(|x| x.tracked);
     if item(ui, "search", t(lang, "m_inspect"), t(lang, "m_inspect_d")) {
@@ -112,6 +118,27 @@ pub fn node_menu(app: &mut App, ui: &mut egui::Ui, n: &str) {
     }
     if item(ui, "trash-2", t(lang, "remove"), t(lang, "m_remove_d")) {
         app.ask_remove(n);
+        ui.close();
+    }
+}
+
+/// The menu of a node of a workshop (the picture shown is the workshop's): heard from it, or its line taken back.
+fn workshop_node_menu(app: &mut App, ui: &mut egui::Ui, ws: &str, n: &str) {
+    let lang = app.settings.lang;
+    if item(ui, "play", t(lang, "play"), t(lang, "m_play_d")) {
+        app.say(format!("workshop play {ws} {n}"));
+        ui.close();
+    }
+    // the line that made it (node, input, var, output, learn NAME …)
+    let made = app.picture.written.iter().position(|l| {
+        let mut w = l.split_whitespace();
+        matches!(w.next(), Some("node" | "input" | "var" | "output" | "learn" | "observe"))
+            && w.next().map(|x| x.trim_end_matches(':')) == Some(n)
+    });
+    if item_if(ui, made.is_some(), "undo-2", t(lang, "ws_unsay"), t(lang, "m_ws_unsay_d")) {
+        if let Some(k) = made {
+            app.say(format!("workshop unsay {ws} {k}"));
+        }
         ui.close();
     }
 }

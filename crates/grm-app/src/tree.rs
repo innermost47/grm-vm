@@ -74,7 +74,7 @@ fn row(
     });
     let full = inner.response.rect;
     if inner.inner.hovered() || ui.rect_contains_pointer(full) {
-        ui.painter().rect_filled(full.expand(1.0), 4.0, ink.faint.gamma_multiply(0.18));
+        ui.painter().rect_filled(full.expand(1.0), crate::style::corner(), ink.faint.gamma_multiply(0.18));
     }
     RowOut { unfold, label: inner.inner.on_hover_text(t(lang, "t_row_hint")) }
 }
@@ -135,7 +135,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         ui.add(
             egui::TextEdit::singleline(&mut app.filter)
-                .margin(crate::style::FIELD)
+                .margin(crate::style::field())
                 .hint_text(crate::style::hint(t(lang, "filter")))
                 .desired_width(ui.available_width() - 36.0),
         );
@@ -239,8 +239,12 @@ fn network(app: &mut App, ui: &mut egui::Ui, pic: &Picture, source: &str, filter
             } else {
                 crate::icons::sign_enabled(ui, false, "play", t(lang, "t_no_output"));
             }
-            if crate::icons::sign(ui, "focus", t(lang, "t_focus")).clicked() {
-                act = Some(format!("focus {source}"));
+            // to the front, and back with the others (alone, it has nothing to come in front of)
+            let front = app.focus.as_deref() == Some(source);
+            let others = app.picture.sources.len() > 1;
+            let (sign, what) = if front { ("focus", t(lang, "t_unfocus")) } else { ("focus", t(lang, "t_focus")) };
+            if crate::icons::sign_on(ui, others || front, front, sign, what).clicked() {
+                act = Some(if front { "focus all".to_string() } else { format!("focus {source}") });
             }
         },
     );
@@ -501,7 +505,7 @@ fn master_curve(app: &App, ui: &mut egui::Ui, m: &grm_engine::master::Master) {
     let (lo, hi) = (x0.log10() - 1.0, x0.log10() + 1.0);
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width().min(300.0), 110.0), Sense::hover());
     let p = ui.painter_at(rect);
-    p.rect_filled(rect, 4.0, ink.surface);
+    p.rect_filled(rect, crate::style::corner(), ink.surface);
     let inner = rect.shrink2(vec2(30.0, 16.0));
     let ys: Vec<f64> = (0..=40).map(|k| ly(lo + (hi - lo) * k as f64 / 40.0)).collect();
     let (ylo, yhi) = ys.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), v| (a.min(*v), b.max(*v)));
@@ -515,7 +519,7 @@ fn master_curve(app: &App, ui: &mut egui::Ui, m: &grm_engine::master::Master) {
     let pts: Vec<egui::Pos2> = ys.iter().enumerate().map(|(k, v)| at(lo + (hi - lo) * k as f64 / 40.0, *v)).collect();
     p.add(egui::Shape::line(pts, Stroke::new(1.8_f32, ink.accent)));
     p.circle_filled(at(x0.log10(), ly(x0.log10())), 4.0, ink.text);
-    let small = egui::FontId::proportional(10.0);
+    let small = crate::style::font(crate::style::Size::Small);
     p.text(
         inner.left_bottom() + vec2(0.0, 2.0),
         egui::Align2::LEFT_TOP,

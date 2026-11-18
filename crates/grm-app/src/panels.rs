@@ -15,7 +15,6 @@ pub fn sign_of(tab: Tab) -> &'static str {
         Tab::Sandboxes => "hammer",
         Tab::Sources => "waypoints",
         Tab::Journal => "scroll-text",
-        Tab::Eye => "eye",
         Tab::Sound => "audio-lines",
         Tab::Insights => "lightbulb",
     }
@@ -41,7 +40,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         Tab::Sandboxes => sandboxes(app, ui),
         Tab::Sources => sources(app, ui),
         Tab::Journal => journal(app, ui),
-        Tab::Eye => eye(app, ui),
         Tab::Sound => sound(app, ui),
         Tab::Insights => crate::insights::panel(app, ui),
     });
@@ -76,13 +74,14 @@ fn chip(ui: &mut egui::Ui, text: &str, colour: Color32) {
     if width > ui.available_width() && ui.layout().main_wrap {
         ui.end_row();
     }
-    egui::Frame::new().stroke(Stroke::new(1.0_f32, colour)).corner_radius(3.0).inner_margin(vec2(6.0, 1.0)).show(
-        ui,
-        |ui| {
+    egui::Frame::new()
+        .stroke(Stroke::new(1.0_f32, colour))
+        .corner_radius(crate::style::corner())
+        .inner_margin(vec2(6.0, 1.0))
+        .show(ui, |ui| {
             // never broken letter by letter: a chip that does not fit goes to the next line whole
             ui.add(egui::Label::new(RichText::new(text).small().color(colour)).wrap_mode(egui::TextWrapMode::Extend));
-        },
-    );
+        });
 }
 
 /// What a node is, unfolded.
@@ -91,7 +90,7 @@ pub fn sheet(app: &mut App, ui: &mut egui::Ui, name: &str, pic: &crate::model::P
     let lang = app.settings.lang;
     let name = name.to_string();
     let Some(n) = pic.node(&name).cloned() else { return };
-    ui.label(RichText::new(reading(n.value, n.sigma, n.signed)).size(18.0).monospace());
+    ui.label(RichText::new(reading(n.value, n.sigma, n.signed)).size(crate::style::size(crate::style::Size::Title)));
     ui.horizontal_wrapped(|ui| {
         let k = app.colours.get(&n.source).copied().unwrap_or(0);
         chip(ui, &format!("{} {}", t(lang, "source"), n.source), ink.source(k));
@@ -217,7 +216,7 @@ fn chart(ui: &mut egui::Ui, d: &crate::model::Detail, ink: &Ink, lang: crate::te
             pos2(rect.left(), y(v) - 1.0),
             egui::Align2::LEFT_BOTTOM,
             grm_engine::lang::g(v),
-            egui::FontId::proportional(10.0),
+            crate::style::font(crate::style::Size::Small),
             ink.muted,
         );
     }
@@ -256,7 +255,7 @@ fn chart(ui: &mut egui::Ui, d: &crate::model::Detail, ink: &Ink, lang: crate::te
             pos2(xn + 3.0, rect.top()),
             egui::Align2::LEFT_TOP,
             t(lang, "now"),
-            egui::FontId::proportional(10.0),
+            crate::style::font(crate::style::Size::Small),
             ink.muted,
         );
     }
@@ -264,7 +263,7 @@ fn chart(ui: &mut egui::Ui, d: &crate::model::Detail, ink: &Ink, lang: crate::te
         pos2(rect.left(), resp.rect.bottom()),
         egui::Align2::LEFT_BOTTOM,
         format!("{} · {} ({})", t(lang, "remembered"), t(lang, "foreseen"), d.unit),
-        egui::FontId::proportional(10.0),
+        crate::style::font(crate::style::Size::Small),
         ink.muted,
     );
 }
@@ -274,45 +273,49 @@ fn world(app: &mut App, ui: &mut egui::Ui) {
     let ink = Ink::of(ui.ctx());
     let lang = app.settings.lang;
     let fr = lang == crate::text::Lang::Fr;
-    egui::Frame::new().stroke(Stroke::new(1.0_f32, ink.faint)).corner_radius(3.0).inner_margin(8.0).show(ui, |ui| {
-        ui.horizontal(|ui| {
-            crate::icons::show(ui, "globe", 15.0, ink.accent);
-            ui.label(RichText::new(t(lang, "world_title")).strong());
-        });
-        ui.label(RichText::new(t(lang, "world_d")).small().color(ink.muted));
-        ui.horizontal(|ui| {
-            ui.label(RichText::new(t(lang, "world_place")).small());
-            ui.add(
-                egui::TextEdit::singleline(&mut app.world_place)
-                    .hint_text(crate::style::hint("World"))
-                    .desired_width(140.0),
-            );
-        });
-        ui.horizontal_wrapped(|ui| {
-            for (k, (_, en, frw)) in grm_connect::world::CATEGORIES.iter().enumerate() {
-                if app.world_off.len() <= k {
-                    app.world_off.resize(k + 1, false);
+    egui::Frame::new()
+        .stroke(Stroke::new(1.0_f32, ink.faint))
+        .corner_radius(crate::style::corner())
+        .inner_margin(8.0)
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                crate::icons::show(ui, "globe", 15.0, ink.accent);
+                ui.label(RichText::new(t(lang, "world_title")).strong());
+            });
+            ui.label(RichText::new(t(lang, "world_d")).small().color(ink.muted));
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(t(lang, "world_place")).small());
+                ui.add(
+                    egui::TextEdit::singleline(&mut app.world_place)
+                        .hint_text(crate::style::hint("World"))
+                        .desired_width(140.0),
+                );
+            });
+            ui.horizontal_wrapped(|ui| {
+                for (k, (_, en, frw)) in grm_connect::world::CATEGORIES.iter().enumerate() {
+                    if app.world_off.len() <= k {
+                        app.world_off.resize(k + 1, false);
+                    }
+                    let on = !app.world_off[k];
+                    if crate::icons::toggle(ui, if on { "check" } else { "minus" }, if fr { *frw } else { *en }, on)
+                        .clicked()
+                    {
+                        app.world_off[k] = on;
+                    }
                 }
-                let on = !app.world_off[k];
-                if crate::icons::toggle(ui, if on { "check" } else { "minus" }, if fr { *frw } else { *en }, on)
-                    .clicked()
-                {
-                    app.world_off[k] = on;
-                }
+            });
+            if crate::icons::button(ui, "globe", t(lang, "world_go")).on_hover_text(t(lang, "world_go_d")).clicked() {
+                let place = app.world_place.trim();
+                let place = if place.is_empty() { "World" } else { place };
+                let only: Vec<&str> = grm_connect::world::CATEGORIES
+                    .iter()
+                    .enumerate()
+                    .filter(|(k, _)| !app.world_off.get(*k).copied().unwrap_or(false))
+                    .map(|(_, c)| c.0)
+                    .collect();
+                app.say(format!("world {place} --only {}", only.join(",")));
             }
         });
-        if crate::icons::button(ui, "globe", t(lang, "world_go")).on_hover_text(t(lang, "world_go_d")).clicked() {
-            let place = app.world_place.trim();
-            let place = if place.is_empty() { "World" } else { place };
-            let only: Vec<&str> = grm_connect::world::CATEGORIES
-                .iter()
-                .enumerate()
-                .filter(|(k, _)| !app.world_off.get(*k).copied().unwrap_or(false))
-                .map(|(_, c)| c.0)
-                .collect();
-            app.say(format!("world {place} --only {}", only.join(",")));
-        }
-    });
 }
 
 fn sandboxes(app: &mut App, ui: &mut egui::Ui) {
@@ -335,32 +338,27 @@ fn sandboxes(app: &mut App, ui: &mut egui::Ui) {
             if crate::icons::toggle(ui, "hammer", &name, on).on_hover_text(t(lang, "space_full")).clicked() {
                 app.space.put(kind.clone());
                 app.zone_center = Some(kind);
-                app.space_on = true;
+                app.go(crate::front::Front::Space);
             }
             ui.label(RichText::new(format!("{nodes} · {rels}")).small().color(ink.muted));
             // where it is on its way in: waiting in the airlock, coming in, in, refused
-            let waiting =
-                app.picture.sandboxes.iter().any(|s| s.name == name || s.name.starts_with(&format!("{name}_")));
-            let coming = app.picture.integrating.iter().any(|s| *s == name || s.starts_with(&format!("{name}_")));
-            let status = match app.ws_status.get(&name) {
-                Some(crate::airlock::WsStatus::Entering) if coming => Some(("ws_coming_in", ink.accent)),
-                Some(crate::airlock::WsStatus::Entering) => Some(("ws_in", ink.text)),
-                Some(crate::airlock::WsStatus::Refused) => Some(("ws_refused", ink.muted)),
-                _ if waiting => Some(("ws_waiting", ink.amber)),
-                _ => None,
-            };
+            use crate::airlock::Passage;
+            let status = crate::airlock::passage(app, &name).map(|p| match p {
+                Passage::Entering => ("ws_coming_in", ink.accent),
+                Passage::In => ("ws_in", ink.text),
+                Passage::Refused => ("ws_refused", ink.muted),
+                Passage::Waiting => ("ws_waiting", ink.amber),
+            });
             if let Some((key, colour)) = status {
                 egui::Frame::new()
                     .stroke(egui::Stroke::new(1.0_f32, colour))
-                    .corner_radius(3.0)
+                    .corner_radius(crate::style::corner())
                     .inner_margin(egui::vec2(5.0, 0.0))
                     .show(ui, |ui| {
                         ui.label(RichText::new(t(lang, key)).small().color(colour));
                     });
             }
-            if crate::icons::sign(ui, "door-open", t(lang, "ws_let_in_d")).clicked() {
-                crate::airlock::open_for_workshop(app, &name);
-            }
+            crate::airlock::door(app, ui, &name, nodes > 0, false);
             // erased: asked twice (the sign, then the line saying what is lost)
             egui::containers::menu::MenuButton::from_button(
                 egui::Button::image(crate::icons::image("trash-2", 14.0, ink.muted)).frame(false),
@@ -402,9 +400,7 @@ fn sandboxes(app: &mut App, ui: &mut egui::Ui) {
                 )
                 .clicked()
                 {
-                    app.sandbox_shown = Some(s.name.clone());
-                    app.current_file = None;
-                    app.space_on = false;
+                    app.go(crate::front::Front::Sandbox(s.name.clone()));
                 }
                 if crate::icons::button(ui, "door-open", t(lang, "airlock_try"))
                     .on_hover_text(t(lang, "airlock_try_d"))
@@ -429,7 +425,7 @@ fn sandboxes(app: &mut App, ui: &mut egui::Ui) {
             let field = app.sandbox_lines.entry(s.name.clone()).or_default();
             let r = ui.add(
                 egui::TextEdit::singleline(field)
-                    .margin(crate::style::FIELD)
+                    .margin(crate::style::field())
                     .hint_text(crate::style::hint(t(lang, "say_in")))
                     .font(egui::TextStyle::Monospace),
             );
@@ -456,7 +452,7 @@ fn sandboxes(app: &mut App, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         ui.add(
             egui::TextEdit::singleline(&mut app.new_sandbox)
-                .margin(crate::style::FIELD)
+                .margin(crate::style::field())
                 .hint_text(crate::style::hint(t(lang, "new_sandbox")))
                 .desired_width(160.0),
         );
@@ -486,7 +482,7 @@ fn trash(app: &mut App, ui: &mut egui::Ui) {
     }
     for n in names {
         ui.horizontal(|ui| {
-            ui.label(RichText::new(&n).monospace());
+            ui.label(RichText::new(&n));
             if crate::icons::button(ui, "archive-restore", t(lang, "restore")).clicked() {
                 app.say(format!("app restore {n}"));
             }
@@ -556,7 +552,7 @@ pub fn feelings_titled(app: &mut App, ui: &mut egui::Ui, titled: bool) {
             crate::icons::show(ui, sign, 14.0, colour);
             ui.label(RichText::new(name).small()).on_hover_text(what);
             let (rect, _) = ui.allocate_exact_size(vec2(120.0, 8.0), Sense::hover());
-            ui.painter().rect_filled(rect, 4.0, ink.faint.gamma_multiply(0.5));
+            ui.painter().rect_filled(rect, crate::style::corner(), ink.faint.gamma_multiply(0.5));
             let (a, b) = if signed {
                 let mid = rect.center().x;
                 let x = mid + (v.clamp(-1.0, 1.0) as f32) * rect.width() / 2.0;
@@ -564,8 +560,12 @@ pub fn feelings_titled(app: &mut App, ui: &mut egui::Ui, titled: bool) {
             } else {
                 (rect.left(), rect.left() + v.clamp(0.0, 1.0) as f32 * rect.width())
             };
-            ui.painter().rect_filled(egui::Rect::from_x_y_ranges(a..=b.max(a + 1.0), rect.y_range()), 4.0, colour);
-            ui.label(RichText::new(format!("{v:+.2}")).small().monospace().color(ink.muted));
+            ui.painter().rect_filled(
+                egui::Rect::from_x_y_ranges(a..=b.max(a + 1.0), rect.y_range()),
+                crate::style::corner(),
+                colour,
+            );
+            ui.label(RichText::new(format!("{v:+.2}")).small().color(ink.muted));
         });
     };
     let pleasure = if m.dopamine >= 0.0 { ink.source(2) } else { ink.amber };
@@ -610,7 +610,7 @@ pub fn feelings_titled(app: &mut App, ui: &mut egui::Ui, titled: bool) {
     if m.past.len() > 1 {
         let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width().min(320.0), 70.0), Sense::hover());
         let p = ui.painter_at(rect);
-        p.rect_filled(rect, 4.0, ink.surface);
+        p.rect_filled(rect, crate::style::corner(), ink.surface);
         let n = m.past.len();
         for (k, colour, signed) in [(0, pleasure, true), (1, ink.accent, false), (2, ink.source(4), true)] {
             let pts: Vec<egui::Pos2> = m
@@ -685,7 +685,7 @@ pub fn witness_equations(app: &App, ui: &mut egui::Ui) {
         ui.horizontal_wrapped(|ui| {
             crate::icons::show(ui, "atom", 13.0, ink.accent);
             crate::math::show(ui, eq, 13.0, lang);
-            ui.label(RichText::new(format!("≈ {v:.4e} {unit}")).small().monospace().color(ink.muted))
+            ui.label(RichText::new(format!("≈ {v:.4e} {unit}")).small().color(ink.muted))
                 .on_hover_text(if lang == crate::text::Lang::Fr { frw } else { en });
         });
     }
@@ -753,123 +753,43 @@ fn journal(app: &mut App, ui: &mut egui::Ui) {
         ui.label(RichText::new(t(lang, "journal")).strong());
     });
     let dark = egui::Color32::from_rgb(0x16, 0x17, 0x1b);
-    egui::Frame::new().fill(dark).corner_radius(2.0).inner_margin(egui::Margin::symmetric(10, 8)).show(ui, |ui| {
-        ui.set_min_width(ui.available_width());
-        egui::ScrollArea::vertical().id_salt("journal-pane").max_height(360.0).auto_shrink([false, true]).show(
-            ui,
-            |ui| {
-                for (tick, kind, text) in app.picture.journal.iter().rev() {
-                    let colour = if matches!(kind.as_str(), "quarantine" | "revised" | "recall" | "refused") {
-                        ink.amber
-                    } else {
-                        egui::Color32::from_rgb(0x9f, 0xc8, 0x8a)
-                    };
-                    ui.horizontal_wrapped(|ui| {
-                        ui.spacing_mut().item_spacing.x = 6.0;
-                        ui.label(
-                            RichText::new(format!("[{tick}]"))
-                                .monospace()
-                                .small()
-                                .color(egui::Color32::from_rgb(0x8a, 0x8c, 0x92)),
-                        );
-                        ui.label(RichText::new(kind).monospace().small().color(colour));
-                        let shown = if lang == crate::text::Lang::Fr { crate::french::fr(text) } else { text.clone() };
-                        ui.label(
-                            RichText::new(shown).monospace().small().color(egui::Color32::from_rgb(0xd8, 0xd8, 0xd0)),
-                        );
-                    });
-                }
-            },
-        );
-    });
-}
-
-fn eye(app: &mut App, ui: &mut egui::Ui) {
-    let ink = Ink::of(ui.ctx());
-    let lang = app.settings.lang;
-    // what it does, in four signs
-    egui::Frame::new().fill(ink.raised).corner_radius(3.0).inner_margin(egui::Margin::symmetric(10, 8)).show(
-        ui,
-        |ui| {
-            for (sign, key) in
-                [("image", "eye_how1"), ("sparkles", "eye_how2"), ("scan-eye", "eye_how3"), ("network", "eye_how4")]
-            {
-                ui.horizontal(|ui| {
-                    crate::icons::show(ui, sign, 15.0, ink.accent);
-                    ui.label(RichText::new(t(lang, key)).small());
-                });
-            }
-        },
-    );
-    ui.add_space(6.0);
-    ui.horizontal(|ui| {
-        ui.add(
-            egui::TextEdit::singleline(&mut app.eye_path)
-                .margin(crate::style::FIELD)
-                .hint_text(crate::style::hint(t(lang, "picture_path")))
-                .desired_width(150.0),
-        );
-        if crate::icons::sign(ui, "folder-open", t(lang, "choose")).clicked() {
-            app.pick(crate::app::Pick::Eye);
-        }
-        if ui.button(t(lang, "see")).clicked() && !app.eye_path.trim().is_empty() {
-            let path = std::path::PathBuf::from(app.eye_path.trim().trim_matches('"'));
-            app.see(&path);
-            // seen (or being seen): the field is empty again
-            app.eye_path.clear();
-        }
-    });
-    // what is being seen: one after another
-    if !app.seeing.is_empty() {
-        ui.horizontal(|ui| {
-            ui.add(egui::Spinner::new().size(16.0).color(ink.accent));
-            ui.label(RichText::new(format!("{} ({})", t(lang, "eye_looking"), app.seeing.len())).color(ink.muted));
-        });
-        ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
-    }
-    if app.eyes.is_empty() {
-        ui.label(RichText::new(t(lang, "no_sight")).color(ink.muted));
-        return;
-    }
-    let width = ui.available_width();
-    let eyes: Vec<(String, crate::app::Eye)> = app.eyes.iter().map(|(n, e)| (n.clone(), e.clone())).collect();
-    for (name, e) in &eyes {
-        ui.add_space(6.0);
-        ui.label(
-            RichText::new(format!(
-                "{name}: {}x{} · {} rounds · {:.2?}",
-                e.sight.clean.width, e.sight.clean.height, e.sight.rounds, e.sight.elapsed
-            ))
-            .strong(),
-        );
-        let n = e.textures.len().max(1) as f32;
-        let side = ((width - 8.0 * n) / n).clamp(60.0, 240.0);
-        let mut open: Option<usize> = None;
-        ui.horizontal(|ui| {
-            for (k, (tag, tex)) in e.textures.iter().enumerate() {
-                ui.vertical(|ui| {
-                    let size = tex.size_vec2();
-                    let scale = side / size.x.max(size.y).max(1.0);
-                    // a click: bigger, and the others one after another
-                    let r = ui
-                        .add(
-                            egui::Image::from_texture(egui::load::SizedTexture::new(tex.id(), size * scale))
-                                .sense(egui::Sense::click()),
-                        )
-                        .on_hover_text(t(lang, "eye_bigger"));
-                    if r.clicked() {
-                        open = Some(k);
+    egui::Frame::new()
+        .fill(dark)
+        .corner_radius(crate::style::corner())
+        .inner_margin(egui::Margin::symmetric(10, 8))
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            egui::ScrollArea::vertical().id_salt("journal-pane").max_height(360.0).auto_shrink([false, true]).show(
+                ui,
+                |ui| {
+                    for (tick, kind, text) in app.picture.journal.iter().rev() {
+                        let colour = if matches!(kind.as_str(), "quarantine" | "revised" | "recall" | "refused") {
+                            ink.amber
+                        } else {
+                            egui::Color32::from_rgb(0x9f, 0xc8, 0x8a)
+                        };
+                        ui.horizontal_wrapped(|ui| {
+                            ui.spacing_mut().item_spacing.x = 6.0;
+                            ui.label(
+                                RichText::new(format!("[{tick}]"))
+                                    .monospace()
+                                    .small()
+                                    .color(egui::Color32::from_rgb(0x8a, 0x8c, 0x92)),
+                            );
+                            ui.label(RichText::new(kind).monospace().small().color(colour));
+                            let shown =
+                                if lang == crate::text::Lang::Fr { crate::french::fr(text) } else { text.clone() };
+                            ui.label(
+                                RichText::new(shown)
+                                    .monospace()
+                                    .small()
+                                    .color(egui::Color32::from_rgb(0xd8, 0xd8, 0xd0)),
+                            );
+                        });
                     }
-                    ui.label(RichText::new(t(lang, tag)).small().color(ink.muted));
-                });
-            }
+                },
+            );
         });
-        if let Some(k) = open {
-            app.lightbox = Some((name.clone(), k));
-        }
-        let top: Vec<String> = e.sight.surprises(3).iter().map(|(x, y, s)| format!("({x}, {y}) {s:.1} σ")).collect();
-        ui.label(RichText::new(format!("{}: {}", t(lang, "surprise"), top.join(", "))).small());
-    }
 }
 
 /// Recording what is played (both voices and the human's), and playing it again.
@@ -899,8 +819,7 @@ fn takes(app: &mut App, ui: &mut egui::Ui) {
                 RichText::new(
                     p.with_extension("mid").file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default(),
                 )
-                .small()
-                .monospace(),
+                .small(),
             );
         });
     }
@@ -1051,8 +970,8 @@ fn sound(app: &mut App, ui: &mut egui::Ui) {
 fn meter(ui: &mut egui::Ui, peak: f32, ink: &Ink) {
     let w = ui.available_width().min(260.0);
     let (r, _) = ui.allocate_exact_size(vec2(w, 6.0), Sense::hover());
-    ui.painter().rect_filled(r, 3.0, ink.faint);
+    ui.painter().rect_filled(r, crate::style::corner(), ink.faint);
     let mut f = r;
     f.set_width(r.width() * (peak / grm_sound::mixer::LIMIT as f32).clamp(0.0, 1.0));
-    ui.painter().rect_filled(f, 3.0, if peak > 0.7 { ink.amber } else { ink.accent });
+    ui.painter().rect_filled(f, crate::style::corner(), if peak > 0.7 { ink.amber } else { ink.accent });
 }

@@ -110,7 +110,7 @@ pub fn panel(app: &mut App, ui: &mut egui::Ui) {
     let shift = today - v.time;
     egui::SidePanel::left("universe-side").resizable(true).default_width(360.0).show_inside(ui, |ui| {
         egui::ScrollArea::vertical().id_salt("universe-side-scroll").show(ui, |ui| {
-            ui.label(RichText::new(t(lang, "uni_title")).size(18.0).strong());
+            ui.label(RichText::new(t(lang, "uni_title")).size(crate::style::size(crate::style::Size::Title)).strong());
             ui.label(RichText::new(t(lang, "uni_about")).small().color(ink.muted));
             ui.add_space(6.0);
             // the seed: the one degree of freedom the family tree grows from, and the cadence quantities follow
@@ -153,7 +153,7 @@ pub fn panel(app: &mut App, ui: &mut egui::Ui) {
                 // checked at the values the machine holds now
                 let check: f64 =
                     f.terms.iter().map(|(i, p)| p * model.value[*i].log10()).sum::<f64>() - f.number.log10();
-                let words = RichText::new(&text).monospace().color(if chosen { ink.accent } else { ink.text });
+                let words = RichText::new(&text).color(if chosen { ink.accent } else { ink.text });
                 let r = ui.add(egui::Button::new(words).frame(false));
                 if r.clicked() {
                     app.universe.chosen = if chosen { None } else { Some(k) };
@@ -204,7 +204,7 @@ pub fn panel(app: &mut App, ui: &mut egui::Ui) {
         (v.yaw, v.pitch, v.zoom) = (-0.35, 0.28, 1.0);
     }
     let painter = ui.painter_at(rect);
-    painter.rect_filled(rect, 6.0, Color32::from_rgb(6, 8, 14));
+    painter.rect_filled(rect, crate::style::corner(), Color32::from_rgb(6, 8, 14));
     let (cy, sy, cp, sp) = (v.yaw.cos(), v.yaw.sin(), v.pitch.cos(), v.pitch.sin());
     let scale = rect.width().min(rect.height() * 1.6) / 300.0 * v.zoom;
     let centre = rect.center();
@@ -233,7 +233,13 @@ pub fn panel(app: &mut App, ui: &mut egui::Ui) {
     for d in (-120..=120).step_by(40) {
         let (p, _) = project(d as f64, -62.0, 0.0);
         let label = if d == 0 { t(lang, "uni_zero").to_string() } else { format!("10^{d}") };
-        painter.text(p + vec2(0.0, 6.0), egui::Align2::CENTER_TOP, label, egui::FontId::monospace(10.0), ink.muted);
+        painter.text(
+            p + vec2(0.0, 6.0),
+            egui::Align2::CENTER_TOP,
+            label,
+            crate::style::font(crate::style::Size::Small),
+            ink.muted,
+        );
     }
     // its relations, faint
     for &(i, j) in &model.ties {
@@ -282,7 +288,7 @@ pub fn panel(app: &mut App, ui: &mut egui::Ui) {
                 p + vec2(r + 4.0, 0.0),
                 egui::Align2::LEFT_CENTER,
                 short(&model.names[i]),
-                egui::FontId::monospace(11.0),
+                crate::style::font(crate::style::Size::Small),
                 if lit { ink.text } else { ink.muted },
             );
         }
@@ -348,7 +354,6 @@ pub fn panel(app: &mut App, ui: &mut egui::Ui) {
             t(lang, "uni_now"),
             today
         ))
-        .monospace()
         .small()
         .color(ink.muted),
     );

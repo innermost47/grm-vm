@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Anthony Charretier
-//! The machine's look: a palette (chosen among a few, or each colour by hand in the settings), its widgets drawn in
-//! it (not egui's own grey), a typewriter font everywhere if wished. Apps inherit it, and can change it (see
-//! `looks.rs`: a look is a small network of its own).
+//! The machine's look, read from its style file (`style/style.grm`, GRML): the fonts (Courier for the code only),
+//! a few sizes of text used everywhere, the corners, the room inside things, the colours; its variants. The
+//! widgets are drawn in it (not egui's own grey). Apps inherit it, and can change it (see `looks.rs`: a look is a
+//! small network of its own).
 
 use eframe::egui::{self, Color32, CornerRadius, FontFamily, Stroke};
 use serde::{Deserialize, Serialize};
@@ -37,10 +38,246 @@ impl Default for Palette {
     }
 }
 
+/// The style as it comes (the factory's): `style/style.grm`, inside the machine.
+pub const FACTORY: &str = include_str!("../../../style/style.grm");
+
+/// What a style says besides its colours: its fonts, its few sizes, its corners, the room inside things.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Shape {
+    /// The fonts of the titles, of the text, of the code.
+    pub title_font: String,
+    pub text_font: String,
+    pub code_font: String,
+    /// title, subtitle, text, small, tiny (see `Size`), and the code's.
+    pub sizes: [f32; 5],
+    pub code_size: f32,
+    pub corner: f32,
+    pub button: [f32; 2],
+    pub field: [f32; 2],
+    pub spacing: [f32; 2],
+}
+
+impl Default for Shape {
+    fn default() -> Self {
+        Shape {
+            title_font: "IBM Plex Sans SemiBold".into(),
+            text_font: "IBM Plex Sans".into(),
+            code_font: "Courier Prime".into(),
+            sizes: [18.0, 15.0, 13.0, 11.0, 9.0],
+            code_size: 13.0,
+            corner: 2.0,
+            button: [10.0, 4.0],
+            field: [8.0, 5.0],
+            spacing: [8.0, 6.0],
+        }
+    }
+}
+
+/// The few sizes of text, used everywhere (never a size of its own).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Size {
+    Title,
+    Subtitle,
+    Text,
+    Small,
+    /// Inside a small widget (a knob's name, a step's number).
+    Tiny,
+}
+
+/// The fonts the machine carries (free: SIL Open Font License, in `assets/fonts`).
+pub const FONTS: [(&str, &[u8]); 3] = [
+    ("IBM Plex Sans", include_bytes!("../../../assets/fonts/IBMPlexSans-Regular.ttf")),
+    ("IBM Plex Sans SemiBold", include_bytes!("../../../assets/fonts/IBMPlexSans-SemiBold.ttf")),
+    ("Courier Prime", include_bytes!("../../../assets/fonts/CourierPrime-Regular.ttf")),
+];
+
+/// One style read: its name, its palette, its shape.
+#[derive(Debug, Clone)]
+pub struct Style {
+    pub palette: Palette,
+    pub shape: Shape,
+}
+
+fn hex(w: &str) -> Option<Rgb> {
+    let h = w.strip_prefix('#')?;
+    if h.len() != 6 {
+        return None;
+    }
+    let b = |k: usize| u8::from_str_radix(&h[k..k + 2], 16).ok();
+    Some([b(0)?, b(2)?, b(4)?])
+}
+
+/// The styles of a file (each variant made from the one it comes from, then what it says), and what was not
+/// understood (line, why).
+pub fn read(text: &str) -> (Vec<Style>, Vec<(usize, String)>) {
+    let mut out: Vec<Style> = vec![];
+    let mut wrong = vec![];
+    for (k, raw) in text.lines().enumerate() {
+        // a comment: a line that begins with `#`, or what follows `# ` (a colour is `#RRGGBB`, without a space)
+        let t = raw.trim();
+        let line = if t.starts_with('#') { "" } else { t.find("# ").map(|k| &t[..k]).unwrap_or(t).trim() };
+        if line.is_empty() {
+            continue;
+        }
+        let words: Vec<&str> = line.split_whitespace().collect();
+        let no = k + 1;
+        match words.as_slice() {
+            ["style", name] => out.push(Style {
+                palette: Palette { name: name.to_string(), ..Palette::bare() },
+                shape: Shape::default(),
+            }),
+            ["variant", name, "from", base] => match out.iter().find(|s| s.palette.name == *base).cloned() {
+                Some(mut s) => {
+                    s.palette.name = name.to_string();
+                    out.push(s);
+                }
+                None => wrong.push((no, format!("no style {base} before it"))),
+            },
+            _ => {
+                let Some(st) = out.last_mut() else {
+                    wrong.push((no, "a style begins with `style NAME`".into()));
+                    continue;
+                };
+                if let Err(e) = said(st, &words, line) {
+                    wrong.push((no, e));
+                }
+            }
+        }
+    }
+    (out, wrong)
+}
+
+fn said(st: &mut Style, words: &[&str], line: &str) -> Result<(), String> {
+    let num =
+        |w: &str| w.parse::<f32>().ok().filter(|x| x.is_finite() && *x >= 0.0).ok_or(format!("not a number: {w}"));
+    let quoted = || line.split('"').nth(1).map(str::to_string).ok_or("a font is named between quotes".to_string());
+    let sh = &mut st.shape;
+    match words {
+        ["dark"] => st.palette.dark = true,
+        ["light"] => st.palette.dark = false,
+        ["font", which, "=", ..] => {
+            let f = quoted()?;
+            if !FONTS.iter().any(|(n, _)| *n == f) {
+                return Err(format!("no font {f} (known: {})", FONTS.map(|x| x.0).join(", ")));
+            }
+            match *which {
+                "title" => sh.title_font = f,
+                "text" => sh.text_font = f,
+                "code" => sh.code_font = f,
+                _ => return Err(format!("font {which}: title, text or code")),
+            }
+        }
+        ["size", which, "=", v] => {
+            let v = num(v)?.clamp(6.0, 48.0);
+            match *which {
+                "title" => sh.sizes[0] = v,
+                "subtitle" => sh.sizes[1] = v,
+                "text" => sh.sizes[2] = v,
+                "small" => sh.sizes[3] = v,
+                "tiny" => sh.sizes[4] = v,
+                "code" => sh.code_size = v,
+                _ => return Err(format!("size {which}: title, subtitle, text, small, tiny or code")),
+            }
+        }
+        ["corner", "=", v] => sh.corner = num(v)?.min(12.0),
+        ["padding", which, "=", x, y] => {
+            let p = [num(x)?, num(y)?];
+            match *which {
+                "button" => sh.button = p,
+                "field" => sh.field = p,
+                _ => return Err(format!("padding {which}: button or field")),
+            }
+        }
+        ["spacing", "=", x, y] => sh.spacing = [num(x)?, num(y)?],
+        ["colour" | "color", which, "=", v] => {
+            let c = hex(v).ok_or(format!("not a colour: {v} (#RRGGBB)"))?;
+            let p = &mut st.palette;
+            match *which {
+                "background" => p.background = c,
+                "panel" => p.panel = c,
+                "raised" => p.raised = c,
+                "text" => p.text = c,
+                "muted" => p.muted = c,
+                "faint" => p.faint = c,
+                "accent" => p.accent = c,
+                "warn" => p.warn = c,
+                _ => {
+                    return Err(format!(
+                        "colour {which}: background, panel, raised, text, muted, faint, accent or warn"
+                    ))
+                }
+            }
+        }
+        ["sources", "=", rest @ ..] => {
+            let cs: Option<Vec<Rgb>> = rest.iter().map(|w| hex(w)).collect();
+            st.palette.sources = cs.filter(|c| !c.is_empty()).ok_or("sources = #RRGGBB #RRGGBB ...".to_string())?;
+        }
+        _ => return Err(format!("not understood: {line}")),
+    }
+    Ok(())
+}
+
+/// The styles there are: the factory's (the human's own file comes in 2b, beside the memory).
+pub fn styles() -> Vec<Style> {
+    read(FACTORY).0
+}
+
+/// The palettes of the styles (each variant one).
 pub fn presets() -> Vec<Palette> {
-    vec![
+    styles().into_iter().map(|s| s.palette).collect()
+}
+
+/// The shape of the style a palette comes from (the first one's, if it is a palette of one's own).
+pub fn shape_of(palette: &Palette) -> Shape {
+    let all = styles();
+    all.iter().find(|s| s.palette.name == palette.name).or(all.first()).map(|s| s.shape.clone()).unwrap_or_default()
+}
+
+/// The shape in use (one window, one style at a time).
+static SHAPE: std::sync::RwLock<Option<Shape>> = std::sync::RwLock::new(None);
+
+fn shape() -> Shape {
+    SHAPE.read().ok().and_then(|s| s.clone()).unwrap_or_default()
+}
+
+/// A size of text of the style.
+pub fn size(s: Size) -> f32 {
+    let k = s as usize;
+    shape().sizes[k]
+}
+
+/// The text's font at one of the style's sizes (the titles' font for titles and subtitles).
+pub fn font(s: Size) -> egui::FontId {
+    let family = if matches!(s, Size::Title | Size::Subtitle) { title_family() } else { FontFamily::Proportional };
+    egui::FontId::new(size(s), family)
+}
+
+/// The code's font (only the code: what is written in GRML, the prompt, the journal's lines).
+pub fn code(s: Size) -> egui::FontId {
+    let sz = if s == Size::Text { shape().code_size } else { size(s) };
+    egui::FontId::new(sz, FontFamily::Monospace)
+}
+
+/// The corner of everything drawn (few are round).
+pub fn corner() -> f32 {
+    shape().corner
+}
+
+/// The room inside a field where words are written.
+pub fn field() -> egui::Margin {
+    let f = shape().field;
+    egui::Margin::symmetric(f[0] as i8, f[1] as i8)
+}
+
+fn title_family() -> FontFamily {
+    FontFamily::Name("title".into())
+}
+
+impl Palette {
+    /// A palette with nothing said yet (a style's colours are said in its file).
+    fn bare() -> Palette {
         Palette {
-            name: "night".into(),
+            name: String::new(),
             dark: true,
             background: [0x17, 0x18, 0x1B],
             panel: [0x1F, 0x20, 0x24],
@@ -50,84 +287,9 @@ pub fn presets() -> Vec<Palette> {
             faint: [0x45, 0x48, 0x50],
             accent: [0xE8, 0xA8, 0x3D],
             warn: [0xF0, 0x8A, 0x4B],
-            sources: vec![
-                [0xB9, 0xA6, 0xF0],
-                [0x7F, 0xB8, 0xF0],
-                [0xE8, 0xC4, 0x6A],
-                [0x6F, 0xC8, 0xB0],
-                [0xE6, 0x9A, 0xC0],
-                [0x9F, 0xB0, 0xC6],
-                [0xA8, 0xD0, 0x7A],
-                [0x6C, 0xC4, 0xE6],
-            ],
-        },
-        Palette {
-            name: "day".into(),
-            dark: false,
-            background: [0xFB, 0xFA, 0xF6],
-            panel: [0xF1, 0xEF, 0xEA],
-            raised: [0xE4, 0xE1, 0xDA],
-            text: [0x22, 0x23, 0x27],
-            muted: [0x5E, 0x61, 0x69],
-            faint: [0xC5, 0xC2, 0xBA],
-            accent: [0xB8, 0x6E, 0x00],
-            warn: [0xB3, 0x4E, 0x12],
-            sources: vec![
-                [0x6A, 0x4C, 0xC4],
-                [0x2E, 0x6C, 0xC4],
-                [0x9A, 0x74, 0x00],
-                [0x12, 0x80, 0x6C],
-                [0xB0, 0x44, 0x7C],
-                [0x55, 0x66, 0x80],
-                [0x45, 0x86, 0x32],
-                [0x1E, 0x84, 0xA8],
-            ],
-        },
-        Palette {
-            name: "ocean".into(),
-            dark: true,
-            background: [0x0F, 0x1A, 0x22],
-            panel: [0x15, 0x22, 0x2C],
-            raised: [0x1F, 0x30, 0x3C],
-            text: [0xDD, 0xEA, 0xF0],
-            muted: [0x8F, 0xA8, 0xB6],
-            faint: [0x34, 0x4A, 0x58],
-            accent: [0x5F, 0xD0, 0xC8],
-            warn: [0xF0, 0xB0, 0x5A],
-            sources: vec![
-                [0x8F, 0xC8, 0xFF],
-                [0xC8, 0xA8, 0xFF],
-                [0x7F, 0xE0, 0xB8],
-                [0xFF, 0xC8, 0x8A],
-                [0xF0, 0x9A, 0xC8],
-                [0xA8, 0xC0, 0xD0],
-                [0xB8, 0xE0, 0x7A],
-                [0x6C, 0xD8, 0xF0],
-            ],
-        },
-        Palette {
-            name: "contrast".into(),
-            dark: true,
-            background: [0x00, 0x00, 0x00],
-            panel: [0x0C, 0x0C, 0x0C],
-            raised: [0x22, 0x22, 0x22],
-            text: [0xFF, 0xFF, 0xFF],
-            muted: [0xD0, 0xD0, 0xD0],
-            faint: [0x70, 0x70, 0x70],
-            accent: [0xFF, 0xD0, 0x40],
-            warn: [0xFF, 0x9A, 0x40],
-            sources: vec![
-                [0xC8, 0xB4, 0xFF],
-                [0x8C, 0xC8, 0xFF],
-                [0xFF, 0xE0, 0x8C],
-                [0x7C, 0xF0, 0xC8],
-                [0xFF, 0xA8, 0xD8],
-                [0xD0, 0xD8, 0xE8],
-                [0xC0, 0xF0, 0x80],
-                [0x80, 0xE8, 0xFF],
-            ],
-        },
-    ]
+            sources: vec![[0xB9, 0xA6, 0xF0]],
+        }
+    }
 }
 
 pub fn c(rgb: Rgb) -> Color32 {
@@ -242,14 +404,14 @@ pub fn colours(ctx: &egui::Context, p: &Palette) {
 }
 
 /// The machine's look on the whole window.
-pub fn apply(ctx: &egui::Context, p: &Palette, typewriter: bool, zoom: f32) {
+pub fn apply(ctx: &egui::Context, p: &Palette, zoom: f32) {
     let ink = Ink::from(p);
     ctx.data_mut(|d| d.insert_temp(egui::Id::NULL, ink));
     let v = visuals(p, &ink);
     ctx.set_visuals_of(egui::Theme::Dark, v.clone());
     ctx.set_visuals_of(egui::Theme::Light, v);
     ctx.set_theme(if p.dark { egui::Theme::Dark } else { egui::Theme::Light });
-    rest(ctx, typewriter, zoom);
+    rest(ctx, shape_of(p), zoom);
 }
 
 fn visuals(p: &Palette, ink: &Ink) -> egui::Visuals {
@@ -306,11 +468,12 @@ fn visuals(p: &Palette, ink: &Ink) -> egui::Visuals {
     v
 }
 
-fn rest(ctx: &egui::Context, typewriter: bool, zoom: f32) {
+fn rest(ctx: &egui::Context, sh: Shape, zoom: f32) {
+    let sizes = sh.sizes;
     ctx.all_styles_mut(|st| {
-        st.spacing.item_spacing = egui::vec2(8.0, 6.0);
-        st.spacing.button_padding = egui::vec2(10.0, 4.0);
-        st.spacing.interact_size.y = 24.0;
+        st.spacing.item_spacing = egui::vec2(sh.spacing[0], sh.spacing[1]);
+        st.spacing.button_padding = egui::vec2(sh.button[0], sh.button[1]);
+        st.spacing.interact_size.y = (sizes[2] * 1.85).max(22.0);
         // words shown are not taken for words to select (no text cursor over a label)
         st.interaction.selectable_labels = false;
         // check boxes and radio buttons with a little room
@@ -319,19 +482,45 @@ fn rest(ctx: &egui::Context, typewriter: bool, zoom: f32) {
         st.spacing.icon_spacing = 8.0;
         st.spacing.window_margin = egui::Margin::same(12);
         st.animation_time = 0.12;
+        use egui::TextStyle as T;
+        st.text_styles = [
+            (T::Heading, egui::FontId::new(sizes[0], title_family())),
+            (T::Name("subtitle".into()), egui::FontId::new(sizes[1], title_family())),
+            (T::Body, egui::FontId::new(sizes[2], FontFamily::Proportional)),
+            (T::Button, egui::FontId::new(sizes[2], FontFamily::Proportional)),
+            (T::Small, egui::FontId::new(sizes[3], FontFamily::Proportional)),
+            (T::Monospace, egui::FontId::new(sh.code_size, FontFamily::Monospace)),
+        ]
+        .into();
     });
-    // a typewriter everywhere, as the machine first spoke
+    // the style's fonts (egui's own after them, for the signs they lack)
     let mut fonts = egui::FontDefinitions::default();
-    if typewriter {
-        let mono = fonts.families.get(&FontFamily::Monospace).cloned().unwrap_or_default();
-        fonts.families.insert(FontFamily::Proportional, mono);
+    for (name, bytes) in FONTS {
+        fonts.font_data.insert(name.into(), std::sync::Arc::new(egui::FontData::from_static(bytes)));
     }
+    // after the style's font, egui's own (the signs it lacks: the banner's blocks, arrows, emoji)
+    let mut after: Vec<String> = vec![];
+    for f in [FontFamily::Monospace, FontFamily::Proportional] {
+        for n in fonts.families.get(&f).cloned().unwrap_or_default() {
+            if !after.contains(&n) {
+                after.push(n);
+            }
+        }
+    }
+    let mut put = |family: FontFamily, first: &str| {
+        let mut list = vec![first.to_string()];
+        list.extend(after.iter().cloned());
+        fonts.families.insert(family, list);
+    };
+    put(title_family(), &sh.title_font);
+    put(FontFamily::Monospace, &sh.code_font);
+    put(FontFamily::Proportional, &sh.text_font);
     ctx.set_fonts(fonts);
     ctx.set_zoom_factor(zoom.clamp(0.8, 2.0));
+    if let Ok(mut s) = SHAPE.write() {
+        *s = Some(sh);
+    }
 }
-
-/// The room inside a field where words are written.
-pub const FIELD: egui::Margin = egui::Margin { left: 8, right: 8, top: 5, bottom: 5 };
 
 /// What a field waits for: in italics and quiet, so that it is not taken for something written.
 pub fn hint(text: impl Into<String>) -> egui::RichText {
@@ -342,15 +531,19 @@ pub fn hint(text: impl Into<String>) -> egui::RichText {
 pub fn terminal(ui: &mut egui::Ui, lines: &[String]) {
     let ink = Ink::of(ui.ctx());
     let dark = Color32::from_rgb(0x16, 0x17, 0x1b);
-    egui::Frame::new().fill(dark).corner_radius(2.0).inner_margin(egui::Margin::symmetric(12, 10)).show(ui, |ui| {
-        ui.set_min_width(ui.available_width());
-        // the code's colours, on a dark ground whatever the palette
-        let term = Ink { text: Color32::from_rgb(0xd8, 0xd8, 0xd0), muted: Color32::from_rgb(0x8a, 0x8c, 0x92), ..ink };
-        for l in lines {
-            let job = crate::code::highlight_line(&term, l);
-            ui.label(job);
-        }
-    });
+    egui::Frame::new().fill(dark).corner_radius(corner()).inner_margin(egui::Margin::symmetric(12, 10)).show(
+        ui,
+        |ui| {
+            ui.set_min_width(ui.available_width());
+            // the code's colours, on a dark ground whatever the palette
+            let term =
+                Ink { text: Color32::from_rgb(0xd8, 0xd8, 0xd0), muted: Color32::from_rgb(0x8a, 0x8c, 0x92), ..ink };
+            for l in lines {
+                let job = crate::code::highlight_line(&term, l);
+                ui.label(job);
+            }
+        },
+    );
 }
 
 /// A selected tab or button: the accent behind, the text that stands on it.
@@ -370,3 +563,64 @@ pub const BANNER: &str = concat!(
     " ██████  ██   ██ ██      ██     o───o\n",
     "    the Global Relational Model machine",
 );
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_factory_style_reads_whole_and_its_variants_change_only_what_they_say() {
+        let (styles, wrong) = read(FACTORY);
+        assert!(wrong.is_empty(), "{wrong:?}");
+        let names: Vec<&str> = styles.iter().map(|s| s.palette.name.as_str()).collect();
+        assert_eq!(names, ["night", "day", "ocean", "contrast"]);
+        let (night, day) = (&styles[0], &styles[1]);
+        assert!(night.palette.dark && !day.palette.dark);
+        assert_eq!(night.shape, day.shape, "a variant keeps the shape it does not change");
+        assert_ne!(night.palette.background, day.palette.background);
+        assert_eq!(night.shape.code_font, "Courier Prime");
+        assert_eq!(night.shape.text_font, "IBM Plex Sans");
+        assert_eq!(night.palette.sources.len(), 8);
+    }
+
+    #[test]
+    fn what_a_style_file_says_wrong_is_said_with_its_line() {
+        let (styles, wrong) = read(
+            "corner = 3\nstyle mine\n  font text = \"Comic\"\n  size huge = 40\n  colour accent = red\n  corner = 4 # round enough\nvariant other from nobody\n",
+        );
+        assert_eq!(styles.len(), 1);
+        assert_eq!(styles[0].shape.corner, 4.0);
+        let lines: Vec<usize> = wrong.iter().map(|w| w.0).collect();
+        assert_eq!(lines, [1, 3, 4, 5, 7], "{wrong:?}");
+    }
+
+    /// Few sizes, few corners: no widget has a size or a corner of its own, all come from the style.
+    #[test]
+    fn no_size_of_text_and_no_corner_is_written_outside_the_style() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let literal = |s: &str, at: &str| {
+            s.match_indices(at)
+                .any(|(k, _)| s[k + at.len()..].chars().next().is_some_and(|c| c.is_ascii_digit() && c != '0'))
+        };
+        for e in std::fs::read_dir(dir).unwrap().flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            if !name.ends_with(".rs") || name == "style.rs" {
+                continue;
+            }
+            let text = std::fs::read_to_string(e.path()).unwrap();
+            for (k, line) in text.lines().enumerate() {
+                for at in [
+                    "FontId::proportional(",
+                    "FontId::monospace(",
+                    "RichText::new(",
+                    ".size(",
+                    "corner_radius(",
+                    "CornerRadius::same(",
+                ] {
+                    let bad = if at == "RichText::new(" { false } else { literal(line, at) };
+                    assert!(!bad, "{name}:{}: a size or a corner of its own: {}", k + 1, line.trim());
+                }
+            }
+        }
+    }
+}

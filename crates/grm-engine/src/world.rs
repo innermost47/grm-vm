@@ -246,6 +246,9 @@ pub struct World {
     pub baseline: IndexMap<String, (f64, f64)>,
     /// What was written in it, line by line, when it is a workshop (what its window shows and lets change).
     pub written: Vec<String>,
+    /// Where a workshop is on its way into the main network (`waiting`, `entering`, `refused`), and the lines it
+    /// had then (as `written_hash` says them): changed since, it has to go through the airlock again.
+    pub passage: Option<(String, u64)>,
 }
 
 impl Default for World {
@@ -282,6 +285,7 @@ impl World {
             trash: IndexMap::new(),
             baseline: IndexMap::new(),
             written: vec![],
+            passage: None,
         }
     }
 
@@ -574,6 +578,15 @@ impl World {
                 ws.sleep(&dir.join(format!("{name}.world")))?;
                 let lines = serde_json::to_string(&ws.written).unwrap_or_default();
                 let _ = std::fs::write(dir.join(format!("{name}.lines.json")), lines);
+                let passage = dir.join(format!("{name}.passage.grm"));
+                match &ws.passage {
+                    Some((status, hash)) => {
+                        let _ = std::fs::write(&passage, format!("passage {status} {hash}\n"));
+                    }
+                    None => {
+                        let _ = std::fs::remove_file(&passage);
+                    }
+                }
             }
             // a workshop closed since: its files go
             if let Ok(d) = std::fs::read_dir(&dir) {
@@ -732,6 +745,7 @@ impl World {
             trash: IndexMap::new(),
             baseline: IndexMap::new(),
             written: vec![],
+            passage: None,
         };
         // its workshops, woken too
         let dir = path.with_extension("workshops");
@@ -746,6 +760,13 @@ impl World {
                         .ok()
                         .and_then(|t| serde_json::from_str(&t).ok())
                         .unwrap_or_default();
+                    ws.passage = std::fs::read_to_string(dir.join(format!("{name}.passage.grm"))).ok().and_then(|t| {
+                        let mut words = t.split_whitespace();
+                        match (words.next(), words.next(), words.next().and_then(|h| h.parse().ok())) {
+                            (Some("passage"), Some(status), Some(hash)) => Some((status.to_string(), hash)),
+                            _ => None,
+                        }
+                    });
                     w.workshops.insert(name, Box::new(ws));
                 }
             }
@@ -1069,6 +1090,31 @@ impl World {
     // ------------------------------------------------------------------ sandboxes
     /// What a workshop made, said as lines (what a merge says again here, through a sandbox): its nodes, its
     /// relations, and what its inputs read last.
+    /// What was written in a world, said in one number (the same lines, the same number).
+    pub fn written_hash(&self) -> u64 {
+        let mut h: u64 = 1469598103934665603;
+        for l in &self.written {
+            for b in l.bytes().chain([0xff]) {
+                h = (h ^ b as u64).wrapping_mul(1099511628211);
+            }
+        }
+        h
+    }
+
+    /// A workshop's way into the main network, as it is now (`waiting`, `entering`, `refused`).
+    pub fn set_passage(&mut self, name: &str, status: &str) -> Result<()> {
+        let Some(ws) = self.workshops.get_mut(name) else { bail!("no workshop {name}") };
+        let hash = ws.written_hash();
+        ws.passage = Some((status.to_string(), hash));
+        Ok(())
+    }
+
+    /// Where a workshop is on its way in, if it has not been changed since.
+    pub fn passage(&self, name: &str) -> Option<&str> {
+        let ws = self.workshops.get(name)?;
+        ws.passage.as_ref().filter(|(_, h)| *h == ws.written_hash()).map(|(s, _)| s.as_str())
+    }
+
     pub fn workshop_lines(&self, name: &str) -> Result<Vec<String>> {
         let Some(ws) = self.workshops.get(name) else { bail!("no workshop {name}") };
         let net = &ws.machine.net;

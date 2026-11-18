@@ -69,6 +69,8 @@ pub struct Picture {
     pub mood: grm_engine::mind::Mood,
     /// Its workshops: (name, nodes, relations).
     pub workshops: Vec<(String, usize, usize)>,
+    /// Where its workshops are on their way into it (name, `waiting` | `entering` | `refused`), kept by the world.
+    pub passages: Vec<(String, String)>,
     /// What was written in it (a workshop's picture).
     pub written: Vec<String>,
     /// Its master equation, said (a workshop's picture).
@@ -79,6 +81,8 @@ pub struct Picture {
     pub differences: Vec<(String, f64, f64, f64)>,
     /// Where each node is in `nodes`, by its name (found at once, not searched for).
     pub by_name: std::collections::HashMap<String, usize>,
+    /// Its shape, worked out once (a picture is not changed once made: see `shape`).
+    pub shape_memo: std::sync::OnceLock<u64>,
 }
 
 /// A picture let go: freed on a thread of its own, not in the window's frame.
@@ -210,6 +214,7 @@ impl Picture {
         let by_name = nodes.iter().enumerate().map(|(k, n): (usize, &NodeView)| (n.name.clone(), k)).collect();
         Picture {
             by_name,
+            shape_memo: Default::default(),
             nodes,
             relations,
             harmony: m.harmony(),
@@ -226,6 +231,7 @@ impl Picture {
             differences: w.differences(),
             written: w.written.clone(),
             master: None,
+            passages: w.workshops.keys().filter_map(|n| w.passage(n).map(|s| (n.clone(), s.to_string()))).collect(),
             workshops: w
                 .workshops
                 .iter()
@@ -240,6 +246,10 @@ impl Picture {
     /// What its drawing depends on, as one number: its nodes and relations, their names, sources and links (not
     /// their values). Two pictures of one shape are drawn from the same preparation.
     pub fn shape(&self) -> u64 {
+        *self.shape_memo.get_or_init(|| self.shape_now())
+    }
+
+    fn shape_now(&self) -> u64 {
         let mut h: u64 = 1469598103934665603;
         let mut eat = |s: &str| {
             for b in s.bytes().chain([0xff]) {

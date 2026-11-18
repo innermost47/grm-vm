@@ -75,6 +75,15 @@ pub fn source_of(app: &str) -> String {
     format!("app:{app}")
 }
 
+/// The names an app was known by before, and its name now (her app was `home`): what was kept under the old
+/// name is found under the new one.
+pub const FORMERLY: &[(&str, &str)] = &[("home", "her")];
+
+/// An app's name now (the same, unless it was renamed since).
+pub fn now_called(name: &str) -> &str {
+    FORMERLY.iter().find(|(old, _)| *old == name).map(|(_, new)| *new).unwrap_or(name)
+}
+
 /// Where apps are: $GRM_APPS, or `apps` beside the world's memory.
 pub fn apps_dir(memory: &Path) -> PathBuf {
     std::env::var_os("GRM_APPS").map(PathBuf::from).unwrap_or_else(|| {
@@ -655,6 +664,15 @@ impl Shell {
 
     /// The app that is always there (her) opens first, before anything else.
     pub fn wake(&mut self, engine: &Engine) -> Vec<Line> {
+        // what a renamed app left in the world under its old name goes: it comes again under the new one
+        for (old, _) in FORMERLY {
+            let s = source_of(old);
+            let _ = engine.query(move |w| {
+                if w.sources().iter().any(|(x, _)| *x == s) {
+                    let _ = w.rebuild(&s, &[], None, &IndexMap::new());
+                }
+            });
+        }
         match self.always.clone() {
             Some(p) if !self.always_runs() => self.open_app(engine, &p),
             _ => vec![],
@@ -715,8 +733,8 @@ impl Shell {
         self.rt.closed = desk.closed.clone();
         let mut out = vec![];
         for (name, path, prefix) in &desk.running {
-            // already there (her, woken first)
-            if self.rt.apps.contains_key(name) {
+            // already there (her, woken first), or known now by another name (opened as it is now)
+            if self.rt.apps.contains_key(name) || now_called(name) != name {
                 continue;
             }
             let Ok(text) = std::fs::read_to_string(path) else {

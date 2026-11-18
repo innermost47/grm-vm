@@ -245,7 +245,7 @@ pub fn settings(app: &mut crate::app::App, ui: &mut eframe::egui::Ui) {
     let mut gone = None;
     for (k, b) in app.settings.midi.iter().enumerate() {
         ui.horizontal(|ui| {
-            ui.label(RichText::new(b.words()).monospace().small());
+            ui.label(RichText::new(b.words()).small());
             if crate::icons::sign(ui, "x", t(lang, "midi_unbind")).clicked() {
                 gone = Some(k);
             }

@@ -18,8 +18,8 @@ struct Page {
 const PAGES: &[Page] = &[
     Page {
         sign: "sparkles",
-        en: ("What it is", "A machine made of a network: nodes (quantities of the world) and relations (what ties them), that settles by itself and says how sure it is of everything. Nothing is hidden: what it computes, from where, and why.\n\nIt learns from what it is given (tables, APIs, the eye, what is typed), finds laws in time, foresees, is surprised, revises. It speaks of itself in the third person."),
-        fr: ("Ce que c'est", "Une machine faite d'un réseau : des nœuds (des grandeurs du monde) et des relations (ce qui les lie), qui se pose toute seule et dit à quel point elle est sûre de chaque chose. Rien n'est caché : ce qu'elle calcule, d'où ça vient, et pourquoi.\n\nElle apprend de ce qu'on lui donne (tableaux, API, l'œil, ce qui est tapé), trouve des lois dans le temps, prévoit, est surprise, révise. Elle parle d'elle à la troisième personne."),
+        en: ("What it is", "A machine made of a network: nodes (quantities of the world) and relations (what ties them), that settles by itself and says how sure it is of everything. Nothing is hidden: what it computes, from where, and why.\n\nIt learns from what it is given (tables, APIs, what is typed), finds laws in time, foresees, is surprised, revises. It speaks of itself in the third person."),
+        fr: ("Ce que c'est", "Une machine faite d'un réseau : des nœuds (des grandeurs du monde) et des relations (ce qui les lie), qui se pose toute seule et dit à quel point elle est sûre de chaque chose. Rien n'est caché : ce qu'elle calcule, d'où ça vient, et pourquoi.\n\nElle apprend de ce qu'on lui donne (tableaux, API, ce qui est tapé), trouve des lois dans le temps, prévoit, est surprise, révise. Elle parle d'elle à la troisième personne."),
     },
     Page {
         sign: "waypoints",
@@ -110,7 +110,7 @@ pub fn window(app: &mut App, ctx: &egui::Context) {
                         let (title, body) = if lang == Lang::Fr { p.fr } else { p.en };
                         ui.horizontal(|ui| {
                             crate::icons::show(ui, p.sign, 20.0, ink.accent);
-                            ui.label(RichText::new(title).strong().size(18.0));
+                            ui.label(RichText::new(title).strong().size(crate::style::size(crate::style::Size::Title)));
                         });
                         ui.add_space(6.0);
                         for para in body.split("\n\n") {
@@ -118,7 +118,11 @@ pub fn window(app: &mut App, ctx: &egui::Context) {
                             ui.add_space(6.0);
                         }
                     } else if app.help_page == words_page {
-                        ui.label(RichText::new(t(lang, "help_words")).strong().size(18.0));
+                        ui.label(
+                            RichText::new(t(lang, "help_words"))
+                                .strong()
+                                .size(crate::style::size(crate::style::Size::Title)),
+                        );
                         ui.label(RichText::new(t(lang, "engine_english")).small().color(ink.muted));
                         ui.add_space(6.0);
                         for (word, usage, example) in grm_shell::fs::WORDS_HELP {
@@ -134,8 +138,12 @@ pub fn window(app: &mut App, ctx: &egui::Context) {
                         ui.separator();
                         ui.label(RichText::new(grm_shell::HELP).monospace().small());
                     } else {
-                        ui.label(RichText::new(t(lang, "shortcuts")).strong().size(18.0));
-                        ui.label(RichText::new(t(lang, "keys_text")).monospace());
+                        ui.label(
+                            RichText::new(t(lang, "shortcuts"))
+                                .strong()
+                                .size(crate::style::size(crate::style::Size::Title)),
+                        );
+                        ui.label(RichText::new(t(lang, "keys_text")));
                         ui.label(format!("{} {} (Lucide, ISC)", crate::icons::names().count(), t(lang, "icons_note")));
                     }
                 });

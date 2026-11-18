@@ -43,8 +43,6 @@ pub enum WidgetKind {
     Plot,
     /// Words.
     Text,
-    /// What an eye saw.
-    Picture,
     /// Two nodes set at once by a point on a square.
     Pad,
     /// A keyboard of notes: the frequency of the key held, and 1 while it is held.
@@ -80,6 +78,25 @@ pub enum WidgetKind {
     /// A drum machine's steps (its words: the machine's name, `t3`): a row per drum, its pad, its steps on the
     /// transport, the one playing lit.
     Drums,
+    /// One among a few, its words the choices (`"low|middle|high"`): the node is the one chosen (0, 1, 2...).
+    Choice,
+    /// A number written by hand (`9,81` as well as `9.81`): the node takes it when Enter is pressed.
+    Field,
+    // what holds other widgets (written `widget NAME: KIND ...`, the widgets it holds under it, then `end`)
+    /// Side by side, each as wide as its size says.
+    Row,
+    /// One under another, each as tall as its size says.
+    Column,
+    /// In a grid of N columns (`grid 3`), cell after cell.
+    Grid,
+    /// One over another, all in the same place (layers).
+    Stack,
+    /// One under another, and what does not fit scrolls (the bar never covers them).
+    Scroll,
+    /// One at a time, chosen by its tab (each tab says its widget's words).
+    Tabs,
+    /// A framed card, its words as its title, what it holds under them.
+    Card,
 }
 
 impl WidgetKind {
@@ -92,7 +109,6 @@ impl WidgetKind {
             "value" => WidgetKind::Value,
             "plot" => WidgetKind::Plot,
             "text" => WidgetKind::Text,
-            "picture" => WidgetKind::Picture,
             "pad" => WidgetKind::Pad,
             "keys" => WidgetKind::Keys,
             "play" => WidgetKind::Play,
@@ -109,6 +125,15 @@ impl WidgetKind {
             "series" => WidgetKind::Series,
             "range" => WidgetKind::Range,
             "drums" => WidgetKind::Drums,
+            "choice" => WidgetKind::Choice,
+            "field" => WidgetKind::Field,
+            "row" => WidgetKind::Row,
+            "column" => WidgetKind::Column,
+            "grid" => WidgetKind::Grid,
+            "stack" => WidgetKind::Stack,
+            "scroll" => WidgetKind::Scroll,
+            "tabs" => WidgetKind::Tabs,
+            "card" => WidgetKind::Card,
             _ => return None,
         })
     }
@@ -122,7 +147,6 @@ impl WidgetKind {
             WidgetKind::Value => "value",
             WidgetKind::Plot => "plot",
             WidgetKind::Text => "text",
-            WidgetKind::Picture => "picture",
             WidgetKind::Pad => "pad",
             WidgetKind::Keys => "keys",
             WidgetKind::Play => "play",
@@ -139,13 +163,37 @@ impl WidgetKind {
             WidgetKind::Series => "series",
             WidgetKind::Range => "range",
             WidgetKind::Drums => "drums",
+            WidgetKind::Choice => "choice",
+            WidgetKind::Field => "field",
+            WidgetKind::Row => "row",
+            WidgetKind::Column => "column",
+            WidgetKind::Grid => "grid",
+            WidgetKind::Stack => "stack",
+            WidgetKind::Scroll => "scroll",
+            WidgetKind::Tabs => "tabs",
+            WidgetKind::Card => "card",
         }
+    }
+
+    /// Whether it holds other widgets (its lines end with `end`).
+    pub fn holds(self) -> bool {
+        matches!(
+            self,
+            WidgetKind::Row
+                | WidgetKind::Column
+                | WidgetKind::Grid
+                | WidgetKind::Stack
+                | WidgetKind::Scroll
+                | WidgetKind::Tabs
+                | WidgetKind::Card
+        )
     }
 
     /// How many nodes it is bound to.
     pub fn nodes(self) -> usize {
         match self {
             WidgetKind::Text | WidgetKind::Section | WidgetKind::Roll | WidgetKind::Rec | WidgetKind::Drums => 0,
+            k if k.holds() => 0,
             WidgetKind::Pad | WidgetKind::Keys | WidgetKind::Step | WidgetKind::Range => 2,
             _ => 1,
         }
@@ -154,13 +202,20 @@ impl WidgetKind {
     /// Its size when none is given (columns, rows of the surface's grid).
     pub fn size(self) -> (i32, i32) {
         match self {
+            WidgetKind::Row
+            | WidgetKind::Column
+            | WidgetKind::Grid
+            | WidgetKind::Stack
+            | WidgetKind::Scroll
+            | WidgetKind::Tabs
+            | WidgetKind::Card => (12, 4),
+            WidgetKind::Choice | WidgetKind::Field => (3, 1),
             WidgetKind::Slider => (4, 1),
             WidgetKind::Toggle | WidgetKind::Button | WidgetKind::Play | WidgetKind::Rec => (2, 1),
             WidgetKind::Meter => (3, 1),
             WidgetKind::Value => (3, 1),
             WidgetKind::Plot => (6, 3),
             WidgetKind::Text => (6, 1),
-            WidgetKind::Picture => (4, 4),
             WidgetKind::Pad => (3, 3),
             WidgetKind::Keys => (8, 2),
             WidgetKind::Scope => (6, 3),
@@ -178,7 +233,7 @@ impl WidgetKind {
         }
     }
 
-    pub const ALL: [WidgetKind; 24] = [
+    pub const ALL: [WidgetKind; 32] = [
         WidgetKind::Slider,
         WidgetKind::Toggle,
         WidgetKind::Button,
@@ -186,7 +241,6 @@ impl WidgetKind {
         WidgetKind::Value,
         WidgetKind::Plot,
         WidgetKind::Text,
-        WidgetKind::Picture,
         WidgetKind::Pad,
         WidgetKind::Keys,
         WidgetKind::Play,
@@ -203,6 +257,15 @@ impl WidgetKind {
         WidgetKind::Series,
         WidgetKind::Range,
         WidgetKind::Drums,
+        WidgetKind::Choice,
+        WidgetKind::Field,
+        WidgetKind::Row,
+        WidgetKind::Column,
+        WidgetKind::Grid,
+        WidgetKind::Stack,
+        WidgetKind::Scroll,
+        WidgetKind::Tabs,
+        WidgetKind::Card,
     ];
 }
 
@@ -232,6 +295,18 @@ pub struct Widget {
     /// `icon NAME`: a sign beside its words (a Lucide icon's name).
     #[serde(default)]
     pub icon: Option<String>,
+    /// `tip "words"`: what it does, said when the pointer rests on it.
+    #[serde(default)]
+    pub tip: Option<String>,
+    /// `when NODE`: shown only while the node is not 0.
+    #[serde(default)]
+    pub when: Option<String>,
+    /// `grid N`: its columns.
+    #[serde(default)]
+    pub columns: Option<i32>,
+    /// What it holds (a row, a column, a card...), in their order.
+    #[serde(default)]
+    pub children: Vec<Widget>,
 }
 
 impl Widget {
@@ -263,6 +338,12 @@ impl Widget {
         if let Some(l) = &self.look {
             s.push_str(&format!(" look {l}"));
         }
+        if let Some(t) = &self.tip {
+            s.push_str(&format!(" tip \"{t}\""));
+        }
+        if let Some(w) = &self.when {
+            s.push_str(&format!(" when {w}"));
+        }
         if let Some(i) = &self.icon {
             s.push_str(&format!(" icon {i}"));
         }
@@ -272,8 +353,18 @@ impl Widget {
 
 /// `widget NAME: KIND [NODES] [LO .. HI] [at C R] [size W H] ["words"]`
 pub fn parse_widget(rest: &str, line: usize) -> Result<Widget, String> {
-    let usage = "widget NAME: KIND [NODE..] [LO .. HI] [at COLUMN ROW] [size COLUMNS ROWS] [\"words\"]";
+    let usage = "widget NAME: KIND [NODE..] [LO .. HI] [at COLUMN ROW] [size COLUMNS ROWS] [\"words\"] [tip \"words\"] [when NODE]";
     let Some((name, body)) = rest.split_once(':') else { return Err(usage.into()) };
+    // `tip "words"` first (its words are not the widget's own)
+    let mut tip = None;
+    let mut body = body.to_string();
+    if let Some(k) = body.find("tip \"") {
+        let after = &body[k + 5..];
+        let end = after.find('"').ok_or("tip \"words\": its words end with a quote")?;
+        tip = Some(after[..end].to_string());
+        body = format!("{}{}", &body[..k], &after[end + 1..]);
+    }
+    let body = body.as_str();
     let name = name.trim().to_string();
     if !is_name(&name) {
         return Err(format!("{name} is not a name"));
@@ -300,6 +391,8 @@ pub fn parse_widget(rest: &str, line: usize) -> Result<Widget, String> {
     let mut size = None;
     let mut look = None;
     let mut icon = None;
+    let mut when = None;
+    let mut columns = None;
     let num = |s: Option<&&str>| -> Result<f64, String> {
         s.ok_or_else(|| usage.to_string())?.parse::<f64>().map_err(|_| format!("{} is not a number", s.unwrap()))
     };
@@ -321,6 +414,14 @@ pub fn parse_widget(rest: &str, line: usize) -> Result<Widget, String> {
             "icon" => {
                 icon = words.get(k + 1).map(|w| w.to_string());
                 k += 2;
+            }
+            "when" => {
+                when = Some(words.get(k + 1).filter(|w| is_name(w)).ok_or("when NODE")?.to_string());
+                k += 2;
+            }
+            w if k == 1 && kind == WidgetKind::Grid && w.parse::<i32>().is_ok() => {
+                columns = w.parse::<i32>().ok().map(|c| c.clamp(1, 24));
+                k += 1;
             }
             w if words.get(k + 1) == Some(&"..") => {
                 lo = w.parse().map_err(|_| format!("{w} is not a number"))?;
@@ -355,6 +456,10 @@ pub fn parse_widget(rest: &str, line: usize) -> Result<Widget, String> {
         line,
         look,
         icon,
+        tip,
+        when,
+        columns,
+        children: vec![],
     })
 }
 
@@ -413,12 +518,63 @@ pub struct Parsed {
     pub errors: Vec<(usize, String)>,
     /// Its looks and the lines of its style network (`look ...`, `style ...`), with their line.
     pub looks: Vec<(usize, String)>,
+    /// Its kinds of widget (`kind NAME(param, ...): KIND ... end`): their parameters, their first line, their body.
+    pub kinds: IndexMap<String, (Vec<String>, String, Vec<String>)>,
+    /// The widgets that hold others, open while their lines are read (closed by `end`).
+    open: Vec<Widget>,
+    /// While a kind is unfolded: the line of the app's file everything comes from.
+    at_line: Option<usize>,
+}
+
+/// Every widget's name, those held included.
+pub fn all_widgets(ws: &[Widget]) -> Vec<&Widget> {
+    let mut out = vec![];
+    for w in ws {
+        out.push(w);
+        out.extend(all_widgets(&w.children));
+    }
+    out
+}
+
+impl Parsed {
+    /// A widget read: held by the one open, or on the surface.
+    fn put_widget(&mut self, w: Widget, line_no: usize) {
+        let taken = all_widgets(&self.widgets).iter().any(|x| x.name == w.name)
+            || self.open.iter().any(|o| o.name == w.name || all_widgets(&o.children).iter().any(|x| x.name == w.name));
+        if taken {
+            self.errors.push((line_no, format!("two widgets called {}", w.name)));
+            return;
+        }
+        if w.kind.holds() {
+            self.open.push(w);
+        } else {
+            self.held(w);
+        }
+    }
+
+    fn held(&mut self, w: Widget) {
+        match self.open.last_mut() {
+            Some(o) => o.children.push(w),
+            None => self.widgets.push(w),
+        }
+    }
+
+    /// `end`: the widget open is closed (what it holds is read).
+    fn close_widget(&mut self, line_no: usize) {
+        match self.open.pop() {
+            Some(w) => self.held(w),
+            None => self.errors.push((line_no, "end: no widget that holds others is open".into())),
+        }
+    }
 }
 
 pub const COMMANDS: &[&str] =
-    &["track", "play", "sound", "voice", "volume", "see", "embody", "tick", "mute", "solo", "gain", "pan"];
+    &["track", "play", "sound", "voice", "volume", "embody", "tick", "mute", "solo", "gain", "pan"];
 
 type Templates = IndexMap<String, (Vec<String>, Vec<String>)>;
+
+/// A kind of widget being read: its name, its parameters, its first line, its body, how deep in what it holds.
+type KindRecord = (String, Vec<String>, String, Vec<String>, usize);
 
 /// Where a comment begins: a `#` that is not a colour (`#7fb8f0`).
 pub fn comment_at(line: &str) -> Option<usize> {
@@ -487,8 +643,10 @@ fn unfold(
         return;
     }
     let mut recording: Option<(String, Vec<String>, Vec<String>)> = None;
+    // a kind of widget being written: (name, params, its first line, its body, how deep in what it holds)
+    let mut kind_rec: Option<KindRecord> = None;
     for (k, raw) in lines.iter().enumerate() {
-        let line_no = outer.as_ref().map(|o| o.0).unwrap_or(k + 1);
+        let line_no = outer.as_ref().map(|o| o.0).or(p.at_line).unwrap_or(k + 1);
         let from = outer.as_ref().map(|o| format!("{} line {}", o.1, k + 1));
         let text = strip(raw);
         if let Some((name, params, mut body)) = recording.take() {
@@ -502,11 +660,34 @@ fn unfold(
             }
             continue;
         }
+        if let Some((name, params, head, mut body, depth)) = kind_rec.take() {
+            let opens = text.starts_with("widget ")
+                && text
+                    .split_once(':')
+                    .and_then(|(_, b)| b.split_whitespace().next())
+                    .and_then(WidgetKind::of)
+                    .is_some_and(|k| k.holds());
+            if text.eq_ignore_ascii_case("end") && depth == 0 {
+                p.kinds.insert(name, (params, head, body));
+            } else {
+                let depth = if text.eq_ignore_ascii_case("end") { depth - 1 } else { depth + opens as usize };
+                if !text.is_empty() {
+                    body.push(text.to_string());
+                }
+                kind_rec = Some((name, params, head, body, depth));
+            }
+            continue;
+        }
         if text.is_empty() {
             continue;
         }
         let (word, rest) = text.split_once(char::is_whitespace).map(|(a, b)| (a, b.trim())).unwrap_or((text, ""));
         match word.to_lowercase().as_str() {
+            "kind" if outer.is_none() => match parse_kind_head(rest) {
+                Ok((name, params, head)) => kind_rec = Some((name, params, head, vec![], 0)),
+                Err(e) => p.errors.push((line_no, e)),
+            },
+            "end" if outer.is_none() => p.close_widget(line_no),
             "app" if outer.is_none() => p.title = Some(rest.to_string()),
             "icon" if outer.is_none() => match rest.split_whitespace().next() {
                 Some(i) => p.icon = Some(i.to_lowercase()),
@@ -586,15 +767,18 @@ fn unfold(
                     Err(e) => p.errors.push((line_no, format!("{rest}: {e}"))),
                 }
             }
-            "widget" if outer.is_none() => match parse_widget(rest, line_no) {
-                Ok(w) => {
-                    if p.widgets.iter().any(|x| x.name == w.name) {
-                        p.errors.push((line_no, format!("two widgets called {}", w.name)));
-                    } else {
-                        p.widgets.push(w);
-                    }
+            "widget" if outer.is_none() => match kind_called(rest, &p.kinds) {
+                // a kind of one's own: its lines, said again for this one (its widgets named after it)
+                Some(Ok(lines)) => {
+                    let before = p.at_line.replace(line_no);
+                    unfold(&lines, base, templates, p, None, depth + 1);
+                    p.at_line = before;
                 }
-                Err(e) => p.errors.push((line_no, e)),
+                Some(Err(e)) => p.errors.push((line_no, e)),
+                None => match parse_widget(rest, line_no) {
+                    Ok(w) => p.put_widget(w, line_no),
+                    Err(e) => p.errors.push((line_no, e)),
+                },
             },
             "look" | "style" if outer.is_none() => p.looks.push((line_no, text.to_string())),
             // a line said for each k (widgets, hands and calls too: unfolded as the lines it makes)
@@ -627,8 +811,87 @@ fn unfold(
         }
     }
     if let Some((name, _, _)) = recording {
-        p.errors.push((outer.map(|o| o.0).unwrap_or(lines.len()), format!("network {name}: no end")));
+        p.errors.push((outer.as_ref().map(|o| o.0).unwrap_or(lines.len()), format!("network {name}: no end")));
     }
+    if let Some((name, ..)) = kind_rec {
+        p.errors.push((p.at_line.unwrap_or(lines.len()), format!("kind {name}: no end")));
+    }
+    // the app's own lines read to their last: what is still open was not closed
+    if depth == 0 && outer.is_none() {
+        while let Some(w) = p.open.last() {
+            p.errors.push((w.line, format!("widget {}: no end (what holds others ends with `end`)", w.name)));
+            p.close_widget(0);
+        }
+    }
+}
+
+/// `kind NAME(param, ...): KIND ...`: its name, its parameters, its first line (what it is, its words, its look).
+fn parse_kind_head(rest: &str) -> Result<(String, Vec<String>, String), String> {
+    let usage = "kind NAME(param, ...): KIND ... (the widgets it holds) end";
+    let (left, head) = rest.split_once(':').ok_or(usage)?;
+    let (name, params) = match left.split_once('(') {
+        Some((n, ps)) => (
+            n.trim().to_string(),
+            ps.trim_end()
+                .trim_end_matches(')')
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect(),
+        ),
+        None => (left.trim().to_string(), vec![]),
+    };
+    if !is_name(&name) || WidgetKind::of(&name).is_some() {
+        return Err(format!("{usage}: {name} is not a name of its own"));
+    }
+    let first = head.split_whitespace().next().and_then(WidgetKind::of).ok_or(format!("{usage}: KIND"))?;
+    if !first.holds() {
+        return Err(format!("kind {name}: a kind holds widgets (row, column, grid, stack, scroll, tabs, card)"));
+    }
+    Ok((name, params, head.trim().to_string()))
+}
+
+/// `widget NAME: KIND(param=value, ...) ...` for a kind of one's own: the lines it makes (None: not one).
+fn kind_called(
+    rest: &str,
+    kinds: &IndexMap<String, (Vec<String>, String, Vec<String>)>,
+) -> Option<Result<Vec<String>, String>> {
+    let (name, body) = rest.split_once(':')?;
+    let body = body.trim();
+    let called = body.split(|c: char| c == '(' || c.is_whitespace()).next()?;
+    let (params, head, lines) = kinds.get(called)?;
+    let name = name.trim();
+    let (args, after) = match body[called.len()..].trim_start().strip_prefix('(') {
+        Some(a) => match a.split_once(')') {
+            Some((inside, after)) => (inside, after),
+            None => return Some(Err(format!("widget {name}: {called}(param=value, ...)"))),
+        },
+        None => ("", &body[called.len()..]),
+    };
+    let mut given: IndexMap<String, String> = IndexMap::new();
+    for kv in args.split(',').filter(|s| !s.trim().is_empty()) {
+        match kv.split_once('=') {
+            Some((k, v)) => {
+                given.insert(k.trim().to_string(), v.trim().to_string());
+            }
+            None => return Some(Err(format!("widget {name}: {called}(param=value, ...)"))),
+        }
+    }
+    let missing: Vec<&str> = params.iter().filter(|q| !given.contains_key(*q)).map(String::as_str).collect();
+    if !missing.is_empty() {
+        return Some(Err(format!("widget {name}: {called} misses {}", missing.join(", "))));
+    }
+    given.insert("name".into(), name.to_string());
+    let said = |l: &str| given.iter().fold(l.to_string(), |t, (k, v)| t.replace(&format!("{{{k}}}"), v));
+    // its widgets are named after it: `widget gain: ...` in a strip called t1 is t1_gain
+    let inner = |l: String| match l.strip_prefix("widget ").and_then(|r| r.split_once(':')) {
+        Some((n, b)) => format!("widget {name}_{}:{b}", n.trim()),
+        None => l,
+    };
+    let mut out = vec![format!("widget {name}: {} {}", said(head), after.trim())];
+    out.extend(lines.iter().map(|l| inner(said(l))));
+    out.push("end".into());
+    Some(Ok(out))
 }
 
 /// Where the widgets go: those placed stay; the others take the first room, row by row.
@@ -844,6 +1107,56 @@ pub fn with_added(text: &str, line: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn widgets_hold_widgets_and_kinds_of_ones_own_are_made_like_networks() {
+        let text = "app T\n\
+            kind strip(ch): column \"{ch}\" tip \"a channel\"\n\
+              widget gain: fader {ch}_gain 0 .. 1 tip \"how loud\"\n\
+              widget pan: knob {ch}_pan -1 .. 1\n\
+            end\n\
+            widget mixer: row at 0 0 size 12 4\n\
+              widget t1: strip(ch=t1)\n\
+              widget t2: strip(ch=t2) when t2_on\n\
+              widget more: tabs\n\
+                widget a: text \"one\"\n\
+                widget b: grid 3\n\
+                  widget c: value t1_gain\n\
+                end\n\
+              end\n\
+            end\n\
+            widget alone: text \"under\"\n";
+        let p = parse(text, Path::new("."));
+        assert!(p.errors.is_empty(), "{:?}", p.errors);
+        assert_eq!(p.widgets.iter().map(|w| w.name.as_str()).collect::<Vec<_>>(), ["mixer", "alone"]);
+        let mixer = &p.widgets[0];
+        assert_eq!(mixer.kind, WidgetKind::Row);
+        let names: Vec<&str> = mixer.children.iter().map(|w| w.name.as_str()).collect();
+        assert_eq!(names, ["t1", "t2", "more"]);
+        let t1 = &mixer.children[0];
+        assert_eq!((t1.kind, t1.text.as_str(), t1.tip.as_deref()), (WidgetKind::Column, "t1", Some("a channel")));
+        assert_eq!(t1.children[0].name, "t1_gain");
+        assert_eq!(t1.children[0].nodes, ["t1_gain"]);
+        assert_eq!(t1.children[0].tip.as_deref(), Some("how loud"));
+        assert_eq!(t1.children[1].lo, -1.0);
+        assert_eq!(t1.line, 7, "a kind's widgets are written on the line that calls it");
+        assert_eq!(mixer.children[1].when.as_deref(), Some("t2_on"));
+        let b = &mixer.children[2].children[1];
+        assert_eq!((b.kind, b.columns, b.children.len()), (WidgetKind::Grid, Some(3), 1));
+        assert_eq!(all_widgets(&p.widgets).len(), 12);
+    }
+
+    #[test]
+    fn what_holds_widgets_says_when_it_is_not_closed_or_named_twice() {
+        let p = parse("widget a: row\nwidget b: text \"x\"\nwidget b: text \"y\"\n", Path::new("."));
+        let said: Vec<&str> = p.errors.iter().map(|e| e.1.as_str()).collect();
+        assert!(said.iter().any(|e| e.contains("two widgets called b")), "{said:?}");
+        assert!(said.iter().any(|e| e.contains("a: no end")), "{said:?}");
+        assert_eq!(p.widgets[0].children.len(), 1, "what it held is kept all the same");
+        let p = parse("end\nwidget s: strip(ch=t1)\n", Path::new("."));
+        assert!(p.errors.iter().any(|e| e.0 == 1 && e.1.contains("end")), "{:?}", p.errors);
+        assert!(p.errors.iter().any(|e| e.0 == 2), "an unknown kind is said: {:?}", p.errors);
+    }
 
     #[test]
     fn an_app_is_read_unfolded_and_set_apart() {

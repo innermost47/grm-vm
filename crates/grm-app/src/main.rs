@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Anthony Charretier
 //! grm-app: the GRM machine in a window. Its network, a prompt, an inspector (value ± sigma, where it comes from,
-//! its relations, its time and why), the sandboxes, the sources and the quarantine, the journal, the eye, the
+//! its relations, its time and why), the sandboxes, the sources and the quarantine, the journal, the
 //! sound. The panels are placed by a small GRM network of their own.
 //!
 //!   grm-app [FILE.grm]
@@ -17,6 +17,7 @@ mod elle;
 mod files;
 mod flow;
 mod french;
+mod front;
 mod graph;
 mod help;
 mod hover;
@@ -44,6 +45,7 @@ mod tour;
 mod tree;
 mod universe;
 mod view;
+mod widgets;
 mod worker;
 mod workshop;
 mod zone;
@@ -66,6 +68,11 @@ pub struct Args {
     pub edit: bool,
     pub xray: bool,
     pub launch: bool,
+    /// A folder that holds all it keeps (its world, its settings, its apps beside): a home of its own (`--home DIR`,
+    /// and the window's tests, each in its own).
+    pub home: Option<std::path::PathBuf>,
+    /// No sound card (the tests): the sound is computed all the same, heard by nobody.
+    pub headless: bool,
 }
 
 fn args() -> Args {
@@ -93,6 +100,8 @@ fn args() -> Args {
             "--edit" => a.edit = true,
             "--xray" => a.xray = true,
             "--launch" => a.launch = true,
+            "--home" => a.home = it.next().map(std::path::PathBuf::from),
+            "--headless" => a.headless = true,
             "--wait" => a.wait = it.next().and_then(|s| s.parse().ok()).unwrap_or(3.0),
             _ => a.file = Some(w),
         }

@@ -15,9 +15,34 @@ pub enum Theme {
     Light,
 }
 
+/// Which tips are said (when the pointer rests on something), by where they are. All, unless the human hides some.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Tips {
+    /// The window's own (its bars, its panels, its menus).
+    pub window: bool,
+    /// The apps that come with the machine.
+    pub native: bool,
+    /// The human's own apps.
+    pub mine: bool,
+    /// Apps from elsewhere.
+    pub others: bool,
+}
+
+impl Default for Tips {
+    fn default() -> Self {
+        Tips { window: true, native: true, mine: true, others: true }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
+    /// Which tips are said.
+    pub tips: Tips,
+    /// Where it is kept, when not in the user's configuration folder (a home of its own).
+    #[serde(skip)]
+    pub at: Option<PathBuf>,
     pub lang: Lang,
     pub theme: Theme,
     /// The size of everything (1: as it comes).
@@ -28,8 +53,6 @@ pub struct Settings {
     pub volume: f64,
     /// The machine's colours (its apps inherit them).
     pub palette: crate::style::Palette,
-    /// A typewriter font everywhere.
-    pub typewriter: bool,
     /// The guided visit was seen (it comes by itself the first time only).
     pub toured: bool,
     /// Where the code stands beside an app.
@@ -40,6 +63,8 @@ pub struct Settings {
     pub breathe: bool,
     /// Who the machine speaks of (never to): empty, the host's user name (else "the human").
     pub human: String,
+    /// Her name, chosen by the human (empty: Her).
+    pub her: String,
     /// What the MIDI controllers drive (learned).
     pub midi: Vec<crate::midi::Binding>,
 }
@@ -57,13 +82,15 @@ impl Default for Settings {
             voice_level: 0.6,
             volume: 0.7,
             palette: crate::style::Palette::default(),
-            typewriter: true,
             toured: false,
             dock: crate::app::Dock::Right,
             breathe: true,
             follow_hour: false,
             human: String::new(),
+            her: String::new(),
+            tips: Tips::default(),
             midi: vec![],
+            at: None,
         }
     }
 }
@@ -77,15 +104,24 @@ fn path() -> Option<PathBuf> {
 }
 
 impl Settings {
-    pub fn load() -> Settings {
-        path()
+    /// Her name: the one chosen, else Her.
+    pub fn her_name(&self) -> String {
+        Some(self.her.trim()).filter(|n| !n.is_empty()).unwrap_or("Her").to_string()
+    }
+
+    /// The settings kept at `at` (a home of its own), else in the user's configuration folder.
+    pub fn load_from(at: Option<PathBuf>) -> Settings {
+        let file = at.clone().or_else(path);
+        let mut s: Settings = file
             .and_then(|p| std::fs::read_to_string(p).ok())
             .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        s.at = at;
+        s
     }
 
     pub fn save(&self) {
-        if let Some(p) = path() {
+        if let Some(p) = self.at.clone().or_else(path) {
             if let Some(dir) = p.parent() {
                 let _ = std::fs::create_dir_all(dir);
             }

@@ -190,7 +190,7 @@ impl Song {
         a("input echo_return = 0.5".into());
         a("input room = 0.75".into());
         a("input rev_return = 0.6".into());
-        // she lives in her own home (mind/home.grm), always there: the studio gives her its time, where she is (this
+        // she lives in her own home (mind/her.grm), always there: the studio gives her its time, where she is (this
         // song, this human: what she learned in each is kept apart), her lessons (on, unless the human turns them
         // off; the one the human gives her, else she goes from one to the next by herself) and a key, if one is given
         a(format!("set elle_ctx_song = {}", self.number.clamp(1, 4)));
@@ -494,12 +494,14 @@ fn her(app: &mut App, ui: &mut egui::Ui, ink: &Ink) {
         ] {
             let v = read(node).unwrap_or(0.0);
             ui.vertical(|ui| {
-                ui.label(RichText::new(t(lang, key)).size(9.0).color(ink.muted));
+                ui.label(
+                    RichText::new(t(lang, key)).size(crate::style::size(crate::style::Size::Tiny)).color(ink.muted),
+                );
                 let (rect, r) = ui.allocate_exact_size(vec2(70.0, 6.0), Sense::hover());
-                ui.painter().rect_filled(rect, 2.0, ink.panel);
+                ui.painter().rect_filled(rect, crate::style::corner(), ink.panel);
                 let f = ((v - lo) / (hi - lo)).clamp(0.0, 1.0) as f32;
                 let bar = egui::Rect::from_min_size(rect.min, vec2(rect.width() * f, rect.height()));
-                ui.painter().rect_filled(bar, 2.0, ink.accent.gamma_multiply(0.8));
+                ui.painter().rect_filled(bar, crate::style::corner(), ink.accent.gamma_multiply(0.8));
                 r.on_hover_text(format!("{node} = {v:.3}"));
             });
         }
@@ -552,29 +554,13 @@ fn her(app: &mut App, ui: &mut egui::Ui, ink: &Ink) {
         let heard = read("elle_hkey").unwrap_or(0.0).round().rem_euclid(12.0) as usize;
         let clear = read("elle_kconf").unwrap_or(0.0);
         let kp = value(app, "elle_key_pick").round();
-        let mut kchosen = kp as i64;
-        egui::ComboBox::from_id_salt("elle-key")
-            .selected_text(
-                RichText::new(format!(
-                    "{} {}{}",
-                    t(lang, "elle_key"),
-                    names[tonic],
-                    if kp < 0.0 { format!(" ({})", t(lang, "elle_by_herself")) } else { String::new() }
-                ))
-                .small()
-                .color(ink.accent),
-            )
-            .width(150.0)
-            .show_ui(ui, |ui| {
-                ui.selectable_value(&mut kchosen, -1, t(lang, "elle_by_herself"));
-                for (i, n) in names.iter().enumerate() {
-                    ui.selectable_value(&mut kchosen, i as i64, *n);
-                }
-            })
-            .response
-            .on_hover_text(format!("{} {} ({clear:.2})", t(lang, "elle_heard_key"), names[heard]));
-        if kchosen as f64 != kp {
-            app.write("elle_key_pick", kchosen as f64);
+        // what is shown is what was chosen (the key she is in now, when she chooses it herself)
+        let mut options = vec![format!("{} {} ({})", t(lang, "elle_key"), names[tonic], t(lang, "elle_by_herself"))];
+        options.extend(names.iter().map(|n| format!("{} {n}", t(lang, "elle_key"))));
+        let mut chosen = (kp + 1.0).clamp(0.0, 12.0) as usize;
+        let tip = format!("{} {} ({clear:.2})", t(lang, "elle_heard_key"), names[heard]);
+        if crate::widgets::choice(ui, "elle-key", &mut chosen, &options, &tip) {
+            app.write("elle_key_pick", chosen as f64 - 1.0);
         }
         ui.add_space(12.0);
         // her wants: fifteen intervals (-7 .. +7 semitones) and a rest
@@ -584,7 +570,11 @@ fn her(app: &mut App, ui: &mut egui::Ui, ink: &Ink) {
         // said what they are, above them (as her mood's bars are), and more on the pointer
         let (rect, r) = ui
             .vertical(|ui| {
-                ui.label(RichText::new(t(lang, "elle_wants_word")).size(9.0).color(ink.muted));
+                ui.label(
+                    RichText::new(t(lang, "elle_wants_word"))
+                        .size(crate::style::size(crate::style::Size::Tiny))
+                        .color(ink.muted),
+                );
                 ui.allocate_exact_size(vec2(16.0 * 9.0, 22.0), Sense::hover())
             })
             .inner;
@@ -616,9 +606,9 @@ fn her(app: &mut App, ui: &mut egui::Ui, ink: &Ink) {
 /// The twelve notes from A (her keys are counted from A: her first note is an A).
 pub fn key_names(lang: crate::text::Lang) -> [&'static str; 12] {
     if lang == crate::text::Lang::Fr {
-        ["la", "si♭", "si", "do", "do♯", "ré", "mi♭", "mi", "fa", "fa♯", "sol", "la♭"]
+        ["la", "sib", "si", "do", "do#", "ré", "mib", "mi", "fa", "fa#", "sol", "lab"]
     } else {
-        ["A", "B♭", "B", "C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "A♭"]
+        ["A", "Bb", "B", "C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab"]
     }
 }
 
@@ -654,8 +644,7 @@ fn transport(app: &mut App, ui: &mut egui::Ui, ink: &Ink, space: bool) {
             .unwrap_or((0.0, 0.0));
         ui.label(
             RichText::new(format!("{:>3} . {}", bar as i64 + 1, (i / 4.0).floor() as i64 + 1))
-                .monospace()
-                .size(18.0)
+                .size(crate::style::size(crate::style::Size::Title))
                 .color(ink.accent),
         );
         ui.separator();
@@ -755,13 +744,18 @@ pub fn drum_grid(app: &mut App, ui: &mut egui::Ui, n: &str, ink: &Ink) {
             let pad = format!("{n}_{x}_pad");
             let (rect, r) = ui.allocate_exact_size(vec2(44.0, 22.0), Sense::click_and_drag());
             let down = r.is_pointer_button_down_on();
-            ui.painter().rect_filled(rect, 3.0, if down { ink.accent } else { ink.surface });
-            ui.painter().rect_stroke(rect, 3.0, Stroke::new(1.0_f32, ink.faint), egui::StrokeKind::Inside);
+            ui.painter().rect_filled(rect, crate::style::corner(), if down { ink.accent } else { ink.surface });
+            ui.painter().rect_stroke(
+                rect,
+                crate::style::corner(),
+                Stroke::new(1.0_f32, ink.faint),
+                egui::StrokeKind::Inside,
+            );
             ui.painter().text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
                 "pad",
-                egui::FontId::proportional(10.0),
+                crate::style::font(crate::style::Size::Small),
                 ink.text,
             );
             let was = value(app, &pad) > 0.5;
@@ -790,7 +784,7 @@ pub fn drum_grid(app: &mut App, ui: &mut egui::Ui, n: &str, ink: &Ink) {
                 } else {
                     crate::view::mix(ink.surface, ink.text, weight)
                 };
-                ui.painter().rect_filled(rect.shrink(1.5), 3.0, fill);
+                ui.painter().rect_filled(rect.shrink(1.5), crate::style::corner(), fill);
                 if k as i64 == now {
                     ui.painter().rect_stroke(
                         rect.shrink(0.5),
@@ -822,7 +816,7 @@ fn strip(app: &mut App, ui: &mut egui::Ui, track: &Track, ink: &Ink) {
     let lang = app.settings.lang;
     let (label, n) = (track.label.as_str(), format!("t{}", track.id));
     let n = n.as_str();
-    egui::Frame::new().fill(ink.surface).corner_radius(3).inner_margin(6.0).show(ui, |ui| {
+    egui::Frame::new().fill(ink.surface).corner_radius(crate::style::corner()).inner_margin(6.0).show(ui, |ui| {
         ui.set_width(96.0);
         ui.vertical(|ui| {
             ui.horizontal(|ui| {
@@ -852,10 +846,10 @@ fn strip(app: &mut App, ui: &mut egui::Ui, track: &Track, ink: &Ink) {
                 *vu = (*vu * 0.9).max(level as f32);
                 let shown = *vu;
                 let (rect, _) = ui.allocate_exact_size(vec2(10.0, 110.0), Sense::hover());
-                ui.painter().rect_filled(rect, 2.0, ink.panel);
+                ui.painter().rect_filled(rect, crate::style::corner(), ink.panel);
                 let h = rect.height() * shown.clamp(0.0, 1.0);
                 let bar = egui::Rect::from_min_max(pos2(rect.left(), rect.bottom() - h), rect.max);
-                ui.painter().rect_filled(bar, 2.0, if shown > 0.9 { ink.amber } else { ink.accent });
+                ui.painter().rect_filled(bar, crate::style::corner(), if shown > 0.9 { ink.amber } else { ink.accent });
                 let mut level = value(app, &format!("{n}_level"));
                 if ui.add(egui::Slider::new(&mut level, 0.0..=1.0).vertical().show_value(false)).changed() {
                     app.write(&format!("{n}_level"), level);
@@ -863,7 +857,9 @@ fn strip(app: &mut App, ui: &mut egui::Ui, track: &Track, ink: &Ink) {
                 ui.vertical(|ui| {
                     for (k, word) in [("pan", "pan"), ("echo", "echo"), ("rev", "rev")] {
                         let mut v = value(app, &format!("{n}_{k}"));
-                        ui.label(RichText::new(word).size(9.0).color(ink.muted));
+                        ui.label(
+                            RichText::new(word).size(crate::style::size(crate::style::Size::Tiny)).color(ink.muted),
+                        );
                         if ui.add(egui::Slider::new(&mut v, 0.0..=1.0).show_value(false)).changed() {
                             app.write(&format!("{n}_{k}"), v);
                         }
@@ -880,7 +876,7 @@ fn strip(app: &mut App, ui: &mut egui::Ui, track: &Track, ink: &Ink) {
 
 fn master(app: &mut App, ui: &mut egui::Ui, ink: &Ink) {
     let lang = app.settings.lang;
-    egui::Frame::new().fill(ink.surface).corner_radius(3).inner_margin(6.0).show(ui, |ui| {
+    egui::Frame::new().fill(ink.surface).corner_radius(crate::style::corner()).inner_margin(6.0).show(ui, |ui| {
         ui.set_width(150.0);
         ui.vertical(|ui| {
             ui.label(RichText::new(t(lang, "master")).small().strong());
@@ -892,7 +888,7 @@ fn master(app: &mut App, ui: &mut egui::Ui, ink: &Ink) {
                 ("room", "room"),
             ] {
                 let mut v = value(app, node);
-                ui.label(RichText::new(word).size(9.0).color(ink.muted));
+                ui.label(RichText::new(word).size(crate::style::size(crate::style::Size::Tiny)).color(ink.muted));
                 let hi = if node == "room" || node == "echo_back" { 0.97 } else { 1.0 };
                 if ui.add(egui::Slider::new(&mut v, 0.0..=hi).show_value(false)).changed() {
                     app.write(node, v);
@@ -921,7 +917,7 @@ mod tests {
         let engine = Engine::start(World::new(), std::time::Duration::from_millis(4));
         let mixer = Arc::new(Mutex::new(grm_sound::mixer::Mixer::new(48000)));
         let mut sh = grm_shell::Shell::new(dir.join("w.world"), mixer.clone());
-        sh.always = Some(root.join("mind/home.grm"));
+        sh.always = Some(root.join("mind/her.grm"));
         let out = sh.wake(&engine);
         assert!(out.iter().all(|l| l.kind != grm_shell::Kind::Error), "{out:?}");
         assert!(mixer.lock().unwrap().has_world(), "she is there before anything plays");

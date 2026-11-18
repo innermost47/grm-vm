@@ -28,7 +28,8 @@ pub struct Place {
     desk_mode: Mode,
     file: Option<PathBuf>,
     sandbox: Option<String>,
-    workshop: Option<String>,
+    /// What is in the middle of the space (a workshop, an app, a network…), as its word.
+    zone: Option<String>,
     selected: Vec<String>,
     tab: Tab,
     dived: Option<String>,
@@ -45,7 +46,7 @@ impl Place {
             && self.desk_mode == o.desk_mode
             && self.file == o.file
             && self.sandbox == o.sandbox
-            && self.workshop == o.workshop
+            && self.zone == o.zone
             && self.selected == o.selected
             && self.tab == o.tab
             && self.dived == o.dived
@@ -162,7 +163,7 @@ impl App {
             desk_mode: self.desk_mode,
             file: self.current_file.and_then(|k| self.files.get(k)).map(|f| f.path.clone()),
             sandbox: self.sandbox_shown.clone(),
-            workshop: self.workshop_shown.clone(),
+            zone: self.zone_center.as_ref().map(|k| k.word()),
             selected: self.selected.clone(),
             tab: self.tab,
             dived: self.dived.clone(),
@@ -180,7 +181,7 @@ impl App {
         self.desk_mode = p.desk_mode;
         self.current_file = p.file.as_ref().and_then(|path| self.files.iter().position(|f| &f.path == path));
         self.sandbox_shown = p.sandbox.clone();
-        self.workshop_shown = p.workshop.clone().filter(|w| self.picture.workshops.iter().any(|x| &x.0 == w));
+        self.zone_center = p.zone.as_deref().and_then(crate::space::kind_of).filter(|k| self.exists(k));
         self.selected = p.selected.iter().filter(|s| self.picture.node(s).is_some()).cloned().collect();
         self.tab = p.tab;
         self.space_on = p.space;

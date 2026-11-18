@@ -259,7 +259,14 @@ pub fn word(w: &str) -> Option<&'static Word> {
 
 /// The line a form makes.
 pub fn line_of(w: &Word, v: &HashMap<String, String>) -> String {
-    let get = |k: &str| v.get(k).map(|s| s.trim().to_string()).unwrap_or_default();
+    // a number as it was written (9,81) is written as the language reads it (9.81)
+    let get = |k: &str| {
+        let s = v.get(k).map(|s| s.trim().to_string()).unwrap_or_default();
+        match w.fields.iter().find(|f| f.key == k).map(|f| f.ask) {
+            Some(Ask::Number) if !s.is_empty() => crate::widgets::written(crate::widgets::Need::Number, &s),
+            _ => s,
+        }
+    };
     let on = |k: &str| v.get(k).is_some_and(|s| s == "yes");
     match w.word {
         "node" | "input" => {
@@ -294,18 +301,32 @@ pub fn line_of(w: &Word, v: &HashMap<String, String>) -> String {
     }
 }
 
+/// What a form still misses to be written: each field, and what it waits for (nothing: it can be written).
+fn missing(w: &Word, v: &HashMap<String, String>, lang: Lang) -> Vec<String> {
+    use crate::widgets::Need;
+    w.fields
+        .iter()
+        .filter_map(|f| {
+            let s = v.get(f.key).map(|s| s.trim().to_string()).unwrap_or_default();
+            let need = match f.ask {
+                Ask::Flag(_) | Ask::Bound => return None,
+                _ if f.optional && s.is_empty() => return None,
+                Ask::Node if grm_engine::lang::is_name(&s) => return None,
+                Ask::Node => return Some(format!("{} ({})", tr(lang, f.label), t(lang, "need_node"))),
+                Ask::Name => Need::Name,
+                Ask::Number => Need::Number,
+                Ask::Equation => Need::Equation,
+                Ask::Expression => Need::Expression,
+            };
+            crate::widgets::missing(need, &s, lang).map(|why| format!("{} ({why})", tr(lang, f.label)))
+        })
+        .collect()
+}
+
 /// Whether a form says enough to be written.
+#[cfg(test)]
 fn complete(w: &Word, v: &HashMap<String, String>) -> bool {
-    w.fields.iter().all(|f| {
-        let s = v.get(f.key).map(|s| s.trim().to_string()).unwrap_or_default();
-        match f.ask {
-            Ask::Flag(_) | Ask::Bound => true,
-            _ if f.optional && s.is_empty() => true,
-            Ask::Name | Ask::Node => grm_engine::lang::is_name(&s),
-            Ask::Number => s.parse::<f64>().is_ok(),
-            Ask::Equation | Ask::Expression => crate::math::parse(&s).is_some(),
-        }
-    })
+    missing(w, v, Lang::En).is_empty()
 }
 
 // ---------------------------------------------------------------------- in words
@@ -669,7 +690,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, ws: &str, view: &mut crate::view::
         .or_insert_with(|| (crate::model::Pull::new(std::time::Duration::from_millis(300)), None));
     let engine = app.engine.clone();
     if let Some(p) = entry.0.poll(&engine, move |w| crate::model::Picture::of_workshop(w, &name)) {
-        entry.1 = p;
+        entry.1 = p.map(std::sync::Arc::new);
     }
     let picture = entry.1.clone();
     let written: Vec<String> = picture.as_ref().map(|p| p.written.clone()).unwrap_or_default();
@@ -726,21 +747,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, ws: &str, view: &mut crate::view::
                 }
             });
         }
-        let ready = !written.is_empty();
-        if ui
-            .add_enabled(
-                ready,
-                egui::Button::image_and_text(
-                    crate::icons::image("door-open", 15.0, ink.on_accent()),
-                    RichText::new(t(lang, "ws_let_in")).color(ink.on_accent()),
-                )
-                .fill(ink.accent),
-            )
-            .on_hover_text(t(lang, "ws_let_in_d"))
-            .clicked()
-        {
-            crate::airlock::open_for_workshop(app, ws);
-        }
+        crate::airlock::door(app, ui, ws, !written.is_empty(), true);
     });
     ui.separator();
     let avail = ui.available_size();
@@ -754,19 +761,18 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, ws: &str, view: &mut crate::view::
         }
         ui.vertical(|ui| {
             // the form, or the step of the path, or what was asked
-            card(app, ui, ws, &mut state, picture.as_ref(), lang);
+            card(app, ui, ws, &mut state, picture.as_deref(), lang);
             // the network as it grows
             let h = (ui.available_height() * 0.55).max(140.0);
             ui.allocate_ui_with_layout(vec2(ui.available_width(), h), egui::Layout::top_down(egui::Align::Min), |ui| {
                 match picture.clone() {
                     Some(p) if !p.nodes.is_empty() => {
                         let master = (p.master.clone(), None);
-                        let saved = std::mem::replace(&mut app.picture, std::sync::Arc::new(p));
                         let saved_master = std::mem::replace(&mut app.master, master);
                         std::mem::swap(&mut app.view, view);
                         app.view.passive = small;
                         app.write_into = Some(ws.to_string());
-                        crate::view::show(app, ui, None);
+                        app.showing(p, |app| crate::view::show(app, ui, None));
                         app.write_into = None;
                         // a form asked from its menu (right button: a new relation) is this workshop's
                         if let Some(asked) = app.workshop_state.remove(ws).and_then(|st| st.form) {
@@ -775,7 +781,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, ws: &str, view: &mut crate::view::
                         }
                         app.view.passive = false;
                         std::mem::swap(&mut app.view, view);
-                        app.picture = saved;
                         app.master = saved_master;
                     }
                     _ => {
@@ -865,13 +870,21 @@ fn card(
 ) {
     let ink = Ink::of(ui.ctx());
     let nodes: Vec<String> = picture.map(|p| p.nodes.iter().map(|n| n.name.clone()).collect()).unwrap_or_default();
-    let frame = egui::Frame::new().fill(ink.raised).corner_radius(3.0).inner_margin(egui::Margin::symmetric(12, 10));
+    let frame = egui::Frame::new()
+        .fill(ink.raised)
+        .corner_radius(crate::style::corner())
+        .inner_margin(egui::Margin::symmetric(12, 10));
     if let Some(a) = state.answer.clone() {
         frame.show(ui, |ui| {
             ui.horizontal(|ui| {
                 crate::icons::show(ui, "circle-help", 16.0, ink.accent);
                 let mut lines = a.lines();
-                ui.label(RichText::new(lines.next().unwrap_or("")).strong().monospace().size(15.0));
+                ui.label(
+                    RichText::new(lines.next().unwrap_or(""))
+                        .strong()
+                        .monospace()
+                        .size(crate::style::size(crate::style::Size::Subtitle)),
+                );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if crate::icons::sign(ui, "x", t(lang, "close")).clicked() {
                         state.answer = None;
@@ -913,7 +926,7 @@ fn card(
                     ui.painter().circle_filled(r.center(), 3.5, c);
                 }
             });
-            ui.label(RichText::new(tr(lang, step.say)).size(14.0));
+            ui.label(RichText::new(tr(lang, step.say)).size(crate::style::size(crate::style::Size::Subtitle)));
             if !step.line.is_empty() {
                 crate::style::terminal(ui, &[step.line.to_string()]);
                 let words = explain(step.line, lang);
@@ -958,7 +971,9 @@ fn card(
     frame.show(ui, |ui| {
         ui.horizontal(|ui| {
             crate::icons::show(ui, word.sign, 16.0, ink.accent);
-            ui.label(RichText::new(word.word).strong().monospace().size(15.0));
+            ui.label(
+                RichText::new(word.word).strong().monospace().size(crate::style::size(crate::style::Size::Subtitle)),
+            );
             ui.label(RichText::new(tr(lang, word.what)).small().color(ink.muted));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if crate::icons::sign(ui, "x", t(lang, "close")).clicked() {
@@ -1001,17 +1016,12 @@ fn card(
                     }
                     Ask::Equation | Ask::Expression => {
                         ui.vertical(|ui| {
-                            ui.add(
-                                egui::TextEdit::singleline(v)
-                                    .margin(crate::style::FIELD)
-                                    .font(egui::TextStyle::Monospace)
-                                    .desired_width(260.0)
-                                    .hint_text(crate::style::hint(if f.ask == Ask::Equation {
-                                        "force = mass * acceleration"
-                                    } else {
-                                        "x + speed"
-                                    })),
-                            );
+                            let (need, example) = if f.ask == Ask::Equation {
+                                (crate::widgets::Need::Equation, "force = mass * acceleration")
+                            } else {
+                                (crate::widgets::Need::Expression, "x + speed")
+                            };
+                            let _ = crate::widgets::field(ui, v, need, example, 260.0, lang);
                             // the nodes there are, to put in it
                             ui.horizontal_wrapped(|ui| {
                                 for n in nodes.iter().filter(|n| !n.contains("__")) {
@@ -1030,13 +1040,11 @@ fn card(
                             });
                         });
                     }
-                    Ask::Name | Ask::Number => {
-                        ui.add(
-                            egui::TextEdit::singleline(v)
-                                .margin(crate::style::FIELD)
-                                .font(egui::TextStyle::Monospace)
-                                .desired_width(160.0),
-                        );
+                    Ask::Name => {
+                        let _ = crate::widgets::field(ui, v, crate::widgets::Need::Name, "mass", 160.0, lang);
+                    }
+                    Ask::Number => {
+                        let _ = crate::widgets::field(ui, v, crate::widgets::Need::Number, "9,81", 160.0, lang);
                     }
                 }
                 ui.end_row();
@@ -1046,7 +1054,8 @@ fn card(
         let line = line_of(word, &values);
         crate::style::terminal(ui, std::slice::from_ref(&line));
         // its mathematics and its words only once it says something (not a lone ": ." while it is being written)
-        let fine = complete(word, &values);
+        let lacking = missing(word, &values, lang);
+        let fine = lacking.is_empty();
         if fine {
             if let Some(eq) = line.split_once(':').map(|x| x.1).filter(|_| w == "relate" || w == "keep") {
                 crate::math::show(ui, eq.trim(), 15.0, lang);
@@ -1070,7 +1079,12 @@ fn card(
                 wrote = true;
             }
             if !fine {
-                ui.label(RichText::new(t(lang, "ws_not_yet")).small().color(ink.muted));
+                // what is missing, said, each with what it waits for
+                ui.label(
+                    RichText::new(format!("{} {}", t(lang, "ws_missing"), lacking.join(" · ")))
+                        .small()
+                        .color(ink.muted),
+                );
             }
         });
     });

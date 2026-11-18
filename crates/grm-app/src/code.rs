@@ -6,7 +6,7 @@
 
 use std::time::{Duration, Instant};
 
-use eframe::egui::{self, text::LayoutJob, Color32, FontId, RichText, TextFormat};
+use eframe::egui::{self, text::LayoutJob, Color32, RichText, TextFormat};
 
 use crate::app::{App, Ink};
 use crate::text::t;
@@ -71,7 +71,6 @@ pub const PROMPT_WORDS: &[&str] = &[
     "connect",
     "take",
     "feed",
-    "see",
     "sound",
     "voice",
     "volume",
@@ -138,7 +137,7 @@ pub fn highlight(ink: &Ink, text: &str, errors: &[usize]) -> LayoutJob {
 
 fn colour_code(ink: &Ink, text: &str, errors: &[usize], prompt: bool) -> LayoutJob {
     let mut job = LayoutJob::default();
-    let font = FontId::monospace(13.0);
+    let font = crate::style::code(crate::style::Size::Text);
     for (k, line) in text.split_inclusive('\n').enumerate() {
         let bad = errors.contains(&(k + 1));
         let (code, comment) = match grm_shell::apps::comment_at(line) {
@@ -220,7 +219,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
     }
     let error_lines: Vec<usize> = view.errors.iter().map(|e| e.0).collect();
     ui.horizontal(|ui| {
-        ui.label(RichText::new(view.path.display().to_string()).monospace().small().color(ink.muted));
+        ui.label(RichText::new(view.path.display().to_string()).small().color(ink.muted));
         if draft.dirty.is_some() {
             ui.label(RichText::new(t(lang, "typing")).small().color(ink.muted));
         } else {
@@ -242,7 +241,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                     ui.fonts_mut(|f| f.layout_job(job))
                 };
                 let out = egui::TextEdit::multiline(&mut draft.text)
-                    .margin(crate::style::FIELD)
+                    .margin(crate::style::field())
                     .id(egui::Id::new(("code-edit", name)))
                     .code_editor()
                     .desired_width(f32::INFINITY)
@@ -261,7 +260,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                             egui::pos2(gutter.right() - 6.0, out.galley_pos.y + row.pos.y),
                             egui::Align2::RIGHT_TOP,
                             line.to_string(),
-                            FontId::monospace(13.0),
+                            crate::style::code(crate::style::Size::Text),
                             colour,
                         );
                         line += 1;

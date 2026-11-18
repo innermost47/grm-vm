@@ -10,6 +10,7 @@ use eframe::egui::{self, pos2, vec2, Color32, Pos2, Rect, RichText, Sense, Shape
 use crate::app::{App, Ink};
 use crate::text::t;
 
+#[derive(Clone)]
 pub struct View {
     pub offset: egui::Vec2,
     pub zoom: f32,
@@ -125,7 +126,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
             pos2(rect.center().x, y),
             egui::Align2::CENTER_CENTER,
             t(lang, "empty_world"),
-            egui::FontId::proportional(15.0),
+            crate::style::font(crate::style::Size::Subtitle),
             ink.muted,
         );
         for ex in [
@@ -140,7 +141,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
                 pos2(rect.center().x, y),
                 egui::Align2::CENTER_CENTER,
                 ex,
-                egui::FontId::monospace(13.0),
+                crate::style::code(crate::style::Size::Text),
                 ink.text,
             );
         }
@@ -410,7 +411,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
     let label_all = zoom > 0.45 && pic.nodes.len() < 3000;
     // the labels already placed: a label that would fall on another goes above its node, or waits for the pointer
     let mut placed = Placed::default();
-    let mut over_eye: Option<String> = None;
     for (eye, (count, source)) in groups.iter() {
         let Some(p) = at(&format!("g:{eye}")) else { continue };
         let k = app.colours.get(source).copied().unwrap_or(0);
@@ -424,12 +424,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
             pos2(p.x, p.y + r + 5.0),
             egui::Align2::CENTER_TOP,
             &label,
-            egui::FontId::proportional(12.0),
+            crate::style::font(crate::style::Size::Text),
             ink.muted,
         );
         if pointer.is_some_and(|m| m.distance(p) < r + 4.0) {
-            hover_text = Some(format!("{eye}: {count} {} · {}", t(lang, "glance_inputs"), t(lang, "eye_open_d")));
-            over_eye = Some(eye.clone());
+            hover_text = Some(format!("{eye}: {count} {}", t(lang, "glance_inputs")));
         }
     }
     // the waves of what plays (a little of each: what is drawn around the node), a picture every frame
@@ -485,8 +484,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
         // in a flow, what is heard is an oscilloscope beside its node: its wave as it sounds (flat when silent)
         if app.flow.on && (played.contains(&n.name) || n.output) {
             let bx = Rect::from_min_size(p + vec2(r + 8.0, -26.0), vec2(130.0, 52.0));
-            painter.rect_filled(bx, 3.0, ink.surface);
-            painter.rect_stroke(bx, 3.0, Stroke::new(1.0_f32, colour), egui::StrokeKind::Inside);
+            painter.rect_filled(bx, crate::style::corner(), ink.surface);
+            painter.rect_stroke(bx, crate::style::corner(), Stroke::new(1.0_f32, colour), egui::StrokeKind::Inside);
             painter.line_segment(
                 [pos2(bx.left() + 4.0, bx.center().y), pos2(bx.right() - 4.0, bx.center().y)],
                 Stroke::new(0.5_f32, ink.faint),
@@ -545,10 +544,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
         if (label_all && in_focus) || selected || over {
             // its name, and under it how it is: its value and how sure (amber when it is unsure)
             let (health, unsure) = health(n);
-            let name = painter.layout_no_wrap(n.name.clone(), egui::FontId::proportional(12.0), ink.text);
+            let name = painter.layout_no_wrap(n.name.clone(), crate::style::font(crate::style::Size::Text), ink.text);
             let how = painter.layout_no_wrap(
                 health,
-                egui::FontId::monospace(10.0),
+                crate::style::font(crate::style::Size::Small),
                 if unsure { ink.amber } else { ink.muted },
             );
             let w = name.size().x.max(how.size().x);
@@ -592,7 +591,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
             }
             let g = painter.layout_no_wrap(
                 format!("{} ×{}", pk.name, pk.members.len()),
-                egui::FontId::proportional(11.0),
+                crate::style::font(crate::style::Size::Small),
                 ink.muted,
             );
             let b = Rect::from_min_size(pos2(p.x - g.size().x / 2.0, p.y + r + 3.0), g.size());
@@ -609,7 +608,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
             let held = format!("{:.1} σ", r.tension);
             let g = painter.layout_no_wrap(
                 format!("{} · {held}", r.name),
-                egui::FontId::proportional(10.5),
+                crate::style::font(crate::style::Size::Small),
                 if r.tension > 1.0 { ink.amber } else { ink.faint },
             );
             let b = Rect::from_min_size(pos2(p.x + 8.0, p.y - g.size().y / 2.0), g.size());
@@ -730,14 +729,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
                 *c + vec2(0.0, *radius + 4.0),
                 egui::Align2::CENTER_TOP,
                 s,
-                egui::FontId::proportional(13.0),
+                crate::style::font(crate::style::Size::Text),
                 faded(ink.text, collapse),
             );
             painter.text(
                 *c,
                 egui::Align2::CENTER_CENTER,
                 format!("{count} {}", t(lang, "all_nodes")),
-                egui::FontId::proportional(10.0),
+                crate::style::font(crate::style::Size::Small),
                 faded(ink.muted, collapse),
             );
         }
@@ -747,15 +746,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
             pressed_on = None;
         }
     }
-    if resp.double_clicked() && over_eye.is_some() {
-        // an eye: what it saw, big, and the others after it
-        let eye = over_eye.clone().unwrap_or_default();
-        app.tab = crate::app::Tab::Eye;
-        app.side_open = true;
-        if app.eyes.contains_key(&eye) {
-            app.lightbox = Some((eye, 0));
-        }
-    } else if resp.double_clicked() {
+    if resp.double_clicked() {
         if let Some(net) = over_net.clone() {
             // a network gathered into one node: the view comes close to it, until it unfolds (its nodes fill it)
             zoom_to_net(app, rect, &full, &net);
@@ -825,7 +816,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
         if let Some(i) = over_packet {
             let pk = prep.packets[i].clone();
             tip.show(|ui| {
-                ui.label(RichText::new(&pk.name).strong().size(14.0));
+                ui.label(RichText::new(&pk.name).strong().size(crate::style::size(crate::style::Size::Subtitle)));
                 ui.label(
                     RichText::new(format!(
                         "{} · {} {} · {} {}",
@@ -840,14 +831,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
                 );
                 if !pk.form.is_empty() {
                     ui.label(RichText::new(t(lang, "packet_form")).small().color(ink.muted));
-                    ui.label(RichText::new(&pk.form).monospace().size(11.0));
+                    ui.label(RichText::new(&pk.form).monospace().size(crate::style::size(crate::style::Size::Small)));
                 }
                 ui.label(RichText::new(t(lang, "packet_open")).small().color(ink.muted));
             });
         } else if let Some(net) = &over_net {
             let net = net.clone();
             tip.show(|ui| {
-                ui.label(RichText::new(&net).strong().size(15.0));
+                ui.label(RichText::new(&net).strong().size(crate::style::size(crate::style::Size::Subtitle)));
                 ui.label(RichText::new(t(lang, "t_row_hint")).small().color(ink.muted));
                 if let Some(m) = app.masters.get(&net).cloned() {
                     crate::math::show(ui, &m.text(), 14.0, lang);
@@ -878,7 +869,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
                 .new_child(egui::UiBuilder::new().max_rect(area).layout(egui::Layout::left_to_right(egui::Align::Min)));
             let inner = egui::Frame::new()
                 .fill(faded(ink.surface, 0.85))
-                .corner_radius(4.0)
+                .corner_radius(crate::style::corner())
                 .inner_margin(egui::Margin::symmetric(6, 2))
                 .show(&mut child, |ui| {
                     ui.horizontal(|ui| {
@@ -904,7 +895,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
             egui::Frame::new()
                 .fill(faded(ink.surface, 0.9))
                 .stroke(Stroke::new(1.0_f32, faded(ink.faint, 0.6)))
-                .corner_radius(3.0)
+                .corner_radius(crate::style::corner())
                 .inner_margin(egui::Margin::same(6))
                 .show(&mut child, |ui| {
                     ui.set_width(list.width() - 12.0);
@@ -1003,7 +994,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
     }
     if let (Some(from), Some(to)) = (app.view.box_from, resp.interact_pointer_pos()) {
         let b = Rect::from_two_pos(from, to);
-        painter.rect_stroke(b, 2.0, Stroke::new(1.0_f32, ink.accent), egui::StrokeKind::Inside);
+        painter.rect_stroke(b, crate::style::corner(), Stroke::new(1.0_f32, ink.accent), egui::StrokeKind::Inside);
         if resp.drag_stopped() {
             let inside: Vec<String> = pic
                 .nodes
@@ -1084,7 +1075,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
             rect.center_top() + vec2(0.0, 30.0),
             egui::Align2::CENTER_TOP,
             format!("{from} → {}", t(lang, "click_target")),
-            egui::FontId::proportional(13.0),
+            crate::style::font(crate::style::Size::Text),
             ink.accent,
         );
     }
@@ -1151,7 +1142,7 @@ fn item_of(node: &str) -> String {
 }
 
 fn legend(painter: &egui::Painter, rect: Rect, ink: &Ink, lang: crate::text::Lang) {
-    let font = egui::FontId::proportional(11.0);
+    let font = crate::style::font(crate::style::Size::Small);
     let y = rect.bottom() - 12.0;
     let back = Rect::from_min_max(pos2(rect.left(), y - 10.0), pos2(rect.right(), rect.bottom()));
     painter.rect_filled(back, 0.0, faded(ink.surface, 0.85));

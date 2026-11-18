@@ -133,7 +133,7 @@ pub fn parse(text: &str) -> Vec<(Kind, Rect)> {
             continue;
         };
         let kind = match (w(0), w(1)) {
-            (Some("app"), Some(a)) => Kind::App(a.to_string()),
+            (Some("app"), Some(a)) => Kind::App(grm_shell::runtime::now_called(a).to_string()),
             (Some("network"), Some(n)) => Kind::Network(n.to_string()),
             (Some("file"), Some(p)) => Kind::File(PathBuf::from(p)),
             (Some("feelings"), _) => Kind::Feelings,
@@ -248,6 +248,53 @@ impl Space {
     /// Everything in view.
     pub fn bounds(&self) -> Rect {
         self.items.iter().fold(Rect::NOTHING, |r, i| r.union(i.rect)).expand(40.0)
+    }
+}
+
+impl App {
+    /// Whether what a zone shows is still there: a workshop closed, an app gone, a file deleted are not (what has
+    /// nothing to lose is always there). Before the world's first picture, nothing is known gone.
+    pub fn exists(&self, k: &Kind) -> bool {
+        match k {
+            Kind::Workshop(w) => {
+                self.picture_frame == 0
+                    || self.workshops_coming.contains(w)
+                    || self.picture.workshops.iter().any(|x| &x.0 == w)
+            }
+            Kind::App(a) => !self.apps_known || self.apps.iter().any(|x| &x.name == a),
+            Kind::File(p) => p.exists(),
+            _ => true,
+        }
+    }
+
+    /// What the world no longer has is let go everywhere the window kept it: a workshop closed (by its sign, its
+    /// menu, a line typed or another window) leaves the space, its zones, its states, at once and for good.
+    pub fn follow_world(&mut self) {
+        if self.picture_frame == 0 {
+            return;
+        }
+        // a workshop just made is waited for until a picture has it (one pulled before may come after)
+        let seen: Vec<String> = self.picture.workshops.iter().map(|w| w.0.clone()).collect();
+        self.workshops_coming.retain(|w| !seen.contains(w));
+        let gone = |app: &App, k: &Kind| matches!(k, Kind::Workshop(_)) && !app.exists(k);
+        let before = self.space.items.len();
+        let items = std::mem::take(&mut self.space.items);
+        self.space.items = items.into_iter().filter(|i| !gone(self, &i.kind)).collect();
+        if self.space.items.len() != before {
+            // written at once (the space may not be shown now: a restart must not find it again)
+            self.space.save(&self.memory);
+        }
+        if self.zone_center.as_ref().is_some_and(|k| gone(self, k)) {
+            self.zone_center = None;
+        }
+        if self.zone_screen.as_ref().is_some_and(|k| gone(self, k)) {
+            self.zone_screen = None;
+        }
+        let detached = std::mem::take(&mut self.detached);
+        self.detached = detached.into_iter().filter(|k| !gone(self, k)).collect();
+        let here: std::collections::HashSet<String> = seen.into_iter().chain(self.workshops_coming.clone()).collect();
+        self.workshop_pulls.retain(|w, _| here.contains(w));
+        self.workshop_state.retain(|w, _| here.contains(w));
     }
 }
 
@@ -456,9 +503,9 @@ fn frame(app: &mut App, ui: &mut egui::Ui, k: usize) -> Option<Act> {
     let rect = app.space.items[k].rect;
     let mut act = None;
     let painter = ui.painter().clone();
-    painter.rect_filled(rect.translate(vec2(0.0, 4.0)), 12.0, Color32::from_black_alpha(50));
-    painter.rect_filled(rect, 4.0, ink.panel);
-    painter.rect_stroke(rect, 4.0, Stroke::new(1.0_f32, ink.faint), egui::StrokeKind::Inside);
+    painter.rect_filled(rect.translate(vec2(0.0, 4.0)), crate::style::corner(), Color32::from_black_alpha(50));
+    painter.rect_filled(rect, crate::style::corner(), ink.panel);
+    painter.rect_stroke(rect, crate::style::corner(), Stroke::new(1.0_f32, ink.faint), egui::StrokeKind::Inside);
     // the title: it moves the frame; a double click opens it whole
     let bar = Rect::from_min_size(rect.min, vec2(rect.width(), 32.0));
     let id = egui::Id::new(("space-item", kind.word()));
@@ -562,7 +609,9 @@ pub fn clock(ui: &mut egui::Ui, ink: &Ink, lang: crate::text::Lang) {
     hand(secs / 60.0, r * 0.85, 1.0, ink.accent);
     p.circle_filled(c, 3.5, ink.accent);
     ui.vertical_centered(|ui| {
-        ui.label(RichText::new(now.format("%H:%M").to_string()).size(22.0).strong());
+        ui.label(
+            RichText::new(now.format("%H:%M").to_string()).size(crate::style::size(crate::style::Size::Title)).strong(),
+        );
         let days_fr = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"];
         let months_fr = [
             "janvier",

@@ -20,17 +20,102 @@ pub struct Airlock {
     pub not_taken: Vec<String>,
 }
 
-/// What a workshop made, put in the airlock: a sandbox here with its lines, and a trial of what it would change.
-/// Where a workshop is on its way into the main network (shown beside it, so that it is seen at once).
+/// Where a workshop is on its way into the main network. The world keeps it (with the lines the workshop had
+/// then: a workshop changed since goes through the airlock again), so that it is the same after a restart.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WsStatus {
+pub enum Passage {
     /// Its sandbox waits in the airlock.
     Waiting,
-    /// Let in: it comes in little by little (then: in).
+    /// Let in: it comes in little by little…
     Entering,
+    /// … and it is in.
+    In,
     Refused,
 }
 
+/// The sandbox a workshop went into the airlock as (its name, or its name and a number).
+fn sandbox_of(app: &App, ws: &str) -> Option<String> {
+    let of = |s: &str| {
+        s == ws || s.strip_prefix(ws).and_then(|r| r.strip_prefix('_')).is_some_and(|k| k.parse::<u32>().is_ok())
+    };
+    app.picture.sandboxes.iter().map(|s| s.name.clone()).find(|s| of(s))
+}
+
+/// The door into the main network, said as where the workshop is on its way (the same wherever it is shown: as
+/// a big button in the workshop, as a sign in a list).
+pub fn door(app: &mut App, ui: &mut egui::Ui, ws: &str, ready: bool, big: bool) {
+    let lang = app.settings.lang;
+    let ink = crate::app::Ink::of(ui.ctx());
+    let now = passage(app, ws);
+    let (sign, key, enabled) = match now {
+        None => ("door-open", "ws_let_in", ready),
+        Some(Passage::Waiting) => ("door-open", "ws_back_in_airlock", true),
+        Some(Passage::Entering) => ("loader", "ws_entering_now", false),
+        Some(Passage::In) => ("check", "ws_is_in", false),
+        Some(Passage::Refused) => ("rotate-ccw", "ws_try_again", ready),
+    };
+    let hover = match now {
+        None | Some(Passage::Refused) => t(lang, "ws_let_in_d"),
+        _ => t(lang, "ws_changed_again_d"),
+    };
+    let clicked = if big {
+        let (fill, text) = if enabled && now.is_none() { (ink.accent, ink.on_accent()) } else { (ink.faint, ink.text) };
+        ui.add_enabled(
+            enabled,
+            egui::Button::image_and_text(
+                crate::icons::image(sign, 15.0, text),
+                RichText::new(t(lang, key)).color(text),
+            )
+            .fill(if enabled { fill } else { ink.faint.gamma_multiply(0.5) }),
+        )
+        .on_hover_text(hover)
+        .on_disabled_hover_text(hover)
+        .clicked()
+    } else {
+        crate::icons::sign_enabled(ui, enabled, sign, &format!("{} · {}", t(lang, key), hover)).clicked()
+    };
+    if clicked {
+        match now {
+            Some(Passage::Waiting) => back_to_airlock(app, ws),
+            _ => open_for_workshop(app, ws),
+        }
+    }
+}
+
+/// Where a workshop is on its way in (nothing: it has not gone, or it changed since).
+pub fn passage(app: &App, ws: &str) -> Option<Passage> {
+    let said = app.picture.passages.iter().find(|p| p.0 == ws).map(|p| p.1.as_str());
+    // what comes in is said "SANDBOX · step N"
+    let coming = app.picture.integrating.iter().map(|s| s.split(" · ").next().unwrap_or(s)).any(|s| {
+        s == ws || s.strip_prefix(ws).and_then(|r| r.strip_prefix('_')).is_some_and(|k| k.parse::<u32>().is_ok())
+    });
+    match said {
+        Some("entering") if coming => Some(Passage::Entering),
+        Some("entering") => Some(Passage::In),
+        Some("refused") => Some(Passage::Refused),
+        Some("waiting") if sandbox_of(app, ws).is_some() => Some(Passage::Waiting),
+        _ => None,
+    }
+}
+
+/// The world told where a workshop is on its way in (and kept at once).
+fn set_passage(app: &mut App, ws: &str, status: &str) {
+    let (w, s) = (ws.to_string(), status.to_string());
+    let _ = app.engine.ask(move |main| main.set_passage(&w, &s).map(|_| String::new()));
+    app.keep_world_soon();
+}
+
+/// A workshop waiting in the airlock, shown in it again.
+pub fn back_to_airlock(app: &mut App, ws: &str) {
+    if let Some(sb) = sandbox_of(app, ws) {
+        open_for_sandbox(app, &sb);
+        if let Some(a) = app.airlock.as_mut() {
+            a.from = ws.to_string();
+        }
+    }
+}
+
+/// What a workshop made, put in the airlock: a sandbox here with its lines, and a trial of what it would change.
 pub fn open_for_workshop(app: &mut App, ws: &str) {
     let w = ws.to_string();
     let got = app.engine.query(move |main| -> Result<(String, MergeReport, Vec<String>), String> {
@@ -53,7 +138,7 @@ pub fn open_for_workshop(app: &mut App, ws: &str) {
     });
     app.airlock = Some(match got {
         Some(Ok((sandbox, report, not_taken))) => {
-            app.ws_status.insert(ws.to_string(), WsStatus::Waiting);
+            set_passage(app, ws, "waiting");
             Airlock { sandbox, from: ws.to_string(), report: Ok(report), not_taken }
         }
         Some(Err(e)) => Airlock { sandbox: String::new(), from: ws.to_string(), report: Err(e), not_taken: vec![] },
@@ -74,11 +159,11 @@ fn harmony_bar(ui: &mut egui::Ui, ink: &Ink, label: &str, h: f64) {
     ui.horizontal(|ui| {
         ui.label(RichText::new(label).small());
         let (r, _) = ui.allocate_exact_size(vec2(160.0, 8.0), egui::Sense::hover());
-        ui.painter().rect_filled(r, 4.0, ink.faint.gamma_multiply(0.5));
+        ui.painter().rect_filled(r, crate::style::corner(), ink.faint.gamma_multiply(0.5));
         let mut full = r;
         full.set_width(r.width() * h.clamp(0.0, 1.0) as f32);
-        ui.painter().rect_filled(full, 4.0, if h < 0.6 { ink.amber } else { ink.accent });
-        ui.label(RichText::new(format!("{h:.3}")).small().monospace());
+        ui.painter().rect_filled(full, crate::style::corner(), if h < 0.6 { ink.amber } else { ink.accent });
+        ui.label(RichText::new(format!("{h:.3}")).small());
     });
 }
 
@@ -95,7 +180,11 @@ pub fn window(app: &mut App, ctx: &egui::Context) {
         ui.set_width(520.0);
         ui.horizontal(|ui| {
             crate::icons::show(ui, "door-open", 20.0, ink.accent);
-            ui.label(RichText::new(format!("{} « {from} »", t(lang, "airlock_title"))).strong().size(17.0));
+            ui.label(
+                RichText::new(format!("{} « {from} »", t(lang, "airlock_title")))
+                    .strong()
+                    .size(crate::style::size(crate::style::Size::Title)),
+            );
         });
         ui.label(RichText::new(t(lang, "airlock_d")).small().color(ink.muted));
         ui.add_space(6.0);
@@ -188,12 +277,12 @@ pub fn window(app: &mut App, ctx: &egui::Context) {
     match choice {
         Some("merge") if !sandbox.is_empty() => {
             app.say(format!("merge {sandbox}"));
-            app.ws_status.insert(from, WsStatus::Entering);
+            set_passage(app, &from, "entering");
             app.airlock = None;
         }
         Some("refuse") if !sandbox.is_empty() => {
             app.say(format!("refuse {sandbox}"));
-            app.ws_status.insert(from, WsStatus::Refused);
+            set_passage(app, &from, "refused");
             app.airlock = None;
         }
         Some(_) => app.airlock = None,

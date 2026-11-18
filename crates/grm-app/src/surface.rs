@@ -83,6 +83,181 @@ pub struct State {
     pub octave: i32,
     /// The computer's piano keys held, by where they are (semitones from the keyboard's lowest note).
     pub phys_down: std::collections::BTreeSet<i32>,
+    /// Each set of tabs' chosen one, and how far each scroll is down (by app and widget).
+    pub tabs: HashMap<String, usize>,
+    pub scrolls: HashMap<String, f32>,
+    /// What is being written in each field (by app and widget), until Enter gives it to its node.
+    pub fields: HashMap<String, String>,
+}
+
+/// What a widget that holds others draws itself (what it holds is drawn as any widget is).
+enum Frame {
+    Card { rect: Rect, title: String, icon: Option<String> },
+    Tabs { rect: Rect, key: String, titles: Vec<String>, chosen: usize },
+    Scroll { rect: Rect, key: String, offset: f32, content: f32 },
+}
+
+/// Where each widget is drawn: those on the surface in their cells, those held where what holds them puts them
+/// (side by side, one under another, in a grid, one over another, scrolled, one tab at a time, in a card). A
+/// widget `when NODE` while the node is 0 is not drawn and takes no room.
+#[allow(clippy::too_many_arguments)]
+fn lay<'a>(
+    app: &App,
+    key: &str,
+    w: &'a Widget,
+    rect: Rect,
+    out: &mut Vec<(&'a Widget, Rect, bool)>,
+    frames: &mut Vec<Frame>,
+    top: bool,
+) {
+    // what holds others, held itself, keeps a little room from its neighbours
+    let rect = if !top && w.kind.holds() { rect.shrink(GAP / 2.0) } else { rect };
+    out.push((w, rect, top));
+    if !w.kind.holds() {
+        return;
+    }
+    let shown: Vec<&Widget> = w.children.iter().filter(|c| shown(app, c)).collect();
+    let tall = |c: &Widget| c.size.1.max(1) as f32 * ROW;
+    let inner = rect.shrink(GAP / 2.0);
+    let me = format!("{key}/{}", w.name);
+    match w.kind {
+        WidgetKind::Row => {
+            let whole: i32 = shown.iter().map(|c| c.size.0.max(1)).sum::<i32>().max(1);
+            let mut x = inner.left();
+            for c in shown {
+                let wd = inner.width() * c.size.0.max(1) as f32 / whole as f32;
+                let h = if c.kind.holds() { inner.height() } else { inner.height().min(tall(c)) };
+                lay(app, key, c, Rect::from_min_size(pos2(x, inner.top()), vec2(wd, h)), out, frames, false);
+                x += wd;
+            }
+        }
+        WidgetKind::Column | WidgetKind::Card => {
+            let mut y = inner.top();
+            if w.kind == WidgetKind::Card {
+                frames.push(Frame::Card { rect, title: w.text.clone(), icon: w.icon.clone() });
+                if !w.text.is_empty() {
+                    y += ROW * 0.6;
+                }
+            }
+            for c in shown {
+                let r = Rect::from_min_size(pos2(inner.left(), y), vec2(inner.width(), tall(c)));
+                lay(app, key, c, r, out, frames, false);
+                y += tall(c);
+            }
+        }
+        WidgetKind::Grid => {
+            let n = w.columns.unwrap_or(2).max(1) as usize;
+            let cw = inner.width() / n as f32;
+            let mut y = inner.top();
+            for row in shown.chunks(n) {
+                let h = row.iter().map(|c| tall(c)).fold(ROW, f32::max);
+                for (k, c) in row.iter().enumerate() {
+                    let r = Rect::from_min_size(pos2(inner.left() + k as f32 * cw, y), vec2(cw, h));
+                    lay(app, key, c, r, out, frames, false);
+                }
+                y += h;
+            }
+        }
+        WidgetKind::Stack => {
+            for c in shown {
+                lay(app, key, c, inner, out, frames, false);
+            }
+        }
+        WidgetKind::Tabs => {
+            let chosen = app.surface.tabs.get(&me).copied().unwrap_or(0).min(shown.len().saturating_sub(1));
+            let titles =
+                shown.iter().map(|c| if c.text.is_empty() { c.name.clone() } else { c.text.clone() }).collect();
+            frames.push(Frame::Tabs { rect, key: me, titles, chosen });
+            if let Some(c) = shown.get(chosen) {
+                let r = Rect::from_min_max(pos2(inner.left(), inner.top() + ROW * 0.7), inner.max);
+                lay(app, key, c, r, out, frames, false);
+            }
+        }
+        WidgetKind::Scroll => {
+            // a gutter of its own for the bar: what scrolls is never under it
+            let room = Rect::from_min_max(inner.min, pos2(inner.right() - 10.0, inner.bottom()));
+            let content: f32 = shown.iter().map(|c| tall(c)).sum();
+            let offset =
+                app.surface.scrolls.get(&me).copied().unwrap_or(0.0).clamp(0.0, (content - room.height()).max(0.0));
+            frames.push(Frame::Scroll { rect: inner, key: me, offset, content });
+            let mut y = room.top() - offset;
+            for c in shown {
+                let r = Rect::from_min_size(pos2(room.left(), y), vec2(room.width(), tall(c)));
+                // only what is wholly in view is drawn (nothing cut)
+                if r.top() >= room.top() - 0.5 && r.bottom() <= room.bottom() + 0.5 {
+                    lay(app, key, c, r, out, frames, false);
+                }
+                y += tall(c);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Whether a widget is shown (`when NODE`: while the node is not 0).
+fn shown(app: &App, w: &Widget) -> bool {
+    w.when.as_ref().is_none_or(|n| app.picture.node(n).is_some_and(|v| v.value.abs() > 1e-9))
+}
+
+/// What holds widgets: its card, its tabs (chosen by a click), its scroll bar (and the wheel over it).
+fn frames(app: &mut App, ui: &mut egui::Ui, painter: &egui::Painter, frames: Vec<Frame>, ink: &Ink) {
+    for f in frames {
+        match f {
+            Frame::Card { rect, title, icon } => {
+                painter.rect_filled(rect, crate::style::corner(), ink.raised.gamma_multiply(0.35));
+                painter.rect_stroke(
+                    rect,
+                    crate::style::corner(),
+                    Stroke::new(1.0_f32, ink.faint),
+                    egui::StrokeKind::Inside,
+                );
+                if !title.is_empty() {
+                    caption(ui, painter, pos2(rect.center().x, rect.top() + ROW * 0.45), &title, icon.as_deref(), ink);
+                }
+            }
+            Frame::Tabs { rect, key, titles, chosen } => {
+                let mut x = rect.left() + GAP;
+                for (k, title) in titles.iter().enumerate() {
+                    let font = crate::style::font(crate::style::Size::Text);
+                    let galley = painter.layout_no_wrap(title.clone(), font, ink.text);
+                    let r = Rect::from_min_size(pos2(x, rect.top() + 4.0), vec2(galley.size().x + 20.0, ROW * 0.55));
+                    let resp = ui.interact(r, egui::Id::new(("tab", &key, k)), Sense::click());
+                    let on = k == chosen;
+                    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, title));
+                    if on || resp.hovered() {
+                        let fill = if on { ink.accent } else { ink.faint.gamma_multiply(0.5) };
+                        painter.rect_filled(r, crate::style::corner(), fill);
+                    }
+                    painter.galley(
+                        r.center() - galley.size() / 2.0,
+                        galley,
+                        if on { ink.on_accent() } else { ink.text },
+                    );
+                    if resp.clicked() {
+                        app.surface.tabs.insert(key.clone(), k);
+                    }
+                    x = r.right() + 4.0;
+                }
+            }
+            Frame::Scroll { rect, key, offset, content } => {
+                let room = rect.height();
+                if content > room {
+                    let bar = Rect::from_min_max(pos2(rect.right() - 6.0, rect.top()), rect.right_bottom());
+                    painter.rect_filled(bar, crate::style::corner(), ink.faint.gamma_multiply(0.4));
+                    let h = (room / content * room).max(16.0);
+                    let y = rect.top() + offset / (content - room) * (room - h);
+                    let thumb = Rect::from_min_size(pos2(bar.left(), y), vec2(bar.width(), h));
+                    painter.rect_filled(thumb, crate::style::corner(), ink.muted);
+                    if ui.rect_contains_pointer(rect) {
+                        let wheel = ui.input(|i| i.smooth_scroll_delta.y);
+                        if wheel != 0.0 {
+                            app.surface.scrolls.insert(key, (offset - wheel).clamp(0.0, content - room));
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn freq(midi: f64) -> f64 {
@@ -115,9 +290,9 @@ fn note_name(hz: f64) -> String {
 fn caption(ui: &egui::Ui, painter: &egui::Painter, bottom: Pos2, label: &str, icon: Option<&str>, ink: &Ink) {
     // it fits its place: smaller words, then no sign, rather than cut
     let room = painter.clip_rect().width();
-    let mut g = painter.layout_no_wrap(label.to_uppercase(), egui::FontId::proportional(10.5), ink.text);
+    let mut g = painter.layout_no_wrap(label.to_uppercase(), crate::style::font(crate::style::Size::Small), ink.text);
     if g.size().x + 15.0 > room {
-        g = painter.layout_no_wrap(label.to_uppercase(), egui::FontId::proportional(8.5), ink.text);
+        g = painter.layout_no_wrap(label.to_uppercase(), crate::style::font(crate::style::Size::Tiny), ink.text);
     }
     let icon = icon.filter(|_| g.size().x + 15.0 <= room);
     let (w, h) = (g.size().x, g.size().y);
@@ -233,16 +408,24 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
             whole.center_top() + vec2(0.0, 40.0),
             egui::Align2::CENTER_CENTER,
             t(lang, "empty_surface"),
-            egui::FontId::proportional(14.0),
+            crate::style::font(crate::style::Size::Subtitle),
             ink.muted,
         );
     }
     let mut new_text: Option<String> = None;
     let outer_ink = ink;
-    for w in &view.widgets {
+    // where each is: those on the surface in their cells, those held where what holds them puts them
+    let mut laid = vec![];
+    let mut held = vec![];
+    for w in view.widgets.iter().filter(|w| shown(app, w)) {
         let rect = cell(w.at.0, w.at.1, w.size.0.min(COLUMNS), w.size.1);
+        lay(app, name, w, rect, &mut laid, &mut held, true);
+    }
+    frames(app, ui, &painter, held, &ink);
+    let tips_on = app.tips_for(&view);
+    for (w, rect, top) in laid {
         // inside its cell, a little room on every side: nothing sits on a frame's border
-        let rect = if w.kind == WidgetKind::Section { rect } else { rect.shrink2(vec2(6.0, 3.0)) };
+        let rect = if w.kind == WidgetKind::Section || w.kind.holds() { rect } else { rect.shrink2(vec2(6.0, 3.0)) };
         // the widget drawn in its look
         let lk = widget_looks.get(&w.name).copied().unwrap_or(app_look);
         let mut ink = outer_ink;
@@ -280,27 +463,41 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
         if editing {
             let resp = ui.interact(rect, id.with("edit"), Sense::click_and_drag());
             let chosen = app.surface.chosen.as_deref() == Some(w.name.as_str());
-            painter.rect_filled(rect, 4.0, ink.faint.gamma_multiply(0.25));
+            painter.rect_filled(rect, crate::style::corner(), ink.faint.gamma_multiply(0.25));
             painter.rect_stroke(
                 rect,
                 4.0,
                 Stroke::new(if chosen { 2.0_f32 } else { 1.0_f32 }, if chosen { ink.accent } else { ink.muted }),
                 egui::StrokeKind::Inside,
             );
-            painter.text(
-                rect.left_top() + vec2(6.0, 4.0),
-                egui::Align2::LEFT_TOP,
-                format!("{} · {} {}", w.name, w.kind.word(), w.nodes.join(" ")),
-                egui::FontId::proportional(12.0),
-                ink.text,
-            );
+            // its name above, what it is and its nodes under it: each fitted to its width (a knob is narrow)
+            let fit = |words: String, size: crate::style::Size| {
+                let mut g = painter.layout_no_wrap(words.clone(), crate::style::font(size), ink.text);
+                if g.size().x > rect.width() - 6.0 {
+                    g = painter.layout(
+                        words,
+                        crate::style::font(crate::style::Size::Tiny),
+                        ink.text,
+                        rect.width() - 6.0,
+                    );
+                }
+                g
+            };
+            let top_words = fit(w.name.clone(), crate::style::Size::Small);
+            painter.galley(pos2(rect.center().x - top_words.size().x / 2.0, rect.top() + 3.0), top_words, ink.text);
+            let under = fit(format!("{} {}", w.kind.word(), w.nodes.join(" ")), crate::style::Size::Tiny);
+            let at = pos2(rect.center().x - under.size().x / 2.0, rect.bottom() - under.size().y - 3.0);
+            painter.galley(at, under, ink.muted);
             let handle = Rect::from_min_size(rect.right_bottom() - vec2(14.0, 14.0), vec2(14.0, 14.0));
-            painter.rect_filled(handle, 2.0, ink.accent);
+            // what is held is moved with what holds it (only what stands on the surface has a place of its own)
+            if top {
+                painter.rect_filled(handle, crate::style::corner(), ink.accent);
+            }
             if resp.clicked() {
                 app.surface.chosen = Some(w.name.clone());
                 app.surface.edit_line = view.text.lines().nth(w.line - 1).unwrap_or("").to_string();
             }
-            if resp.drag_started() {
+            if top && resp.drag_started() {
                 let p = resp.interact_pointer_pos().unwrap_or(rect.center());
                 let grab = if handle.expand(4.0).contains(p) { Grab::Resize } else { Grab::Move };
                 app.surface.grab = Some((w.name.clone(), grab, w.at, w.size, p));
@@ -384,6 +581,40 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                     });
                 }
             }
+            WidgetKind::Choice => {
+                if let Some(n) = node(0) {
+                    let options: Vec<String> = w.text.split('|').map(|s| s.trim().to_string()).collect();
+                    let mut k = (n.value.round().max(0.0) as usize).min(options.len().saturating_sub(1));
+                    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+                    if crate::widgets::choice(&mut child, id, &mut k, &options, w.tip.as_deref().unwrap_or("")) {
+                        observe(app, &n.name, k as f64);
+                    }
+                }
+            }
+            WidgetKind::Field => {
+                if let Some(n) = node(0) {
+                    let key = format!("{name}/{}", w.name);
+                    let mut text =
+                        app.surface.fields.get(&key).cloned().unwrap_or_else(|| grm_engine::lang::g(n.value));
+                    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+                    let example = if w.text.is_empty() { "9,81" } else { w.text.as_str() };
+                    let need = crate::widgets::Need::Number;
+                    let (fine, r) =
+                        crate::widgets::field(&mut child, &mut text, need, example, rect.width() - 4.0, lang);
+                    // given to its node with Enter; what is being written is kept until then
+                    let enter = r.lost_focus() && child.input(|i| i.key_pressed(egui::Key::Enter));
+                    if fine && enter {
+                        if let Some(v) = crate::widgets::number(&text) {
+                            observe(app, &n.name, v);
+                        }
+                        app.surface.fields.remove(&key);
+                    } else if text != grm_engine::lang::g(n.value) {
+                        app.surface.fields.insert(key, text);
+                    } else {
+                        app.surface.fields.remove(&key);
+                    }
+                }
+            }
             WidgetKind::Toggle => {
                 if let Some(n) = node(0) {
                     let mut on = n.value > 0.5;
@@ -394,7 +625,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
             }
             WidgetKind::Button => {
                 if let Some(n) = node(0) {
-                    let r = ui.put(rect, egui::Button::new(RichText::new(&label).size(15.0 * lk.size)));
+                    let r = ui.put(
+                        rect,
+                        egui::Button::new(
+                            RichText::new(&label).size(crate::style::size(crate::style::Size::Subtitle) * lk.size),
+                        ),
+                    );
                     let down = r.is_pointer_button_down_on();
                     let key = format!("{name}/{}", w.name);
                     let was = app.surface.held.get(&key).copied().unwrap_or(false);
@@ -409,8 +645,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                 // playing, it stands on the accent: its words and sign in the colour that reads on it
                 let on_colour = if playing { ui.visuals().selection.stroke.color } else { lk.text };
                 let sign = crate::icons::image(if playing { "square" } else { "play" }, 15.0 * lk.size, on_colour);
-                let b = egui::Button::image_and_text(sign, RichText::new(&label).size(15.0 * lk.size).color(on_colour))
-                    .selected(playing);
+                let b = egui::Button::image_and_text(
+                    sign,
+                    RichText::new(&label)
+                        .size(crate::style::size(crate::style::Size::Subtitle) * lk.size)
+                        .color(on_colour),
+                )
+                .selected(playing);
                 if ui.put(rect, b).clicked() {
                     app.say(if playing { format!("stop {}", w.nodes[0]) } else { format!("play {}", w.nodes[0]) });
                 }
@@ -424,8 +665,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                     Some(s) => format!("{label} {:02}:{:02}", (s / 60.0) as u32, (s % 60.0) as u32),
                     None => label.clone(),
                 };
-                let b = egui::Button::image_and_text(sign, RichText::new(words).size(15.0 * lk.size).color(colour))
-                    .selected(recording);
+                let b = egui::Button::image_and_text(
+                    sign,
+                    RichText::new(words).size(crate::style::size(crate::style::Size::Subtitle) * lk.size).color(colour),
+                )
+                .selected(recording);
                 if ui.put(rect, b).on_hover_text(crate::text::t(app.settings.lang, "rec_d")).clicked() {
                     app.record();
                 }
@@ -437,16 +681,16 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                 if let Some(n) = node(0) {
                     let r = ui.interact(rect, id, Sense::hover());
                     let bar = Rect::from_min_size(rect.left_center() + vec2(0.0, 2.0), vec2(rect.width(), 10.0));
-                    painter.rect_filled(bar, 5.0, ink.faint);
+                    painter.rect_filled(bar, crate::style::corner(), ink.faint);
                     let k = ((n.value - w.lo) / (w.hi - w.lo)).clamp(0.0, 1.0) as f32;
                     let mut full = bar;
                     full.set_width(bar.width() * k);
-                    painter.rect_filled(full, 5.0, ink.accent);
+                    painter.rect_filled(full, crate::style::corner(), ink.accent);
                     painter.text(
                         rect.left_top(),
                         egui::Align2::LEFT_TOP,
                         &label,
-                        egui::FontId::proportional(12.0),
+                        crate::style::font(crate::style::Size::Text),
                         ink.muted,
                     );
                     r.widget_info(|| {
@@ -471,7 +715,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                     rect.center_bottom(),
                     egui::Align2::CENTER_BOTTOM,
                     words,
-                    egui::FontId::proportional(13.0),
+                    crate::style::font(crate::style::Size::Text),
                     ink.text,
                 );
                 r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, words));
@@ -482,7 +726,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                     rect.left_top(),
                     egui::Align2::LEFT_TOP,
                     &label,
-                    egui::FontId::proportional(12.0),
+                    crate::style::font(crate::style::Size::Text),
                     ink.muted,
                 );
                 let inner =
@@ -501,7 +745,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                         pos2(inner.left() - 4.0, y(v)),
                         egui::Align2::RIGHT_CENTER,
                         grm_engine::lang::g(v),
-                        egui::FontId::monospace(10.0),
+                        crate::style::font(crate::style::Size::Small),
                         ink.muted,
                     );
                 }
@@ -536,7 +780,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                                 pos2(x(k), y(*v) - 4.0),
                                 egui::Align2::CENTER_BOTTOM,
                                 format!("{v:.0}"),
-                                egui::FontId::monospace(10.0),
+                                crate::style::font(crate::style::Size::Small),
                                 ink.text,
                             );
                             let when = if k == 0 {
@@ -552,7 +796,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                                 pos2(x(k), inner.bottom() + 3.0),
                                 egui::Align2::CENTER_TOP,
                                 when,
-                                egui::FontId::monospace(10.0),
+                                crate::style::font(crate::style::Size::Small),
                                 ink.muted,
                             );
                         }
@@ -565,7 +809,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                                 pos2(x(k), inner.top()),
                                 egui::Align2::CENTER_BOTTOM,
                                 format!("+{k}: {}", grm_engine::lang::g(*v)),
-                                egui::FontId::monospace(11.0),
+                                crate::style::font(crate::style::Size::Small),
                                 ink.text,
                             );
                         }
@@ -585,19 +829,19 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                         let (lo, hi) = (a.min(b), a.max(b));
                         let cx = inner.left() + slot * (d as f32 + 0.5);
                         let bar = Rect::from_min_max(pos2(cx - slot * 0.18, y(hi)), pos2(cx + slot * 0.18, y(lo)));
-                        painter.rect_filled(bar, 4.0, ink.accent.gamma_multiply(0.75));
+                        painter.rect_filled(bar, crate::style::corner(), ink.accent.gamma_multiply(0.75));
                         painter.text(
                             pos2(cx, bar.top() - 2.0),
                             egui::Align2::CENTER_BOTTOM,
                             format!("{hi:.0}°"),
-                            egui::FontId::monospace(10.0),
+                            crate::style::font(crate::style::Size::Small),
                             ink.text,
                         );
                         painter.text(
                             pos2(cx, bar.bottom() + 2.0),
                             egui::Align2::CENTER_TOP,
                             format!("{lo:.0}°"),
-                            egui::FontId::monospace(10.0),
+                            crate::style::font(crate::style::Size::Small),
                             ink.muted,
                         );
                         let wd = ((today + d as u64) % 7) as usize;
@@ -616,7 +860,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                             pos2(cx, rect.bottom()),
                             egui::Align2::CENTER_BOTTOM,
                             day,
-                            egui::FontId::proportional(11.0),
+                            crate::style::font(crate::style::Size::Small),
                             ink.muted,
                         );
                     }
@@ -630,14 +874,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                         rect.left_top(),
                         egui::Align2::LEFT_TOP,
                         &label,
-                        egui::FontId::proportional(12.0),
+                        crate::style::font(crate::style::Size::Text),
                         ink.muted,
                     );
                     painter.text(
                         rect.left_bottom(),
                         egui::Align2::LEFT_BOTTOM,
                         reading(n.value, n.sigma, n.signed),
-                        egui::FontId::monospace(16.0),
+                        crate::style::font(crate::style::Size::Subtitle),
                         ink.text,
                     );
                     r.widget_info(|| {
@@ -651,12 +895,17 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
             }
             WidgetKind::Plot => {
                 let r = ui.interact(rect, id, Sense::hover());
-                painter.rect_stroke(rect, 4.0, Stroke::new(1.0_f32, ink.faint), egui::StrokeKind::Inside);
+                painter.rect_stroke(
+                    rect,
+                    crate::style::corner(),
+                    Stroke::new(1.0_f32, ink.faint),
+                    egui::StrokeKind::Inside,
+                );
                 painter.text(
                     rect.left_top() + vec2(6.0, 4.0),
                     egui::Align2::LEFT_TOP,
                     &label,
-                    egui::FontId::proportional(12.0),
+                    crate::style::font(crate::style::Size::Text),
                     ink.muted,
                 );
                 let inner = rect.shrink2(vec2(6.0, 18.0)).translate(vec2(0.0, 6.0));
@@ -683,7 +932,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                             rect.right_top() + vec2(-6.0, 4.0),
                             egui::Align2::RIGHT_TOP,
                             grm_engine::lang::g(*v),
-                            egui::FontId::monospace(12.0),
+                            crate::style::font(crate::style::Size::Text),
                             ink.text,
                         );
                     }
@@ -693,36 +942,26 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                 });
             }
             WidgetKind::Text => {
-                ui.put(rect, egui::Label::new(RichText::new(&w.text).size(15.0 * lk.size)).wrap());
-            }
-            WidgetKind::Picture => {
-                let eye = &w.nodes[0];
-                match app.eyes.get(eye).and_then(|e| e.textures.first()) {
-                    Some((_, tex)) => {
-                        let size = tex.size_vec2();
-                        let k = (rect.width() / size.x).min(rect.height() / size.y);
-                        let r = Rect::from_center_size(rect.center(), size * k);
-                        painter.image(tex.id(), r, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
-                    }
-                    None => {
-                        painter.rect_stroke(rect, 4.0, Stroke::new(1.0_f32, ink.faint), egui::StrokeKind::Inside);
-                        painter.text(
-                            rect.center(),
-                            egui::Align2::CENTER_CENTER,
-                            format!("{eye}: —"),
-                            egui::FontId::proportional(12.0),
-                            ink.muted,
-                        );
-                    }
-                }
+                ui.put(
+                    rect,
+                    egui::Label::new(
+                        RichText::new(&w.text).size(crate::style::size(crate::style::Size::Subtitle) * lk.size),
+                    )
+                    .wrap(),
+                );
             }
             WidgetKind::Pad => {
                 if let (Some(nx), Some(ny)) = (node(0), node(1)) {
                     let side = rect.width().min(rect.height());
                     let sq = Rect::from_min_size(rect.min, vec2(side, side));
                     let r = ui.interact(sq, id, Sense::click_and_drag());
-                    painter.rect_filled(sq, 4.0, ink.faint.gamma_multiply(0.4));
-                    painter.rect_stroke(sq, 4.0, Stroke::new(1.0_f32, ink.muted), egui::StrokeKind::Inside);
+                    painter.rect_filled(sq, crate::style::corner(), ink.faint.gamma_multiply(0.4));
+                    painter.rect_stroke(
+                        sq,
+                        crate::style::corner(),
+                        Stroke::new(1.0_f32, ink.muted),
+                        egui::StrokeKind::Inside,
+                    );
                     let kx = ((nx.value - w.lo) / (w.hi - w.lo)).clamp(0.0, 1.0) as f32;
                     let ky = ((ny.value - w.lo) / (w.hi - w.lo)).clamp(0.0, 1.0) as f32;
                     painter.circle_filled(pos2(sq.left() + kx * side, sq.bottom() - ky * side), 7.0, ink.accent);
@@ -738,7 +977,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                         sq.left_top() + vec2(4.0, 2.0),
                         egui::Align2::LEFT_TOP,
                         &label,
-                        egui::FontId::proportional(11.0),
+                        crate::style::font(crate::style::Size::Small),
                         ink.muted,
                     );
                 }
@@ -814,14 +1053,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                             at(a0, rad + 2.0),
                             egui::Align2::RIGHT_TOP,
                             g(w.lo),
-                            egui::FontId::monospace(8.5),
+                            crate::style::font(crate::style::Size::Tiny),
                             ink.muted,
                         );
                         painter.text(
                             at(a0 + sweep, rad + 2.0),
                             egui::Align2::LEFT_TOP,
                             g(w.hi),
-                            egui::FontId::monospace(8.5),
+                            crate::style::font(crate::style::Size::Tiny),
                             ink.muted,
                         );
                     }
@@ -830,7 +1069,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                     let steps = w.hi - w.lo;
                     if !small && choices.len() > 1 && (steps - (choices.len() - 1) as f64).abs() < 1e-9 {
                         let chosen = ((v - w.lo).round() as usize).min(choices.len() - 1);
-                        let font = egui::FontId::proportional(10.0);
+                        let font = crate::style::font(crate::style::Size::Small);
                         let parts: Vec<_> = choices
                             .iter()
                             .enumerate()
@@ -856,7 +1095,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                             c + vec2(0.0, rad + 2.0),
                             egui::Align2::CENTER_TOP,
                             grm_engine::lang::g((v * 1000.0).round() / 1000.0),
-                            egui::FontId::monospace(10.0),
+                            crate::style::font(crate::style::Size::Small),
                             ink.accent,
                         );
                     }
@@ -885,8 +1124,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                     let h = rect.height().min(22.0);
                     let track =
                         Rect::from_min_size(pos2(rect.left() + 2.0, rect.center().y - h / 2.0), vec2(h * 1.8, h));
-                    painter.rect_filled(track, 3.0, ink.surface);
-                    painter.rect_stroke(track, 3.0, Stroke::new(1.0_f32, ink.faint), egui::StrokeKind::Inside);
+                    painter.rect_filled(track, crate::style::corner(), ink.surface);
+                    painter.rect_stroke(
+                        track,
+                        crate::style::corner(),
+                        Stroke::new(1.0_f32, ink.faint),
+                        egui::StrokeKind::Inside,
+                    );
                     let knob_w = track.width() / 2.0 - 2.0;
                     let x = if on { track.right() - knob_w - 2.0 } else { track.left() + 2.0 };
                     painter.rect_filled(
@@ -899,7 +1143,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                     if !small || rect.width() > 110.0 {
                         let tx = led.x + 9.0;
                         let fits = painter
-                            .layout_no_wrap(label.to_uppercase(), egui::FontId::proportional(11.0), ink.text)
+                            .layout_no_wrap(
+                                label.to_uppercase(),
+                                crate::style::font(crate::style::Size::Small),
+                                ink.text,
+                            )
                             .size()
                             .x
                             + 17.0
@@ -913,7 +1161,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                                 pos2(tx + 17.0, rect.center().y),
                                 egui::Align2::LEFT_CENTER,
                                 label.to_uppercase(),
-                                egui::FontId::proportional(11.0),
+                                crate::style::font(crate::style::Size::Small),
                                 ink.text,
                             );
                         } else {
@@ -921,7 +1169,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                                 pos2(tx, rect.center().y),
                                 egui::Align2::LEFT_CENTER,
                                 label.to_uppercase(),
-                                egui::FontId::proportional(11.0),
+                                crate::style::font(crate::style::Size::Small),
                                 ink.text,
                             );
                         }
@@ -937,7 +1185,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                     let here = (at.value.round() as i64) == k - 1;
                     let plate =
                         Rect::from_min_size(pos2(rect.left() + 3.0, rect.top() + 2.0), vec2(rect.width() - 6.0, 20.0));
-                    painter.rect_filled(plate, 3.0, if here { ink.accent } else { ink.surface });
+                    painter.rect_filled(plate, crate::style::corner(), if here { ink.accent } else { ink.surface });
                     painter.rect_stroke(
                         plate,
                         3.0,
@@ -948,7 +1196,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                         plate.center(),
                         egui::Align2::CENTER_CENTER,
                         note_name(n.value),
-                        egui::FontId::monospace(11.0),
+                        crate::style::font(crate::style::Size::Small),
                         if here { ink.surface } else { ink.text },
                     );
                     let mut v = n.value;
@@ -996,7 +1244,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                                     pos2(x + 11.0, y),
                                     egui::Align2::LEFT_CENTER,
                                     format!("A{}", 1 + semi / 12),
-                                    egui::FontId::monospace(8.5),
+                                    crate::style::font(crate::style::Size::Tiny),
                                     ink.muted,
                                 );
                             } else {
@@ -1008,7 +1256,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                         pos2(rect.center().x, rect.bottom()),
                         egui::Align2::CENTER_BOTTOM,
                         format!("{k}"),
-                        egui::FontId::monospace(10.0),
+                        crate::style::font(crate::style::Size::Small),
                         if here { ink.accent } else { ink.muted },
                     );
                     r.on_hover_text(format!(
@@ -1021,8 +1269,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
             WidgetKind::Roll => {
                 // the last ten seconds of what she played: time to the right, pitch up (A1 .. A5, the A's marked),
                 // the bass quieter, the melody in the accent; it slides slowly to the left
-                painter.rect_filled(rect, 3.0, ink.surface);
-                painter.rect_stroke(rect, 3.0, Stroke::new(1.0_f32, ink.faint), egui::StrokeKind::Inside);
+                painter.rect_filled(rect, crate::style::corner(), ink.surface);
+                painter.rect_stroke(
+                    rect,
+                    crate::style::corner(),
+                    Stroke::new(1.0_f32, ink.faint),
+                    egui::StrokeKind::Inside,
+                );
                 let inner = rect.shrink2(vec2(28.0, 6.0)).translate(vec2(10.0, 0.0));
                 let now = app.roll_frozen.unwrap_or_else(|| app.ear_now());
                 let span = 10.0;
@@ -1038,7 +1291,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                         pos2(rect.left() + 4.0, y),
                         egui::Align2::LEFT_CENTER,
                         format!("A{}", a + 1),
-                        egui::FontId::monospace(8.5),
+                        crate::style::font(crate::style::Size::Tiny),
                         ink.muted,
                     );
                 }
@@ -1090,10 +1343,15 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                     let sounding = *at <= now && now < at + len;
                     if sounding {
                         let r = r.expand2(vec2(0.0, 1.5));
-                        painter.rect_filled(r, 2.0, colour.gamma_multiply(1.4));
-                        painter.rect_stroke(r, 2.0, Stroke::new(1.0_f32, ink.text), egui::StrokeKind::Outside);
+                        painter.rect_filled(r, crate::style::corner(), colour.gamma_multiply(1.4));
+                        painter.rect_stroke(
+                            r,
+                            crate::style::corner(),
+                            Stroke::new(1.0_f32, ink.text),
+                            egui::StrokeKind::Outside,
+                        );
                     } else {
-                        painter.rect_filled(r, 1.5, colour);
+                        painter.rect_filled(r, crate::style::corner(), colour);
                     }
                 }
                 painter.line_segment(
@@ -1104,25 +1362,42 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                     rect.right_top() + vec2(-6.0, 4.0),
                     egui::Align2::RIGHT_TOP,
                     &label,
-                    egui::FontId::proportional(10.0),
+                    crate::style::font(crate::style::Size::Small),
                     ink.muted,
                 );
                 if !app.played.roll.is_empty() {
                     ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
                 }
             }
+            // what holds widgets draws its frame before them (see `frames`)
+            WidgetKind::Row
+            | WidgetKind::Column
+            | WidgetKind::Grid
+            | WidgetKind::Stack
+            | WidgetKind::Scroll
+            | WidgetKind::Tabs
+            | WidgetKind::Card => {}
             WidgetKind::Section => {
                 // a band with its title, and a frame around the widgets under it
                 let band = Rect::from_min_size(rect.min, vec2(rect.width(), 22.0f32.min(rect.height())));
                 let whole = rect;
-                painter.rect_stroke(whole, 3.0, Stroke::new(1.0_f32, ink.faint), egui::StrokeKind::Inside);
+                painter.rect_stroke(
+                    whole,
+                    crate::style::corner(),
+                    Stroke::new(1.0_f32, ink.faint),
+                    egui::StrokeKind::Inside,
+                );
                 painter.rect_filled(
                     band,
                     egui::CornerRadius { nw: 3, ne: 3, sw: 0, se: 0 },
                     ink.faint.gamma_multiply(0.55),
                 );
                 let mut x = band.center().x;
-                let title = painter.layout_no_wrap(label.to_uppercase(), egui::FontId::proportional(12.0), ink.text);
+                let title = painter.layout_no_wrap(
+                    label.to_uppercase(),
+                    crate::style::font(crate::style::Size::Text),
+                    ink.text,
+                );
                 if let Some(i) = w.icon.as_deref() {
                     x += 9.0;
                     crate::icons::image(i, 13.0, ink.accent).paint_at(
@@ -1158,7 +1433,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                             pos2(rect.center().x, rect.bottom()),
                             egui::Align2::CENTER_BOTTOM,
                             &label,
-                            egui::FontId::proportional(11.0),
+                            crate::style::font(crate::style::Size::Small),
                             ink.text,
                         );
                     }
@@ -1186,9 +1461,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                         let x = rect.left() + k as f32 * (lw + gap);
                         let led = Rect::from_min_size(pos2(x, rect.center().y - lh / 2.0), vec2(lw, lh));
                         if k as i64 == now {
-                            painter.rect_filled(led, 2.0, ink.accent);
+                            painter.rect_filled(led, crate::style::corner(), ink.accent);
                         } else {
-                            painter.rect_stroke(led, 2.0, Stroke::new(1.0_f32, ink.faint), egui::StrokeKind::Inside);
+                            painter.rect_stroke(
+                                led,
+                                crate::style::corner(),
+                                Stroke::new(1.0_f32, ink.faint),
+                                egui::StrokeKind::Inside,
+                            );
                         }
                     }
                     ui.interact(rect, id, Sense::hover()).on_hover_text(format!("{label}: {}", now + 1));
@@ -1196,12 +1476,17 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
             }
             WidgetKind::Scope => {
                 let r = ui.interact(rect, id, Sense::hover());
-                painter.rect_stroke(rect, 4.0, Stroke::new(1.0_f32, ink.faint), egui::StrokeKind::Inside);
+                painter.rect_stroke(
+                    rect,
+                    crate::style::corner(),
+                    Stroke::new(1.0_f32, ink.faint),
+                    egui::StrokeKind::Inside,
+                );
                 painter.text(
                     rect.left_top() + vec2(6.0, 4.0),
                     egui::Align2::LEFT_TOP,
                     &label,
-                    egui::FontId::proportional(12.0),
+                    crate::style::font(crate::style::Size::Text),
                     ink.muted,
                 );
                 let inner = rect.shrink2(vec2(6.0, 18.0)).translate(vec2(0.0, 6.0));
@@ -1239,7 +1524,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                             inner.center(),
                             egui::Align2::CENTER_CENTER,
                             if rect.width() < 360.0 { "·" } else { t(lang, "not_playing") },
-                            egui::FontId::proportional(12.0),
+                            crate::style::font(crate::style::Size::Text),
                             ink.muted,
                         );
                     }
@@ -1251,6 +1536,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
         }
         ui.set_clip_rect(clip_before);
         ui.set_style(saved_style);
+        // what it does, said when the pointer rests on it (unless the human hid this kind of tips)
+        if let Some(tip) = w.tip.as_ref().filter(|_| tips_on && !editing) {
+            let still = ui.input(|i| i.pointer.time_since_last_movement()) > 0.5;
+            if still && ui.rect_contains_pointer(rect) {
+                let r = ui.interact(rect, id.with("tip"), Sense::hover());
+                r.show_tooltip_text(tip.as_str());
+            }
+        }
         if app.xray {
             let words: Vec<String> = w
                 .nodes
@@ -1261,10 +1554,16 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                 })
                 .collect();
             let text = format!("{} · line {}\n{}", w.name, w.line, words.join("\n"));
-            let galley = painter.layout(text, egui::FontId::monospace(11.0), ink.text, rect.width().max(160.0));
+            let galley =
+                painter.layout(text, crate::style::font(crate::style::Size::Small), ink.text, rect.width().max(160.0));
             let back = Rect::from_min_size(rect.left_top(), galley.size() + vec2(8.0, 6.0));
-            painter.rect_filled(back, 3.0, ink.surface.gamma_multiply(0.92));
-            painter.rect_stroke(back, 3.0, Stroke::new(1.0_f32, ink.amber), egui::StrokeKind::Inside);
+            painter.rect_filled(back, crate::style::corner(), ink.surface.gamma_multiply(0.92));
+            painter.rect_stroke(
+                back,
+                crate::style::corner(),
+                Stroke::new(1.0_f32, ink.amber),
+                egui::StrokeKind::Inside,
+            );
             painter.galley(back.min + vec2(4.0, 3.0), galley, ink.text);
         }
     }
@@ -1283,7 +1582,7 @@ fn keys(app: &mut App, ui: &mut egui::Ui, painter: &egui::Painter, rect: Rect, i
     for (b, icon, step) in [(up, "chevron-up", 1), (down, "chevron-down", -1)] {
         let r =
             ui.interact(b, id.with(icon), Sense::click()).on_hover_text(crate::text::t(app.settings.lang, "octave"));
-        painter.rect_filled(b.shrink(1.0), 3.0, if r.hovered() { ink.faint } else { ink.surface });
+        painter.rect_filled(b.shrink(1.0), crate::style::corner(), if r.hovered() { ink.faint } else { ink.surface });
         crate::icons::image(icon, 12.0, ink.text).paint_at(ui, Rect::from_center_size(b.center(), vec2(12.0, 12.0)));
         if r.clicked() {
             app.surface.octave = (app.surface.octave + step).clamp(-3, 3);
@@ -1326,7 +1625,7 @@ fn keys(app: &mut App, ui: &mut egui::Ui, painter: &egui::Painter, rect: Rect, i
         side.center(),
         egui::Align2::CENTER_CENTER,
         format!("{:+}", app.surface.octave),
-        egui::FontId::monospace(10.0),
+        crate::style::font(crate::style::Size::Small),
         ink.text,
     );
     let shift = 12 * app.surface.octave;
@@ -1440,11 +1739,16 @@ fn keys(app: &mut App, ui: &mut egui::Ui, painter: &egui::Painter, rect: Rect, i
         } else {
             Color32::from_rgb(0xEC, 0xEC, 0xE8)
         };
-        painter.rect_filled(*b, 2.0, fill);
-        painter.rect_stroke(*b, 2.0, Stroke::new(1.0_f32, ink.muted), egui::StrokeKind::Inside);
+        painter.rect_filled(*b, crate::style::corner(), fill);
+        painter.rect_stroke(*b, crate::style::corner(), Stroke::new(1.0_f32, ink.muted), egui::StrokeKind::Inside);
         // held by the latch: framed (it goes on sounding, by turns)
         if latched.contains(m) {
-            painter.rect_stroke(b.shrink(2.0), 2.0, Stroke::new(2.0_f32, ink.accent), egui::StrokeKind::Inside);
+            painter.rect_stroke(
+                b.shrink(2.0),
+                crate::style::corner(),
+                Stroke::new(2.0_f32, ink.accent),
+                egui::StrokeKind::Inside,
+            );
         }
     }
     // a polyphonic instrument (a `poly` node beside its pitch): each key held takes a voice (the window shares them
@@ -1509,7 +1813,7 @@ pub fn edit_panel(app: &mut App, ui: &mut egui::Ui, name: &str) {
         }
         ui.add(
             egui::TextEdit::singleline(&mut app.surface.add_name)
-                .margin(crate::style::FIELD)
+                .margin(crate::style::field())
                 .hint_text(crate::style::hint(t(lang, "widget_name")))
                 .desired_width(90.0),
         );
@@ -1558,7 +1862,7 @@ pub fn edit_panel(app: &mut App, ui: &mut egui::Ui, name: &str) {
                 ui.add_enabled(
                     false,
                     egui::TextEdit::singleline(&mut String::new())
-                        .margin(crate::style::FIELD)
+                        .margin(crate::style::field())
                         .hint_text(crate::style::hint(t(lang, "choose_widget")))
                         .desired_width(ui.available_width() - 8.0),
                 );
@@ -1579,7 +1883,7 @@ pub fn edit_panel(app: &mut App, ui: &mut egui::Ui, name: &str) {
                     let apply = ui.button(t(lang, "apply")).clicked();
                     let r = ui.add(
                         egui::TextEdit::singleline(&mut app.surface.edit_line)
-                            .margin(crate::style::FIELD)
+                            .margin(crate::style::field())
                             .font(egui::TextStyle::Monospace)
                             .desired_width(ui.available_width() - 8.0),
                     );

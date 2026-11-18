@@ -74,53 +74,58 @@ pub fn control(app: &mut App, ui: &mut egui::Ui, n: &NodeView, workshop: Option<
     let mut v = app.hand_value.get(&key).copied().unwrap_or(n.value);
     // it never makes the side wider than it is
     let width = ui.available_width() - 18.0;
-    egui::Frame::new().stroke(Stroke::new(1.0_f32, ink.faint)).corner_radius(3.0).inner_margin(8.0).show(ui, |ui| {
-        ui.set_max_width(width);
-        if locked(n, workshop) {
-            ui.horizontal_wrapped(|ui| {
-                crate::icons::show(ui, "lock", 14.0, ink.muted);
-                ui.label(RichText::new(t(lang, "hand_locked")).small().color(ink.muted));
-            });
-            ui.horizontal(|ui| {
-                ui.add(egui::DragValue::new(&mut v).speed((hi - lo).abs() / 200.0).max_decimals(4));
-                app.hand_value.insert(key.clone(), v);
-                if crate::icons::button(ui, "flask-conical", t(lang, "hand_simulate"))
-                    .on_hover_text(t(lang, "hand_simulate_d"))
-                    .clicked()
-                {
-                    let (name, from) = (n.name.clone(), workshop.map(String::from));
-                    let made = app.engine.query(move |w| w.simulate(from.as_deref(), &name, v));
-                    match made {
-                        Some(Ok(sim)) => {
-                            let kind = crate::space::Kind::Workshop(sim);
-                            app.space.put(kind.clone());
-                            app.zone_center = Some(kind);
-                            app.space_on = true;
-                        }
-                        Some(Err(e)) => app.note(grm_shell::Kind::Warning, format!("! {e}")),
-                        None => {}
-                    }
-                }
-            });
-        } else {
-            ui.horizontal_wrapped(|ui| {
-                crate::icons::show(ui, "hand", 14.0, ink.accent);
-                ui.label(RichText::new(t(lang, "hand_move")).small());
-            });
-            ui.horizontal(|ui| {
-                let s =
-                    ui.add(egui::Slider::new(&mut v, lo..=hi).clamping(egui::SliderClamping::Never).show_value(false));
-                let f = ui.add(egui::DragValue::new(&mut v).speed((hi - lo).abs() / 200.0).max_decimals(4));
-                if s.changed() || f.changed() {
+    egui::Frame::new()
+        .stroke(Stroke::new(1.0_f32, ink.faint))
+        .corner_radius(crate::style::corner())
+        .inner_margin(8.0)
+        .show(ui, |ui| {
+            ui.set_max_width(width);
+            if locked(n, workshop) {
+                ui.horizontal_wrapped(|ui| {
+                    crate::icons::show(ui, "lock", 14.0, ink.muted);
+                    ui.label(RichText::new(t(lang, "hand_locked")).small().color(ink.muted));
+                });
+                ui.horizontal(|ui| {
+                    ui.add(egui::DragValue::new(&mut v).speed((hi - lo).abs() / 200.0).max_decimals(4));
                     app.hand_value.insert(key.clone(), v);
-                    send(app, &n.name, v, workshop);
-                }
-                if !(s.dragged() || f.dragged() || f.has_focus()) {
-                    app.hand_value.remove(&key);
-                }
-            });
-        }
-    });
+                    if crate::icons::button(ui, "flask-conical", t(lang, "hand_simulate"))
+                        .on_hover_text(t(lang, "hand_simulate_d"))
+                        .clicked()
+                    {
+                        let (name, from) = (n.name.clone(), workshop.map(String::from));
+                        let made = app.engine.query(move |w| w.simulate(from.as_deref(), &name, v));
+                        match made {
+                            Some(Ok(sim)) => {
+                                let kind = crate::space::Kind::Workshop(sim);
+                                app.space.put(kind.clone());
+                                app.zone_center = Some(kind);
+                                app.go(crate::front::Front::Space);
+                            }
+                            Some(Err(e)) => app.note(grm_shell::Kind::Warning, format!("! {e}")),
+                            None => {}
+                        }
+                    }
+                });
+            } else {
+                ui.horizontal_wrapped(|ui| {
+                    crate::icons::show(ui, "hand", 14.0, ink.accent);
+                    ui.label(RichText::new(t(lang, "hand_move")).small());
+                });
+                ui.horizontal(|ui| {
+                    let s = ui.add(
+                        egui::Slider::new(&mut v, lo..=hi).clamping(egui::SliderClamping::Never).show_value(false),
+                    );
+                    let f = ui.add(egui::DragValue::new(&mut v).speed((hi - lo).abs() / 200.0).max_decimals(4));
+                    if s.changed() || f.changed() {
+                        app.hand_value.insert(key.clone(), v);
+                        send(app, &n.name, v, workshop);
+                    }
+                    if !(s.dragged() || f.dragged() || f.has_focus()) {
+                        app.hand_value.remove(&key);
+                    }
+                });
+            }
+        });
 }
 
 /// In a simulation: what moved from its reality, before -> after, and the file to share it.
@@ -239,7 +244,7 @@ pub fn panel(app: &mut App, ui: &mut egui::Ui) {
             let locked = pic.node(n).is_some_and(|x| external(&x.source));
             ui.horizontal(|ui| {
                 crate::icons::show(ui, if locked { "lock" } else { "hand" }, 12.0, ink.muted);
-                if ui.link(RichText::new(n).monospace()).clicked() {
+                if ui.link(RichText::new(n)).clicked() {
                     app.select(n, false);
                     app.tab = crate::app::Tab::Inspector;
                 }
@@ -271,7 +276,7 @@ pub fn panel(app: &mut App, ui: &mut egui::Ui) {
                 let kind = crate::space::Kind::Workshop(s);
                 app.space.put(kind.clone());
                 app.zone_center = Some(kind);
-                app.space_on = true;
+                app.go(crate::front::Front::Space);
             }
         }
     }
@@ -286,6 +291,6 @@ pub fn panel(app: &mut App, ui: &mut egui::Ui) {
         ui.label(RichText::new(t(lang, "ins_nothing_shared")).small().color(ink.muted));
     }
     for f in files {
-        ui.label(RichText::new(format!("{} · {f}", dir.display())).small().monospace());
+        ui.label(RichText::new(format!("{} · {f}", dir.display())).small());
     }
 }

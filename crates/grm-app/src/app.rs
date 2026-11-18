@@ -8,11 +8,10 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use eframe::egui::{self, Color32, Key, Modifiers, RichText};
+use eframe::egui::{self, Key, Modifiers, RichText};
 use indexmap::IndexMap;
 
 use grm_engine::engine::Engine;
-use grm_engine::vision::Sight;
 use grm_shell::runtime::AppView;
 use grm_shell::{Kind as LineKind, Shell};
 use grm_sound::mixer::Mixer;
@@ -32,17 +31,15 @@ pub enum Tab {
     Sandboxes,
     Sources,
     Journal,
-    Eye,
     Sound,
     Insights,
 }
 
-pub const TABS: [(Tab, &str); 7] = [
+pub const TABS: [(Tab, &str); 6] = [
     (Tab::Inspector, "inspector"),
     (Tab::Sandboxes, "sandboxes"),
     (Tab::Sources, "sources"),
     (Tab::Journal, "journal"),
-    (Tab::Eye, "eye"),
     (Tab::Sound, "sound"),
     (Tab::Insights, "insights"),
 ];
@@ -80,12 +77,6 @@ struct Script {
     asked: bool,
 }
 
-#[derive(Clone)]
-pub struct Eye {
-    pub sight: Sight,
-    pub textures: Vec<(String, egui::TextureHandle)>,
-}
-
 /// What is being recorded: when it began, and every node written (when, which, its value).
 pub type Tape = (f64, Vec<(f64, String, f64)>);
 
@@ -100,6 +91,9 @@ pub struct Replay {
     pub next_event: usize,
 }
 
+/// A workshop's picture, pulled now and then, and the last one come.
+pub type WorkshopPull = (Pull<Option<Picture>>, Option<std::sync::Arc<Picture>>);
+
 pub struct App {
     pub engine: Arc<Engine>,
     pub worker: Worker,
@@ -113,13 +107,15 @@ pub struct App {
     pub graph: Graph,
     /// What the network views need of the picture, made once for each new one (by what they show: "" everything,
     /// else a source).
-    pub prepared: std::collections::HashMap<String, std::sync::Arc<crate::prepared::Prepared>>,
+    /// What each view needs of a picture, by (what it shows, the picture's shape), with the frame it was last
+    /// asked at: the main picture, a workshop's, a sandbox's each keep theirs (a few, the oldest let go).
+    pub prepared: std::collections::HashMap<(String, u64), (std::sync::Arc<crate::prepared::Prepared>, u64)>,
+    prepared_asked: u64,
     /// The pass of the window at which the layout last took its step (one step a frame, however many views).
     pub layout_pass: u64,
     /// When the sound last ran away (twice in a little while, it is plugged in again).
     last_fuse: Option<std::time::Instant>,
     /// The picture's shape, known for the picture it was taken of (by where it is).
-    picture_shape: (usize, u64),
     /// The world as last seen (shared: the views read it without copying it).
     pub picture: std::sync::Arc<Picture>,
     pull: Pull<Picture>,
@@ -166,7 +162,6 @@ pub struct App {
     pub song: crate::studio::Song,
     pub studio_vu: HashMap<String, f32>,
     /// Where each workshop is on its way into the main network.
-    pub ws_status: HashMap<String, crate::airlock::WsStatus>,
     /// How many dry moments of the sound were already shown.
     dry_seen: u64,
     /// The player: its folder, its lists, what plays.
@@ -198,8 +193,6 @@ pub struct App {
     pub help_search: String,
     pub settings_open: bool,
     focus_prompt: bool,
-    pub eyes: IndexMap<String, Eye>,
-    pub eye_path: String,
     pub play_field: String,
     pub new_sandbox: String,
     pub sandbox_lines: HashMap<String, String>,
@@ -249,7 +242,12 @@ pub struct App {
     pub zone_views: HashMap<String, crate::view::View>,
     /// The workshops' windows: what each keeps, and its picture.
     pub workshop_state: HashMap<String, crate::workshop::State>,
-    pub workshop_pulls: HashMap<String, (Pull<Option<Picture>>, Option<Picture>)>,
+    /// Workshops just made, not yet in a picture (see `follow_world`).
+    pub workshops_coming: Vec<String>,
+    /// What was in front before, to go back to (see `front`), and how each was being looked at.
+    pub behind: Vec<crate::front::Front>,
+    pub views_kept: HashMap<String, crate::front::Kept>,
+    pub workshop_pulls: HashMap<String, WorkshopPull>,
     /// A workshop being drawn: what the mouse makes is written there.
     pub write_into: Option<String>,
     /// A workshop a table is being chosen for.
@@ -258,8 +256,6 @@ pub struct App {
     pub airlock: Option<crate::airlock::Airlock>,
     /// The pictures given to the eye and not seen yet (the lines said).
     pub seeing: Vec<String>,
-    /// A picture of an eye shown big: (eye, which), the arrows go through the others.
-    pub lightbox: Option<(String, usize)>,
     pub new_workshop_open: bool,
     new_workshop: String,
     /// The space (a table where the human puts what they want), and whether it is shown.
@@ -293,17 +289,18 @@ pub struct App {
     pub code_dock: Option<Dock>,
     /// A sandbox shown in the middle, as a network.
     pub sandbox_shown: Option<String>,
-    sandbox_picture: Option<Picture>,
+    sandbox_picture: Option<std::sync::Arc<Picture>>,
     /// A workshop shown in the middle (a network of data made apart).
-    pub workshop_shown: Option<String>,
     sandbox_pull: Pull<Option<Picture>>,
     /// Each app's looks (a small network each), made again when its look lines or the palette change.
     pub looks: HashMap<String, crate::looks::Looks>,
     /// Whether the apps have been told once (an app that opens after that is shown).
-    apps_known: bool,
+    pub(crate) apps_known: bool,
     wanted_app: Option<String>,
     window_saved_at: Instant,
     world_saved_at: Instant,
+    /// When a line last changed the world (kept a little after, see `keep`).
+    world_touched: Option<Instant>,
     /// Where the human has been, and every change that can be taken back.
     pub journey: crate::journey::Journey,
     /// The side (the inspector...) unfolded, or folded into a rail of signs; the prompt's lines shown, or only
@@ -361,17 +358,15 @@ pub struct Confirm {
 pub enum Pick {
     /// Opened, each as what it is.
     Open,
-    /// A picture for the eye.
-    Eye,
 }
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, args: Args) -> App {
-        let memory = grm_shell::memory();
+        let memory = args.home.as_ref().map(|h| h.join("grm.world")).unwrap_or_else(grm_shell::memory);
         let (world, said) =
             if args.fresh { (grm_engine::world::World::new(), None) } else { grm_shell::wake_or_born(&memory) };
         let engine = Arc::new(Engine::start(world, Duration::from_millis(8)));
-        let mut settings = Settings::load();
+        let mut settings = Settings::load_from(args.home.as_ref().map(|h| h.join("window.json")));
         if let Some(l) = &args.lang {
             settings.lang = if l == "fr" { Lang::Fr } else { Lang::En };
         }
@@ -386,7 +381,7 @@ impl App {
             }
         }
         let mixer = Arc::new(Mutex::new(Mixer::new(48000)));
-        let (output, device) = if args.screenshot.is_some() {
+        let (output, device) = if args.screenshot.is_some() || args.headless {
             (None, None)
         } else {
             match grm_sound::output::open(mixer.clone()) {
@@ -456,7 +451,7 @@ impl App {
         shell.french = settings.lang == Lang::Fr;
         shell.window = true;
         // her home: always there, opened before the desk
-        shell.always = crate::studio::mind_dir(&memory).map(|d| d.join("home.grm")).filter(|p| p.exists());
+        shell.always = crate::studio::mind_dir(&memory).map(|d| d.join("her.grm")).filter(|p| p.exists());
         let mut worker = Worker::start(engine.clone(), shell);
         let mut log: Vec<(LineKind, String)> =
             crate::style::BANNER.lines().map(|l| (LineKind::Said, format!("\u{1}{l}"))).collect();
@@ -494,7 +489,6 @@ impl App {
             Some("sandboxes") => Tab::Sandboxes,
             Some("sources") => Tab::Sources,
             Some("journal") => Tab::Journal,
-            Some("eye") => Tab::Eye,
             Some("sound") => Tab::Sound,
             Some("insights") => Tab::Insights,
             _ => Tab::Inspector,
@@ -518,7 +512,7 @@ impl App {
             prepared: Default::default(),
             layout_pass: 0,
             last_fuse: None,
-            picture_shape: (0, 0),
+            prepared_asked: 0,
             picture: Default::default(),
             pull: Pull::new(Duration::from_millis(200)),
             detail: None,
@@ -551,7 +545,6 @@ impl App {
             fused_seen: 0,
             song: crate::studio::Song::load(&memory_for_song),
             studio_vu: HashMap::new(),
-            ws_status: HashMap::new(),
             dry_seen: 0,
             player: crate::player::Player::default(),
             universe: crate::universe::View::default(),
@@ -571,8 +564,6 @@ impl App {
             help_search: String::new(),
             settings_open: false,
             focus_prompt: true,
-            eyes: IndexMap::new(),
-            eye_path: String::new(),
             play_field: String::new(),
             new_sandbox: String::new(),
             sandbox_lines: HashMap::new(),
@@ -624,13 +615,13 @@ impl App {
             code_dock: None,
             sandbox_shown: None,
             sandbox_picture: None,
-            workshop_shown: None,
             sandbox_pull: Pull::new(Duration::from_millis(300)),
             looks: HashMap::new(),
             apps_known: false,
             wanted_app: args.app.clone(),
             window_saved_at: Instant::now(),
             world_saved_at: Instant::now(),
+            world_touched: None,
             journey: Default::default(),
             dived: None,
             zone_center: None,
@@ -638,11 +629,13 @@ impl App {
             detached: vec![],
             zone_views: HashMap::new(),
             workshop_state: HashMap::new(),
+            workshops_coming: vec![],
+            behind: vec![],
+            views_kept: HashMap::new(),
             workshop_pulls: HashMap::new(),
             write_into: None,
             workshop_loading: None,
             airlock: None,
-            lightbox: None,
             seeing: vec![],
             new_workshop_open: false,
             new_workshop: String::new(),
@@ -672,7 +665,7 @@ impl App {
             picking: None,
         }
         .restored(args.fresh || args.screenshot.is_some())
-        .first_visit(args.screenshot.is_none())
+        .first_visit(args.screenshot.is_none() && !args.headless)
     }
 
     /// The visit comes by itself the first time.
@@ -689,8 +682,9 @@ impl App {
             return self;
         }
         let Some(w) = crate::desk::Window::load(&self.memory) else { return self };
-        self.current = w.current.clone();
-        self.modes = w.modes.clone();
+        let now = |n: &String| grm_shell::runtime::now_called(n).to_string();
+        self.current = w.current.as_ref().map(now);
+        self.modes = w.modes.iter().map(|(k, m)| (now(k), *m)).collect();
         self.launched = w.launched;
         self.editing = w.editing;
         self.xray = w.xray;
@@ -709,7 +703,6 @@ impl App {
         if let Some(x) = w.bottom_wish {
             self.layout.wish_bottom(x);
         }
-        self.eye_path = w.eye_path.clone();
         self.history = w.history.clone();
         self.side_open = w.side_open;
         self.space_on = w.space_on;
@@ -757,7 +750,6 @@ impl App {
             fitted: self.view.fitted,
             side_wish: self.layout.side_wish,
             bottom_wish: self.layout.bottom_wish,
-            eye_path: self.eye_path.clone(),
             side_open: self.side_open,
             space_on: self.space_on,
             zone_center: self.zone_center.as_ref().map(|k| k.word()),
@@ -780,31 +772,78 @@ impl App {
         }
     }
 
+    /// Whether an app's widgets say their tips: the machine's own apps, the human's, the others', as the settings
+    /// say.
+    pub fn tips_for(&self, view: &grm_shell::runtime::AppView) -> bool {
+        let t = &self.settings.tips;
+        if NATIVE.contains(&view.name.as_str()) {
+            t.native
+        } else if view.path.starts_with(grm_shell::runtime::apps_dir(&self.memory)) {
+            t.mine
+        } else {
+            t.others
+        }
+    }
+
+    /// Her app is called by the name the human gave her (Her, unless they chose another).
+    pub fn name_her(&mut self) {
+        let name = self.settings.her_name();
+        if let Some(a) = self.apps.iter_mut().find(|a| a.name == crate::elle::APP) {
+            a.title = name;
+        }
+    }
+
+    /// The world kept a little after now (a change the human made: not only now and then).
+    pub fn keep_world_soon(&mut self) {
+        self.world_touched = Some(Instant::now());
+    }
+
+    /// Everything kept now, as when the window closes: the world (it falls asleep now, whatever happens to the
+    /// window after), the window, the music, the space.
+    pub fn keep_all(&mut self, ctx: &egui::Context) {
+        if self.fresh {
+            return;
+        }
+        let path = self.memory.clone();
+        let _ = self.engine.ask(move |w| w.sleep(&path).map(|_| String::new()));
+        self.world_saved_at = Instant::now();
+        self.world_touched = None;
+        self.keep_window(ctx);
+        self.music_saved_at = Instant::now();
+        self.keep_music();
+        if self.space.dirty {
+            self.space.save(&self.memory);
+        }
+    }
+
+    fn keep_window(&mut self, ctx: &egui::Context) {
+        self.window_saved_at = Instant::now();
+        let w = self.window_now(ctx);
+        if self.saved_window.as_ref() != Some(&w) {
+            w.save(&self.memory);
+            self.saved_window = Some(w);
+        }
+    }
+
     /// Keeps the window as it is (when it changed), and the world now and then.
     fn keep(&mut self, ctx: &egui::Context) {
         if self.fresh {
             return;
         }
-        let closing = ctx.input(|i| i.viewport().close_requested());
-        if closing {
-            // it falls asleep now, whatever happens to the window after
-            let path = self.memory.clone();
-            let _ = self.engine.ask(move |w| w.sleep(&path).map(|_| String::new()));
-            self.world_saved_at = Instant::now();
+        if ctx.input(|i| i.viewport().close_requested()) {
+            self.keep_all(ctx);
+            return;
         }
-        if closing || self.window_saved_at.elapsed() > Duration::from_secs(3) {
-            self.window_saved_at = Instant::now();
-            let w = self.window_now(ctx);
-            if self.saved_window.as_ref() != Some(&w) {
-                w.save(&self.memory);
-                self.saved_window = Some(w);
-            }
+        if self.window_saved_at.elapsed() > Duration::from_secs(3) {
+            self.keep_window(ctx);
         }
-        if closing || self.music_saved_at.elapsed() > Duration::from_secs(30) {
+        if self.music_saved_at.elapsed() > Duration::from_secs(30) {
             self.music_saved_at = Instant::now();
             self.keep_music();
         }
-        if self.world_saved_at.elapsed() > Duration::from_secs(60) {
+        let touched = self.world_touched.is_some_and(|t| t.elapsed() > Duration::from_secs(2));
+        if touched || self.world_saved_at.elapsed() > Duration::from_secs(60) {
+            self.world_touched = None;
             self.world_saved_at = Instant::now();
             let path = self.memory.clone();
             self.engine.send(move |w| w.sleep(&path).map(|_| String::new()));
@@ -862,20 +901,36 @@ impl App {
     /// What the network view needs of the picture now: made again only when its shape changed (a node or a
     /// relation came or went), not when its values move.
     pub fn prepared(&mut self, only: Option<&str>) -> std::sync::Arc<crate::prepared::Prepared> {
-        let ptr = std::sync::Arc::as_ptr(&self.picture) as usize;
-        if self.picture_shape.0 != ptr {
-            self.picture_shape = (ptr, self.picture.shape());
+        // the shape is the picture's own (worked out once by it): never another picture's that stood at the same
+        // address before
+        let shape = self.picture.shape();
+        let key = (only.unwrap_or("").to_string(), shape);
+        self.prepared_asked += 1;
+        let asked = self.prepared_asked;
+        if let Some((p, at)) = self.prepared.get_mut(&key) {
+            *at = asked;
+            return p.clone();
         }
-        let shape = self.picture_shape.1;
-        let key = only.unwrap_or("").to_string();
-        match self.prepared.get(&key) {
-            Some(p) if p.shape == shape => p.clone(),
-            _ => {
-                let p = std::sync::Arc::new(crate::prepared::Prepared::of(&self.picture, only, shape));
-                self.prepared.insert(key, p.clone());
-                p
-            }
+        const KEPT: usize = 12;
+        while self.prepared.len() >= KEPT {
+            let oldest = self.prepared.iter().min_by_key(|(_, (_, at))| *at).map(|(k, _)| k.clone());
+            match oldest {
+                Some(k) => self.prepared.remove(&k),
+                None => break,
+            };
         }
+        let p = std::sync::Arc::new(crate::prepared::Prepared::of(&self.picture, only));
+        self.prepared.insert(key, (p.clone(), asked));
+        p
+    }
+
+    /// Something drawn from another picture than the world's (a workshop's, a sandbox's): it is the one shown
+    /// while `f` runs, and the world's is back after.
+    pub fn showing<R>(&mut self, picture: std::sync::Arc<Picture>, f: impl FnOnce(&mut App) -> R) -> R {
+        let saved = std::mem::replace(&mut self.picture, picture);
+        let r = f(self);
+        self.picture = saved;
+        r
     }
 
     /// The studio's file written again from its song, and opened again (its sound goes on).
@@ -1536,6 +1591,8 @@ impl App {
             self.close_gates();
         }
         self.log.push((LineKind::Dim, format!("› {line}")));
+        // what the human does is kept at once (a little after the last line, not only now and then)
+        self.keep_world_soon();
         if self.history.last() != Some(&line) {
             self.history.push(line.clone());
         }
@@ -1598,6 +1655,7 @@ impl App {
             let old = std::mem::replace(&mut self.picture, std::sync::Arc::new(p));
             crate::model::free_later(old);
             self.picture_frame += 1;
+            self.follow_world();
             crate::hover::remember(self);
             self.selected.retain(|s| self.picture.node(s).is_some());
             if !self.pending_select.is_empty() {
@@ -1672,9 +1730,6 @@ impl App {
                             // an app that just opened is put on the space, and the space is shown (it can be closed
                             // again by taking it back)
                             self.space.put(crate::space::Kind::App(v.name.clone()));
-                            self.space_on = true;
-                            self.zone_center = None;
-                            self.current = None;
                             if !self.journey.quiet.remove(&v.name) {
                                 let change =
                                     crate::journey::Change::Opened { name: v.name.clone(), path: v.path.clone() };
@@ -1708,23 +1763,27 @@ impl App {
                 if self.apps_known {
                     if let Some(n) = opened.last() {
                         self.wanted_app = Some(n.clone());
-                        self.space_on = false;
-                        self.current_file = None;
-                        self.sandbox_shown = None;
-                        self.workshop_shown = None;
                     }
                 }
                 self.apps = apps;
+                self.name_her();
                 self.apps_known = true;
-                if let Some(c) = &self.current {
-                    if closed.contains(c) || !self.apps.iter().any(|a| &a.name == c) {
-                        self.current = None;
+                // an app closed in front gives the place back to what was in front before it
+                if let Some(c) = self.current.clone() {
+                    if closed.contains(&c) || !self.apps.iter().any(|a| a.name == c) {
                         self.launched = false;
+                        if self.front() == crate::front::Front::App(c) {
+                            self.leave_front();
+                        } else {
+                            self.current = None;
+                        }
                     }
                 }
-                if let Some(w) = &self.wanted_app {
-                    if self.apps.iter().any(|a| &a.name == w) {
-                        self.current = Some(w.clone());
+                if let Some(w) = self.wanted_app.take() {
+                    if self.apps.iter().any(|a| a.name == w) {
+                        self.go(crate::front::Front::App(w));
+                    } else {
+                        self.wanted_app = Some(w);
                     }
                 }
             }
@@ -1741,8 +1800,8 @@ impl App {
                                 self.files.len() - 1
                             }
                         };
-                        self.current_file = Some(k);
-                        self.space_on = false;
+                        let path = self.files[k].path.clone();
+                        self.go(crate::front::Front::File(path));
                     }
                     grm_shell::Order::Columns { path, names, written, numeric } => {
                         self.columns = Some((path, names, written, numeric));
@@ -1755,13 +1814,13 @@ impl App {
                     grm_shell::Order::Clear => self.log.clear(),
                     grm_shell::Order::Workshop(n) => {
                         // a workshop opened (or a table just learned): in place of the space, at once
+                        if !self.workshops_coming.contains(&n) {
+                            self.workshops_coming.push(n.clone());
+                        }
                         let kind = crate::space::Kind::Workshop(n);
                         self.space.put(kind.clone());
                         self.zone_center = Some(kind);
-                        self.space_on = true;
-                        self.sandbox_shown = None;
-                        self.current = None;
-                        self.current_file = None;
+                        self.go(crate::front::Front::Space);
                         self.launched = false;
                         self.sandbox_picture = None;
                         self.view.fitted = false;
@@ -1778,13 +1837,6 @@ impl App {
                         self.collide = Some(crate::files::Collide { path, rows });
                     }
                     grm_shell::Order::Folder => {}
-                }
-            }
-            if let Some((name, sight)) = a.sight {
-                let textures = textures(ctx, &name, &sight);
-                self.eyes.insert(name, Eye { sight, textures });
-                if self.script.is_none() {
-                    self.tab = Tab::Eye;
                 }
             }
             if a.quit {
@@ -1989,10 +2041,10 @@ impl App {
                 ui.label(RichText::new(format!("{} {:.2}", self.tr("harmony"), h)).color(colour))
                     .on_hover_text("how well the relations hold together (1: all of them)");
                 let (rect, _) = ui.allocate_exact_size(egui::vec2(60.0, 6.0), egui::Sense::hover());
-                ui.painter().rect_filled(rect, 3.0, ink.faint);
+                ui.painter().rect_filled(rect, crate::style::corner(), ink.faint);
                 let mut full = rect;
                 full.set_width(rect.width() * h.clamp(0.0, 1.0));
-                ui.painter().rect_filled(full, 3.0, colour);
+                ui.painter().rect_filled(full, crate::style::corner(), colour);
                 let sounding = self.mixer.lock().map(|m| m.ambient_on || !m.channels.is_empty()).unwrap_or(false);
                 let sign = crate::icons::image("octagon-x", 15.0, if sounding { ink.amber } else { ink.muted });
                 let words = RichText::new(self.tr("panic")).color(if sounding { ink.amber } else { ink.muted });
@@ -2104,7 +2156,7 @@ impl App {
                                 full.append(
                                     "› ",
                                     0.0,
-                                    egui::TextFormat::simple(egui::FontId::monospace(13.0), ink.muted),
+                                    egui::TextFormat::simple(crate::style::code(crate::style::Size::Text), ink.muted),
                                 );
                                 for sec in job.sections.iter().skip(1) {
                                     full.append(&job.text[sec.byte_range.clone()], 0.0, sec.format.clone());
@@ -2192,7 +2244,7 @@ impl App {
                     ui.fonts_mut(|f| f.layout_job(job))
                 };
                 let edit = egui::TextEdit::singleline(&mut self.input)
-                    .margin(crate::style::FIELD)
+                    .margin(crate::style::field())
                     .layouter(&mut layouter)
                     .id(id)
                     .lock_focus(true)
@@ -2258,7 +2310,6 @@ impl App {
     fn windows(&mut self, ctx: &egui::Context) {
         self.line_window(ctx);
         crate::airlock::window(self, ctx);
-        self.lightbox_window(ctx);
         self.new_workshop_window(ctx);
         self.confirm_window(ctx);
         self.new_app_window(ctx);
@@ -2307,20 +2358,37 @@ impl App {
                     }
                 });
                 ui.end_row();
-                ui.label(t(lang, "typewriter"));
-                ui.checkbox(&mut self.settings.typewriter, "");
-                ui.end_row();
                 ui.label(t(lang, "follow_hour"));
                 ui.checkbox(&mut self.settings.follow_hour, t(lang, "follow_hour_d"));
                 ui.end_row();
+                ui.label(t(lang, "tips"));
+                ui.vertical(|ui| {
+                    let tips = &mut self.settings.tips;
+                    ui.checkbox(&mut tips.window, t(lang, "tips_window"));
+                    ui.checkbox(&mut tips.native, t(lang, "tips_native"));
+                    ui.checkbox(&mut tips.mine, t(lang, "tips_mine"));
+                    ui.checkbox(&mut tips.others, t(lang, "tips_others"));
+                });
+                ui.end_row();
                 ui.label(t(lang, "breathe"));
                 ui.checkbox(&mut self.settings.breathe, t(lang, "breathe_d"));
+                ui.end_row();
+                ui.label(t(lang, "her_name"));
+                let field = ui.add(
+                    egui::TextEdit::singleline(&mut self.settings.her)
+                        .hint_text(crate::style::hint("Her"))
+                        .desired_width(180.0),
+                );
+                if field.changed() {
+                    self.name_her();
+                }
+                field.on_hover_text(t(lang, "her_name_d"));
                 ui.end_row();
                 ui.label(t(lang, "human"));
                 let host = grm_engine::witness::human(None, lang == Lang::Fr);
                 let field = ui.add(
                     egui::TextEdit::singleline(&mut self.settings.human)
-                        .hint_text(crate::style::hint(&host))
+                        .hint_text(crate::style::hint(t(lang, "human_hint")))
                         .desired_width(180.0),
                 );
                 if field.lost_focus() {
@@ -2333,7 +2401,7 @@ impl App {
                 ui.add(egui::Slider::new(&mut self.settings.text, 0.8..=2.0).step_by(0.1));
                 ui.end_row();
                 ui.label(t(lang, "memory"));
-                ui.label(RichText::new(self.memory.display().to_string()).monospace());
+                ui.label(RichText::new(self.memory.display().to_string()));
                 ui.end_row();
             });
             ui.separator();
@@ -2370,41 +2438,14 @@ pub fn voice_kind(name: &str) -> grm_sound::ambient::Kind {
 }
 
 fn apply_look(ctx: &egui::Context, s: &Settings) {
-    crate::style::apply(ctx, &s.palette, s.typewriter, s.text);
+    crate::style::apply(ctx, &s.palette, s.text);
+    // the window's own tips, or none (an app's are said by its widgets: see `tips_for`)
+    let delay = if s.tips.window { 0.5 } else { f32::INFINITY };
+    ctx.all_styles_mut(|st| st.interaction.tooltip_delay = delay);
 }
 
-/// The pictures an eye made, as textures.
-fn textures(ctx: &egui::Context, name: &str, sight: &Sight) -> Vec<(String, egui::TextureHandle)> {
-    let mut out = vec![];
-    let mut add = |tag: &str, p: &grm_engine::vision::Picture| {
-        let mut pixels = Vec::with_capacity(p.width * p.height);
-        for y in 0..p.height {
-            for x in 0..p.width {
-                let c = |ch: usize| {
-                    let v = p.at(x, y, ch.min(p.channels - 1));
-                    if v.is_finite() {
-                        (v.clamp(0.0, 1.0) * 255.0) as u8
-                    } else {
-                        0
-                    }
-                };
-                pixels.push(Color32::from_rgb(c(0), c(1), c(2)));
-            }
-        }
-        let image = egui::ColorImage {
-            size: [p.width, p.height],
-            pixels,
-            source_size: egui::vec2(p.width as f32, p.height as f32),
-        };
-        out.push((tag.to_string(), ctx.load_texture(format!("{name}-{tag}"), image, egui::TextureOptions::NEAREST)));
-    };
-    add("clean", &sight.clean);
-    add("surprise", &grm_connect::sigma_picture(&sight.surprise));
-    if let Some(c) = &sight.change {
-        add("change", &grm_connect::sigma_picture(c));
-    }
-    out
-}
+/// The apps that come with the machine (their tips are the native apps').
+pub const NATIVE: [&str; 6] = ["studio", "player", "universe", "weather", "swing", "her"];
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
@@ -2563,33 +2604,21 @@ impl App {
         let ink = Ink::of(ui.ctx());
         let lang = self.settings.lang;
         // the tabs: the space, the whole network, each app that runs, and what can be opened
-        let before = (self.current.clone(), self.current_file, self.sandbox_shown.clone(), self.workshop_shown.clone());
-        let mut to_space = false;
+        // one logic for every tab: lit when it is in front, brought in front when pressed
+        use crate::front::Front;
+        let front = self.front();
         ui.horizontal_wrapped(|ui| {
-            if crate::icons::toggle(ui, "layout-dashboard", t(lang, "space"), self.space_on)
+            if crate::icons::toggle(ui, "layout-dashboard", t(lang, "space"), front == Front::Space)
                 .on_hover_text(t(lang, "space_d"))
                 .clicked()
             {
-                to_space = true;
+                self.go(Front::Space);
             }
-            let desk_on = !self.space_on
-                && self.current.is_none()
-                && self.current_file.is_none()
-                && self.sandbox_shown.is_none()
-                && self.workshop_shown.is_none();
-            if crate::icons::toggle(ui, "network", t(lang, "desk"), desk_on).clicked() {
-                self.space_on = false;
-                self.workshop_shown = None;
-                self.current = None;
-                self.current_file = None;
-                self.sandbox_shown = None;
-                self.editing = false;
+            if crate::icons::toggle(ui, "network", t(lang, "desk"), front == Front::Desk).clicked() {
+                self.go(Front::Desk);
             }
             for a in self.apps.clone() {
-                let on = !self.space_on
-                    && self.current.as_deref() == Some(a.name.as_str())
-                    && self.current_file.is_none()
-                    && self.sandbox_shown.is_none();
+                let on = front == Front::App(a.name.clone());
                 let sign = a.icon.clone().filter(|i| crate::icons::exists(i)).unwrap_or("app-window".into());
                 let colour = if !a.errors.is_empty() {
                     ink.amber
@@ -2612,15 +2641,11 @@ impl App {
                         format!("{}\n{} {}", a.path.display(), a.errors.len(), t(lang, "errors_in_app"))
                     });
                 if r.clicked() {
-                    self.current = Some(a.name.clone());
-                    self.current_file = None;
-                    self.sandbox_shown = None;
-                    self.workshop_shown = None;
-                    self.space_on = false;
+                    self.go(Front::App(a.name.clone()));
                 }
                 r.context_menu(|ui| {
                     if crate::menu::item(ui, "maximize", t(lang, "launch"), t(lang, "m_launch_d")) {
-                        self.current = Some(a.name.clone());
+                        self.go(Front::App(a.name.clone()));
                         self.launched = true;
                         ui.ctx().send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
                         ui.close();
@@ -2633,7 +2658,7 @@ impl App {
                     }
                     if crate::menu::item(ui, "layout-dashboard", t(lang, "space_put_it"), t(lang, "space_put_it_d")) {
                         self.space.put(crate::space::Kind::App(a.name.clone()));
-                        self.space_on = true;
+                        self.go(Front::Space);
                         self.space.seen = egui::Rect::NOTHING;
                         ui.close();
                     }
@@ -2645,7 +2670,7 @@ impl App {
             }
             let mut close_file: Option<(usize, bool)> = None;
             for k in 0..self.files.len() {
-                let on = self.current_file == Some(k);
+                let on = front == Front::File(self.files[k].path.clone());
                 let mut title = self.files[k].name();
                 if self.files[k].dirty() {
                     title.push_str(" •");
@@ -2660,8 +2685,7 @@ impl App {
                 let r =
                     crate::icons::toggle(ui, sign, title, on).on_hover_text(self.files[k].path.display().to_string());
                 if r.clicked() {
-                    self.current_file = Some(k);
-                    self.sandbox_shown = None;
+                    self.go(Front::File(self.files[k].path.clone()));
                 }
                 r.context_menu(|ui| {
                     if crate::menu::item(ui, "x", t(lang, "close_file"), t(lang, "close_file_d")) {
@@ -2681,12 +2705,7 @@ impl App {
                         self.files[k].path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
                     self.say(format!("trash file:{stem}"));
                 }
-                self.files.remove(k);
-                if self.current_file == Some(k) {
-                    self.current_file = None;
-                } else if self.current_file.is_some_and(|c| c > k) {
-                    self.current_file = self.current_file.map(|c| c - 1);
-                }
+                self.close_file(k);
             }
             let plus = egui::Button::image(crate::icons::image("plus", 16.0, ui.visuals().text_color()));
             egui::containers::menu::MenuButton::from_button(plus).ui(ui, |ui| {
@@ -2714,13 +2733,6 @@ impl App {
             });
         });
         self.areas.insert("tabs", ui.min_rect());
-        if to_space {
-            self.space_on = true;
-        } else if before
-            != (self.current.clone(), self.current_file, self.sandbox_shown.clone(), self.workshop_shown.clone())
-        {
-            self.space_on = false;
-        }
         if self.space_on {
             ui.separator();
             crate::space::show(self, ui);
@@ -2734,56 +2746,6 @@ impl App {
             }
             self.current_file = None;
         }
-        if let Some(ws) = self.workshop_shown.clone() {
-            ui.horizontal(|ui| {
-                crate::icons::show(ui, "hammer", 16.0, ink.accent);
-                ui.label(RichText::new(format!("{} {ws}", t(lang, "workshop"))).strong().color(ink.accent))
-                    .on_hover_text(t(lang, "workshop_d"));
-                if crate::icons::button(ui, "merge", t(lang, "workshop_merge"))
-                    .on_hover_text(t(lang, "workshop_merge_d"))
-                    .clicked()
-                {
-                    self.say(format!("workshop merge {ws}"));
-                    self.tab = Tab::Sandboxes;
-                    self.side_open = true;
-                }
-                if crate::icons::button(ui, "chart-line", t(lang, "m_plots")).clicked() {
-                    self.plotted = self
-                        .sandbox_picture
-                        .as_ref()
-                        .map(|p| p.nodes.iter().take(4).map(|n| n.name.clone()).collect())
-                        .unwrap_or_default();
-                    self.desk_mode = Mode::Plot;
-                }
-                if crate::icons::button(ui, "x", t(lang, "workshop_close")).clicked() {
-                    self.say(format!("workshop close {ws}"));
-                    self.workshop_shown = None;
-                }
-                if crate::icons::button(ui, "arrow-left", t(lang, "back")).clicked() {
-                    self.workshop_shown = None;
-                }
-            });
-            ui.separator();
-            let name = ws.clone();
-            if let Some(p) = self.sandbox_pull.poll(&self.engine, move |w| Picture::of_workshop(w, &name)) {
-                self.sandbox_picture = p;
-            }
-            match self.sandbox_picture.clone() {
-                Some(p) => {
-                    let saved = std::mem::replace(&mut self.picture, std::sync::Arc::new(p));
-                    if self.desk_mode == Mode::Plot {
-                        crate::plot::show(self, ui, None);
-                    } else {
-                        crate::view::show(self, ui, None);
-                    }
-                    self.picture = saved;
-                }
-                None => {
-                    ui.label(t(lang, "no_workshop"));
-                }
-            }
-            return;
-        }
         if let Some(sb) = self.sandbox_shown.clone() {
             ui.horizontal(|ui| {
                 ui.label(RichText::new(format!("{} {sb}", t(lang, "sandbox_shown"))).strong().color(ink.accent));
@@ -2793,20 +2755,16 @@ impl App {
                     }
                 }
                 if ui.button(t(lang, "back")).clicked() {
-                    self.sandbox_shown = None;
+                    self.leave_front();
                 }
             });
             ui.separator();
             let name = sb.clone();
             if let Some(p) = self.sandbox_pull.poll(&self.engine, move |w| Picture::of_sandbox(w, &name)) {
-                self.sandbox_picture = p;
+                self.sandbox_picture = p.map(std::sync::Arc::new);
             }
             match self.sandbox_picture.clone() {
-                Some(p) => {
-                    let saved = std::mem::replace(&mut self.picture, std::sync::Arc::new(p));
-                    crate::view::show(self, ui, None);
-                    self.picture = saved;
-                }
+                Some(p) => self.showing(p, |app| crate::view::show(app, ui, None)),
                 None => {
                     ui.label(t(lang, "no_sandbox"));
                 }
@@ -2879,21 +2837,26 @@ impl App {
                         }
                     });
             }
-            let edit = ui
-                .add(
-                    egui::Button::new(RichText::new(t(lang, "edit")).color(if self.editing {
-                        ink.amber
-                    } else {
-                        ink.text
-                    }))
-                    .selected(self.editing),
-                )
-                .on_hover_text("Ctrl+E");
+            let edit = crate::widgets::toggle(
+                ui,
+                "pencil",
+                t(lang, "edit"),
+                self.editing,
+                &format!("{} · Ctrl+E", t(lang, "edit_d")),
+            );
             if edit.clicked() {
                 self.editing = !self.editing;
                 self.modes.insert(name.clone(), Mode::App);
             }
-            if ui.add(egui::Button::new(t(lang, "xray")).selected(self.xray)).on_hover_text("Ctrl+R").clicked() {
+            if crate::widgets::toggle(
+                ui,
+                "scan-eye",
+                t(lang, "xray"),
+                self.xray,
+                &format!("{} · Ctrl+R", t(lang, "xray_d")),
+            )
+            .clicked()
+            {
                 self.xray = !self.xray;
             }
             // her own instrument: only she plays it
@@ -2955,17 +2918,10 @@ impl App {
                         self.launched = false;
                         ui.ctx().send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
                     }
-                    if ui.add(egui::Button::new(t(lang, "xray")).selected(self.xray)).clicked() {
+                    if crate::widgets::toggle(ui, "scan-eye", t(lang, "xray"), self.xray, t(lang, "xray_d")).clicked() {
                         self.xray = !self.xray;
                     }
-                    let edit = ui.add(
-                        egui::Button::new(RichText::new(t(lang, "edit")).color(if self.editing {
-                            ink.amber
-                        } else {
-                            ink.text
-                        }))
-                        .selected(self.editing),
-                    );
+                    let edit = crate::widgets::toggle(ui, "pencil", t(lang, "edit"), self.editing, t(lang, "edit_d"));
                     if edit.clicked() {
                         self.editing = !self.editing;
                     }
@@ -3017,7 +2973,7 @@ impl App {
                 });
                 let r = ui.add(
                     egui::TextEdit::singleline(&mut text)
-                        .margin(crate::style::FIELD)
+                        .margin(crate::style::field())
                         .font(egui::TextStyle::Monospace)
                         .desired_width(f32::INFINITY),
                 );
@@ -3078,7 +3034,7 @@ impl App {
                 ui.label(t(lang, "new_app_d"));
                 let r = ui.add(
                     egui::TextEdit::singleline(&mut self.new_app)
-                        .margin(crate::style::FIELD)
+                        .margin(crate::style::field())
                         .hint_text(crate::style::hint(t(lang, "new_app")))
                         .font(egui::TextStyle::Monospace)
                         .desired_width(260.0),
@@ -3120,7 +3076,6 @@ impl App {
             let start = Instant::now();
             let dialog = rfd::FileDialog::new().set_directory(here).set_title(title);
             let chosen = match what {
-                Pick::Eye => dialog.add_filter("pictures", &["png", "jpg", "jpeg"]).pick_files(),
                 Pick::Open => dialog.pick_files(),
             };
             let _ = tx.send((chosen.unwrap_or_default(), start.elapsed()));
@@ -3139,11 +3094,6 @@ impl App {
                     self.note(LineKind::Warning, self.tr("no_file_window").to_string());
                 }
                 match what {
-                    Pick::Eye => {
-                        for f in files {
-                            self.see(&f);
-                        }
-                    }
                     Pick::Open => {
                         match self.workshop_loading.clone() {
                             // tables for a workshop: learned in it
@@ -3188,7 +3138,7 @@ impl App {
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
                 t(self.settings.lang, "drop_here"),
-                egui::FontId::proportional(22.0),
+                crate::style::font(crate::style::Size::Title),
                 ink.text,
             );
         }
@@ -3204,10 +3154,6 @@ impl App {
         }
         let ext = p.extension().map(|x| x.to_string_lossy().to_lowercase()).unwrap_or_default();
         match ext.as_str() {
-            "png" => {
-                self.tab = Tab::Eye;
-                self.see(&p);
-            }
             "grm" => {
                 let app = std::fs::read_to_string(&p).is_ok_and(|text| {
                     text.lines().any(|l| {
@@ -3387,7 +3333,7 @@ impl App {
                     egui::Frame::new()
                         .fill(ink.raised)
                         .stroke(egui::Stroke::new(1.0_f32, colour.gamma_multiply(0.6)))
-                        .corner_radius(3.0)
+                        .corner_radius(crate::style::corner())
                         .inner_margin(egui::Margin::symmetric(12, 8))
                         .multiply_with_opacity(a)
                         .show(ui, |ui| {
@@ -3430,16 +3376,33 @@ impl App {
 }
 
 impl App {
+    /// A file closed: what was in front before it comes back if it was in front (the others keep their place).
+    pub fn close_file(&mut self, k: usize) {
+        if k >= self.files.len() {
+            return;
+        }
+        let was_front = self.current_file == Some(k) && !self.space_on;
+        let path = self.files[k].path.clone();
+        self.files.remove(k);
+        self.views_kept.remove(&format!("file {}", path.display()));
+        // the one in front stays the same file (its place in the list moved)
+        self.current_file = match self.current_file {
+            Some(c) if c == k => None,
+            Some(c) if c > k => Some(c - 1),
+            other => other,
+        };
+        if was_front {
+            self.leave_front();
+        }
+    }
+
     /// Into a network: only it, filling the view (the way back is the way back: Alt+Left).
     pub fn dive(&mut self, source: &str) {
         if !self.picture.nodes.iter().any(|n| n.source == source) {
             return;
         }
+        self.go(crate::front::Front::Desk);
         self.dived = Some(source.to_string());
-        self.current = None;
-        self.current_file = None;
-        self.sandbox_shown = None;
-        self.launched = false;
         self.desk_mode = Mode::Network;
         self.view.fitted = false;
     }
@@ -3536,7 +3499,7 @@ impl App {
             ui.set_width(440.0);
             ui.horizontal(|ui| {
                 crate::icons::show(ui, "trash-2", 18.0, ink.amber);
-                ui.label(RichText::new(&c.title).strong().size(16.0));
+                ui.label(RichText::new(&c.title).strong().size(crate::style::size(crate::style::Size::Subtitle)));
             });
             ui.add_space(6.0);
             ui.label(RichText::new(t(lang, "remove_what")).small().color(ink.muted));
@@ -3606,7 +3569,7 @@ impl App {
                 ui.label(t(lang, "workshop_d"));
                 let r = ui.add(
                     egui::TextEdit::singleline(&mut self.new_workshop)
-                        .margin(crate::style::FIELD)
+                        .margin(crate::style::field())
                         .hint_text(crate::style::hint(t(lang, "ws_name")))
                         .font(egui::TextStyle::Monospace)
                         .desired_width(260.0),
@@ -3628,74 +3591,11 @@ impl App {
     }
 }
 
-impl App {
-    /// A picture of an eye, big; the arrows (or the keys) go through the others; Esc closes.
-    fn lightbox_window(&mut self, ctx: &egui::Context) {
-        let Some((name, k)) = self.lightbox.clone() else { return };
-        // every picture of every eye, one after another
-        let all: Vec<(String, usize)> =
-            self.eyes.iter().flat_map(|(n, e)| (0..e.textures.len()).map(move |i| (n.clone(), i))).collect();
-        let Some(at) = all.iter().position(|(n, i)| *n == name && *i == k) else {
-            self.lightbox = None;
-            return;
-        };
-        let n = all.len();
-        let k = at;
-        let (tag, tex) = self.eyes[&name].textures[self.lightbox.as_ref().map(|l| l.1).unwrap_or(0)].clone();
-        let lang = self.settings.lang;
-        let ink = Ink::of(ctx);
-        let mut go: i32 = 0;
-        let screen = ctx.content_rect();
-        let modal = egui::Modal::new(egui::Id::new("lightbox")).show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                crate::icons::show(ui, "eye", 16.0, ink.accent);
-                ui.label(RichText::new(format!("{name} · {}", t(lang, &tag))).strong());
-                ui.label(RichText::new(format!("{} / {n}", k + 1)).small().color(ink.muted));
-            });
-            let size = tex.size_vec2();
-            let room = egui::vec2(screen.width() * 0.75, screen.height() * 0.7);
-            let scale = (room.x / size.x).min(room.y / size.y).max(0.1);
-            ui.horizontal(|ui| {
-                if crate::icons::sign_enabled(ui, k > 0, "chevron-left", t(lang, "ws_prev")).clicked() {
-                    go = -1;
-                }
-                // drawn as pixels, not blurred: what the eye saw, as it saw it
-                ui.add(egui::Image::from_texture(egui::load::SizedTexture::new(tex.id(), size * scale)));
-                if crate::icons::sign_enabled(ui, k + 1 < n, "chevron-right", t(lang, "ws_next")).clicked() {
-                    go = 1;
-                }
-            });
-            ui.label(RichText::new(t(lang, "eye_keys")).small().color(ink.muted));
-        });
-        let (left, right) = ctx.input(|i| (i.key_pressed(Key::ArrowLeft), i.key_pressed(Key::ArrowRight)));
-        if left {
-            go = -1;
-        }
-        if right {
-            go = 1;
-        }
-        if modal.should_close() {
-            self.lightbox = None;
-            return;
-        }
-        let next = (k as i32 + go).clamp(0, n as i32 - 1) as usize;
-        self.lightbox = Some(all[next].clone());
-    }
-}
-
-impl App {
-    /// A picture given to the eye: each picture its own eye, named after its file (several can be given at once:
-    /// they are seen one after another, and the window says how many wait).
-    pub fn see(&mut self, path: &std::path::Path) {
-        let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or("eye".into());
-        let name = grm_connect::csv::name_of(&stem);
-        let line = format!("see {} {name}", grm_shell::quoted(&path.display().to_string()));
-        self.seeing.push(line.clone());
-        self.say(line);
-    }
-}
-
 /// A pitch as a note of the roll: semitones from A1 (55 Hz).
 fn note_of(hz: f64) -> i32 {
     (12.0 * (hz.max(1.0) / 55.0).log2()).round() as i32
 }
+
+#[cfg(test)]
+#[path = "ui_tests.rs"]
+mod ui_tests;

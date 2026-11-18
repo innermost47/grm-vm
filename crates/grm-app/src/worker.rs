@@ -10,7 +10,6 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use grm_engine::engine::Engine;
-use grm_engine::vision::Sight;
 use grm_shell::runtime::AppView;
 use grm_shell::{Line, Shell};
 
@@ -27,7 +26,6 @@ pub struct Answer {
     pub lines: Vec<Line>,
     pub quit: bool,
     pub asking: bool,
-    pub sight: Option<(String, Sight)>,
     /// The running apps, when they changed.
     pub apps: Option<Vec<AppView>>,
     /// The app files that can be opened, when the apps changed.
@@ -65,7 +63,6 @@ impl Worker {
         let thread = std::thread::Builder::new()
             .name("grm-prompt".into())
             .spawn(move || {
-                // the desk as it was left
                 // she wakes first (her home), then the desk as it was left
                 let mut lines = shell.wake(&engine);
                 lines.extend(shell.restore_desk(&engine));
@@ -78,28 +75,11 @@ impl Worker {
                 loop {
                     match requests.recv_timeout(Duration::from_millis(100)) {
                         Ok(Request::Line(typed)) => {
-                            let seen = shell.sights.len();
-                            let last = shell.sights.last().map(|(k, s)| (k.clone(), s.rounds, s.elapsed));
                             let before = shell.snapshots;
                             let (lines, quit) = shell.run(&engine, &typed);
                             let kept = shell.snapshots != before;
-                            let now = shell.sights.last().map(|(k, s)| (k.clone(), s.rounds, s.elapsed));
-                            let sight = if shell.sights.len() != seen || now != last {
-                                shell.sights.last().map(|(k, s)| (k.clone(), s.clone()))
-                            } else {
-                                None
-                            };
                             let asking = shell.asking();
-                            let a = Answer {
-                                typed,
-                                lines,
-                                quit,
-                                asking,
-                                sight,
-                                kept,
-                                answered: true,
-                                ..Default::default()
-                            };
+                            let a = Answer { typed, lines, quit, asking, kept, answered: true, ..Default::default() };
                             if answers.send(news(&mut shell, a)).is_err() {
                                 return;
                             }

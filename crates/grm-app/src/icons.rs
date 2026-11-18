@@ -71,14 +71,27 @@ pub fn toggle(ui: &mut egui::Ui, name: &str, text: impl Into<egui::WidgetText>, 
 
 /// A button that is only its sign (what it does is said when the pointer rests on it).
 pub fn sign(ui: &mut egui::Ui, name: &str, what: &str) -> Response {
-    let colour = ui.visuals().text_color();
-    ui.add(egui::Button::image(image(name, 16.0, colour)).frame(false)).on_hover_text(what)
+    sign_enabled(ui, true, name, what)
 }
 
 /// A sign that can be pressed or not (greyed when it cannot).
 pub fn sign_enabled(ui: &mut egui::Ui, enabled: bool, name: &str, what: &str) -> Response {
-    let colour = if enabled { ui.visuals().text_color() } else { ui.visuals().weak_text_color() };
-    ui.add_enabled(enabled, egui::Button::image(image(name, 16.0, colour)).frame(false)).on_hover_text(what)
+    sign_on(ui, enabled, false, name, what)
+}
+
+/// A sign that stays lit while what it does is on (pressed again, it is undone).
+pub fn sign_on(ui: &mut egui::Ui, enabled: bool, on: bool, name: &str, what: &str) -> Response {
+    let colour = if !enabled {
+        ui.visuals().weak_text_color()
+    } else if on {
+        ui.visuals().selection.stroke.color
+    } else {
+        ui.visuals().text_color()
+    };
+    let r = ui.add_enabled(enabled, egui::Button::image(image(name, 16.0, colour)).frame(false));
+    // said by its words to whoever cannot see it (a screen reader, the window's tests)
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, what));
+    r.on_hover_text(what)
 }
 
 #[cfg(test)]

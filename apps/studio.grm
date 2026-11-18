@@ -12,7 +12,7 @@ input echo_return = 0.5
 input room = 0.75
 input rev_return = 0.6
 set elle_ctx_song = 1
-set elle_ctx_human = 1
+set elle_ctx_human = 2
 input elle_lessons_on = 1
 set elle_lessons = 28 * elle_lessons_on
 input elle_lesson_pick = 0
@@ -908,7 +908,7 @@ set elle_join = 1 when elle_lesson in 27.5 .. 28.5 and elle_lessons in 0.5 .. 99
 set elle_chords = 1 when elle_lesson in 27.5 .. 28.5 and elle_lessons in 0.5 .. 999
 node echo_in signed
 relate echo_send: echo_in = t1_echo * t1_on * t1_out + t2_echo * t2_on * t2_out + t3_echo * t3_on * t3_out
-call echo(name=fxe, input=echo_in, time=0.3750, feedback=echo_back)
+call echo(name=fxe, input=echo_in, time=0.7500, feedback=echo_back)
 node rev_in signed
 relate rev_send: rev_in = t1_rev * t1_on * t1_out + t2_rev * t2_on * t2_out + t3_rev * t3_on * t3_out + 0.3 * fxe_wet
 call reverb(name=fxr, input=rev_in, decay=room)

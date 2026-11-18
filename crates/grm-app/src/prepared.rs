@@ -30,8 +30,6 @@ pub enum End {
 
 #[derive(Debug, Clone, Default)]
 pub struct Prepared {
-    /// The shape of the picture it was made from (see `Picture::shape`).
-    pub shape: u64,
     /// What it shows of the picture: its nodes and its relations (where they are in it).
     pub nodes: Vec<usize>,
     pub rels: Vec<usize>,
@@ -98,7 +96,7 @@ const PACKET_LEAST: usize = 4;
 
 impl Prepared {
     /// What the view needs of this picture: everything, or one source (its relations, and the nodes they touch).
-    pub fn of(picture: &Picture, only: Option<&str>, shape: u64) -> Prepared {
+    pub fn of(picture: &Picture, only: Option<&str>) -> Prepared {
         let (nodes, rels): (Vec<usize>, Vec<usize>) = match only {
             None => ((0..picture.nodes.len()).collect(), (0..picture.relations.len()).collect()),
             Some(src) => {
@@ -255,7 +253,6 @@ impl Prepared {
             }
         }
         Prepared {
-            shape,
             nodes,
             rels,
             node_key,
@@ -306,7 +303,7 @@ mod tests {
         });
         let by_name = nodes.iter().enumerate().map(|(k, n)| (n.name.clone(), k)).collect();
         let pic = Picture { nodes, relations, by_name, ..Default::default() };
-        let p = Prepared::of(&pic, None, 1);
+        let p = Prepared::of(&pic, None);
         assert_eq!(p.packets.len(), 1);
         assert_eq!(p.packets[0].name, "x_e{k}");
         assert_eq!(p.packets[0].members.len(), 6);

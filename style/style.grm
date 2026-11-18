@@ -1,0 +1,62 @@
+# The machine's style: the fonts, a few sizes used everywhere, the corners, the room inside things, the colours.
+# Every widget takes it from here. A variant writes only what changes from the style it comes from.
+# fonts known: "IBM Plex Sans", "IBM Plex Sans SemiBold", "Courier Prime" (the code, and only the code)
+
+style night
+  dark
+  font title = "IBM Plex Sans SemiBold"
+  font text = "IBM Plex Sans"
+  font code = "Courier Prime"
+  size title = 18
+  size subtitle = 15
+  size text = 13
+  size small = 11
+  size tiny = 9
+  size code = 13
+  corner = 2
+  padding button = 10 4
+  padding field = 8 5
+  spacing = 8 6
+  colour background = #17181B
+  colour panel = #1F2024
+  colour raised = #2B2D32
+  colour text = #E4E2DC
+  colour muted = #9C9FA6
+  colour faint = #454850
+  colour accent = #E8A83D
+  colour warn = #F08A4B
+  sources = #B9A6F0 #7FB8F0 #E8C46A #6FC8B0 #E69AC0 #9FB0C6 #A8D07A #6CC4E6
+
+variant day from night
+  light
+  colour background = #FBFAF6
+  colour panel = #F1EFEA
+  colour raised = #E4E1DA
+  colour text = #222327
+  colour muted = #5E6169
+  colour faint = #C5C2BA
+  colour accent = #B86E00
+  colour warn = #B34E12
+  sources = #6A4CC4 #2E6CC4 #9A7400 #12806C #B0447C #556680 #458632 #1E84A8
+
+variant ocean from night
+  colour background = #0F1A22
+  colour panel = #15222C
+  colour raised = #1F303C
+  colour text = #DDEAF0
+  colour muted = #8FA8B6
+  colour faint = #344A58
+  colour accent = #5FD0C8
+  colour warn = #F0B05A
+  sources = #8FC8FF #C8A8FF #7FE0B8 #FFC88A #F09AC8 #A8C0D0 #B8E07A #6CD8F0
+
+variant contrast from night
+  colour background = #000000
+  colour panel = #0C0C0C
+  colour raised = #222222
+  colour text = #FFFFFF
+  colour muted = #D0D0D0
+  colour faint = #707070
+  colour accent = #FFD040
+  colour warn = #FF9A40
+  sources = #C8B4FF #8CC8FF #FFE08C #7CF0C8 #FFA8D8 #D0D8E8 #C0F080 #80E8FF
