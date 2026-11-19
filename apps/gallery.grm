@@ -52,6 +52,35 @@ input g_pl_loop = 0
 use networks/lfo.grm
 call lfo(name=g_wave, step=0.01, shape=0)
 
+# a few bodies for the 3D view (their places are nodes: the arrows move the one chosen)
+list bodies = sun earth moon mars jupiter
+input sun_x = 0
+input sun_y = 0
+input sun_z = 0
+input sun_r = 1.2
+input sun_hue = 0.12
+input earth_x = 4
+input earth_y = 0
+input earth_z = 1
+input earth_r = 0.45
+input earth_hue = 0.6
+input moon_x = 4.8
+input moon_y = 0.4
+input moon_z = 1.3
+input moon_r = 0.15
+input moon_hue = 0.0
+input mars_x = -5
+input mars_y = 0
+input mars_z = -2
+input mars_r = 0.35
+input mars_hue = 0.05
+input jupiter_x = 2
+input jupiter_y = 0
+input jupiter_z = -6
+input jupiter_r = 0.9
+input jupiter_hue = 0.15
+input g_chosen = 0
+
 widget pages: tabs at 0 0
   widget layout: column "layout"
     widget h1: aside_head(open=g_open, title=an aside at the left)
@@ -96,6 +125,10 @@ widget pages: tabs at 0 0
     widget f1: form_number(node=g_gravity, label=gravity, example=9.81)
     widget f2: form_choice(node=g_mode, label=mode, options=low=0|middle=1|high=2)
     widget f3: form_send(words=send, line=show g_gravity)
+  end
+  widget space: column "3d"
+    widget sky: view3d b in bodies: x {b}_x y {b}_y z {b}_z radius {b}_r hue {b}_hue selected g_chosen size 12 8 tip "drag: turn · right drag: move · wheel: zoom · F: fit · click: choose · arrows: move it"
+    widget which: value g_chosen size 3 1 "chosen"
   end
   widget charts: column "charts"
     widget k1: trend(node=g_wave_out, label=a wave, lo=-1, hi=1)

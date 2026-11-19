@@ -533,3 +533,30 @@ fn the_studio_plays_by_the_space_bar_and_her_key_is_given_by_its_choice() {
     assert!(shown.iter().any(|s| s == "key: C"), "{shown:?}");
     close(h);
 }
+
+/// The 3D view (a primitive called from GRML): an object chosen by a click is written to its node, moved by the
+/// arrows (its nodes written back), let go by Escape; F fits everything in view.
+#[test]
+fn the_3d_view_chooses_moves_and_lets_go() {
+    let home = Home::new("view3d");
+    let mut h = open(&home);
+    say(&mut h, &format!("app open {}", home.dir.join("apps").join("gallery.grm").display()));
+    frames_until(&mut h, "the gallery", |a| a.picture.node("earth_x").is_some());
+    h.state_mut().modes.insert("gallery".into(), super::Mode::App);
+    h.state_mut().go(crate::front::Front::App("gallery".into()));
+    h.state_mut().surface.tabs.insert("gallery/pages".into(), 5);
+    h.ctx.memory_mut(|m| m.stop_text_input());
+    frames_for(&mut h, 500);
+    click(&mut h, "earth");
+    frames_until(&mut h, "earth chosen", |a| a.picture.node("g_chosen").is_some_and(|n| (n.value - 2.0).abs() < 1e-9));
+    let x0 = h.state().picture.node("earth_x").unwrap().value;
+    // the pointer over the view, the arrow pressed: the earth moves on the ground
+    let at = h.get_by_label("3D view").rect().center();
+    h.hover_at(at);
+    frames_for(&mut h, 100);
+    h.key_press(egui::Key::ArrowRight);
+    frames_until(&mut h, "earth moved", |a| a.picture.node("earth_x").is_some_and(|n| (n.value - x0).abs() > 1e-6));
+    h.key_press(egui::Key::Escape);
+    frames_until(&mut h, "let go", |a| a.picture.node("g_chosen").is_some_and(|n| n.value.abs() < 1e-9));
+    close(h);
+}

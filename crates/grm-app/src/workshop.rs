@@ -945,10 +945,10 @@ fn card(
                     ("pen-line", if last { "ws_write_done" } else { "ws_write_next" })
                 };
                 let b = egui::Button::image_and_text(
-                    crate::icons::image(sign, 15.0, ink.on_accent()),
-                    RichText::new(t(lang, key)).color(ink.on_accent()),
+                    crate::icons::image(sign, 15.0, ink.on_chosen()),
+                    RichText::new(t(lang, key)).color(ink.on_chosen()),
                 )
-                .fill(ink.accent);
+                .fill(ink.chosen);
                 if ui.add(b).clicked() {
                     if !step.line.is_empty() {
                         if let Some(a) = write(app, ws, step.line) {
@@ -1068,10 +1068,10 @@ fn card(
         ui.horizontal(|ui| {
             let key = if w == "ask" { "ws_ask" } else { "ws_write" };
             let b = egui::Button::image_and_text(
-                crate::icons::image("pen-line", 15.0, ink.on_accent()),
-                RichText::new(t(lang, key)).color(ink.on_accent()),
+                crate::icons::image("pen-line", 15.0, ink.on_chosen()),
+                RichText::new(t(lang, key)).color(ink.on_chosen()),
             )
-            .fill(ink.accent);
+            .fill(ink.chosen);
             if ui.add_enabled(fine, b).clicked() {
                 if let Some(a) = write(app, ws, &line) {
                     state.answer = Some(a);

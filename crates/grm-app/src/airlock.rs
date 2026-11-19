@@ -59,7 +59,7 @@ pub fn door(app: &mut App, ui: &mut egui::Ui, ws: &str, ready: bool, big: bool) 
         _ => t(lang, "ws_changed_again_d"),
     };
     let clicked = if big {
-        let (fill, text) = if enabled && now.is_none() { (ink.accent, ink.on_accent()) } else { (ink.faint, ink.text) };
+        let (fill, text) = if enabled && now.is_none() { (ink.accent, ink.on_chosen()) } else { (ink.faint, ink.text) };
         ui.add_enabled(
             enabled,
             egui::Button::image_and_text(
@@ -249,10 +249,10 @@ pub fn window(app: &mut App, ctx: &egui::Context) {
         ui.horizontal(|ui| {
             let ok = report.is_ok();
             let b = egui::Button::image_and_text(
-                crate::icons::image("door-open", 15.0, ink.on_accent()),
-                RichText::new(t(lang, "airlock_let_in")).color(ink.on_accent()),
+                crate::icons::image("door-open", 15.0, ink.on_chosen()),
+                RichText::new(t(lang, "airlock_let_in")).color(ink.on_chosen()),
             )
-            .fill(ink.accent);
+            .fill(ink.chosen);
             if ui.add_enabled(ok, b).on_hover_text(t(lang, "airlock_let_in_d")).clicked() {
                 choice = Some("merge");
             }

@@ -137,11 +137,11 @@ pub fn choice(ui: &mut egui::Ui, id: impl std::hash::Hash, chosen: &mut usize, o
 /// colour that stands on the accent) and off; what it does said when the pointer rests on it.
 pub fn toggle(ui: &mut egui::Ui, sign: &str, words: &str, on: bool, tip: &str) -> egui::Response {
     let ink = Ink::of(ui.ctx());
-    let colour = if on { ink.on_accent() } else { ink.text };
+    let colour = if on { ink.on_chosen() } else { ink.text };
     let mut b =
         egui::Button::image_and_text(crate::icons::image(sign, 15.0, colour), RichText::new(words).color(colour));
     if on {
-        b = b.fill(ink.accent);
+        b = b.fill(ink.chosen);
     }
     let r = ui.add(b);
     if tip.is_empty() {

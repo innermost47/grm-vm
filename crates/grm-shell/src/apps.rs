@@ -78,6 +78,11 @@ pub enum WidgetKind {
     /// A drum machine's steps (its words: the machine's name, `t3`): a row per drum, its pad, its steps on the
     /// transport, the one playing lit.
     Drums,
+    /// A world in three dimensions, to look at and handle: an object for each item of a list, its place and its
+    /// look from the item's nodes (`view3d b in bodies: x {b}_x y {b}_y z {b}_z radius {b}_r hue {b}_hue selected
+    /// chosen`); orbit, pan, zoom to the pointer, fit, the axes' views, a grid, a light; an object chosen by a click
+    /// (its place in the list, from 1, written to the node after `selected`) and moved by the arrows.
+    View3d,
     /// Bars side by side, each as tall as its node is among the others; the first node says which one is lit (from
     /// 1): `bars elle_choice elle_want1 .. elle_want16`.
     Bars,
@@ -130,6 +135,7 @@ impl WidgetKind {
             "drums" => WidgetKind::Drums,
             "choice" => WidgetKind::Choice,
             "bars" => WidgetKind::Bars,
+            "view3d" => WidgetKind::View3d,
             "field" => WidgetKind::Field,
             "row" => WidgetKind::Row,
             "column" => WidgetKind::Column,
@@ -169,6 +175,7 @@ impl WidgetKind {
             WidgetKind::Drums => "drums",
             WidgetKind::Choice => "choice",
             WidgetKind::Bars => "bars",
+            WidgetKind::View3d => "view3d",
             WidgetKind::Field => "field",
             WidgetKind::Row => "row",
             WidgetKind::Column => "column",
@@ -197,7 +204,12 @@ impl WidgetKind {
     /// How many nodes it is bound to.
     pub fn nodes(self) -> usize {
         match self {
-            WidgetKind::Text | WidgetKind::Section | WidgetKind::Roll | WidgetKind::Rec | WidgetKind::Drums => 0,
+            WidgetKind::Text
+            | WidgetKind::Section
+            | WidgetKind::Roll
+            | WidgetKind::Rec
+            | WidgetKind::Drums
+            | WidgetKind::View3d => 0,
             k if k.holds() => 0,
             WidgetKind::Pad | WidgetKind::Keys | WidgetKind::Step | WidgetKind::Range => 2,
             _ => 1,
@@ -216,6 +228,7 @@ impl WidgetKind {
             | WidgetKind::Card => (12, 4),
             WidgetKind::Choice | WidgetKind::Field => (3, 1),
             WidgetKind::Bars => (4, 2),
+            WidgetKind::View3d => (12, 8),
             WidgetKind::Slider => (4, 1),
             WidgetKind::Toggle | WidgetKind::Button | WidgetKind::Play | WidgetKind::Rec => (2, 1),
             WidgetKind::Meter => (3, 1),
@@ -239,7 +252,7 @@ impl WidgetKind {
         }
     }
 
-    pub const ALL: [WidgetKind; 33] = [
+    pub const ALL: [WidgetKind; 34] = [
         WidgetKind::Slider,
         WidgetKind::Toggle,
         WidgetKind::Button,
@@ -265,6 +278,7 @@ impl WidgetKind {
         WidgetKind::Drums,
         WidgetKind::Choice,
         WidgetKind::Bars,
+        WidgetKind::View3d,
         WidgetKind::Field,
         WidgetKind::Row,
         WidgetKind::Column,
@@ -317,6 +331,12 @@ pub struct Widget {
     /// `say "LINE"`: the line it says when it is pressed (`{app}` is its app's name), as typed at the prompt.
     #[serde(default)]
     pub say: Option<String>,
+    /// What it draws one of for each item (`view3d b in bodies: ...`): the item's name in its words, the list.
+    #[serde(default)]
+    pub over: Option<(String, String)>,
+    /// For each item, where its values are (`x {b}_x`): what, and the node's name with the item in it.
+    #[serde(default)]
+    pub fields: Vec<(String, String)>,
     /// `grid N`: its columns.
     #[serde(default)]
     pub columns: Option<i32>,
@@ -328,6 +348,15 @@ pub struct Widget {
 impl Widget {
     /// The line that says it (as it would be written in the file).
     pub fn statement(&self) -> String {
+        if let Some((var, list)) = &self.over {
+            let f: Vec<String> = self.fields.iter().map(|(k, p)| format!("{k} {p}")).collect();
+            let mut s = format!("widget {}: view3d {var} in {list}: {}", self.name, f.join(" "));
+            s.push_str(&format!(" at {} {} size {} {}", self.at.0, self.at.1, self.size.0, self.size.1));
+            if let Some(t) = &self.tip {
+                s.push_str(&format!(" tip \"{t}\""));
+            }
+            return s;
+        }
         let mut s = format!("widget {}: {}", self.name, self.kind.word());
         for n in &self.nodes {
             s.push(' ');
@@ -406,6 +435,44 @@ pub fn parse_widget(rest: &str, line: usize) -> Result<Widget, String> {
             (format!("{} {}", &body[..k], after.get(end + 1..).unwrap_or("")), after[..end].to_string())
         }
         None => (body.to_string(), String::new()),
+    };
+    // `view3d b in LIST: x {b}_x y {b}_y z {b}_z ...`: what it draws for each item, then the widget's own words
+    let mut over = None;
+    let mut fields = vec![];
+    let body = match body.trim_start().strip_prefix("view3d ").and_then(|r| r.split_once(':')) {
+        Some((head, after)) => {
+            let h: Vec<&str> = head.split_whitespace().collect();
+            let ["in", ..] = h.get(1..).unwrap_or_default() else {
+                return Err(
+                    "view3d ITEM in LIST: x {ITEM}_x y {ITEM}_y z {ITEM}_z [radius ..] [hue ..] [selected NODE]".into(),
+                );
+            };
+            over = Some((h[0].to_string(), h.get(2).ok_or("view3d ITEM in LIST:")?.to_string()));
+            let mut rest = vec![];
+            let w: Vec<&str> = after.split_whitespace().collect();
+            let mut k = 0;
+            while k < w.len() {
+                match (w[k], w.get(k + 1)) {
+                    ("x" | "y" | "z" | "radius" | "hue", Some(pat)) => {
+                        fields.push((w[k].to_string(), pat.to_string()));
+                        k += 2;
+                    }
+                    ("selected", Some(n)) => {
+                        fields.push(("selected".into(), n.to_string()));
+                        k += 2;
+                    }
+                    (other, _) => {
+                        rest.push(other);
+                        k += 1;
+                    }
+                }
+            }
+            if !["x", "y", "z"].iter().all(|f| fields.iter().any(|(k, _)| k == f)) {
+                return Err("view3d: each item's x, y and z ({b}_x {b}_y {b}_z)".into());
+            }
+            format!("view3d {}", rest.join(" "))
+        }
+        None => body,
     };
     let words: Vec<&str> = body.split_whitespace().collect();
     let Some(kind) = words.first().and_then(|w| WidgetKind::of(w)) else {
@@ -498,6 +565,8 @@ pub fn parse_widget(rest: &str, line: usize) -> Result<Widget, String> {
         when,
         key,
         say,
+        over,
+        fields,
         columns,
         children: vec![],
     })
@@ -593,6 +662,9 @@ fn natural_rows(w: &Widget) -> i32 {
         _ => w.size.1,
     }
 }
+
+/// An app's lists: each its items and the line it is written on.
+pub type Lists = IndexMap<String, (Vec<String>, usize)>;
 
 /// Every widget's name, those held included.
 pub fn all_widgets(ws: &[Widget]) -> Vec<&Widget> {

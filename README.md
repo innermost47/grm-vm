@@ -91,6 +91,11 @@ others are. The kinds everyone uses live in the widgets' library, `widgets/` (GR
 `use widgets/mixer.grm`.
 
 The gallery (`apps/gallery.grm`) shows every piece of the widgets' library; what the machine does not draw yet is in `docs/primitives.md`.
+A world in three dimensions is a `view3d` over a list, its places read from nodes and written back when an object
+is moved: `widget sky: view3d b in bodies: x {b}_x y {b}_y z {b}_z radius {b}_r hue {b}_hue selected chosen`
+(turn, move, zoom to the pointer, `F` to fit, the views along the axes, a click to choose, the arrows to move it).
+
+![The 3D view, in the gallery](docs/view3d.png)
 
 The studio itself is such a file (`apps/studio.grm`). Lists make what grows: `list synths = t1 t2`, `repeat t in synths: call synth(name={t})`,
 `relate mix: out = sum(t in synths: {t}_out)`, and a button that grows it:

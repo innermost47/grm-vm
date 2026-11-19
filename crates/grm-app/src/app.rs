@@ -239,6 +239,8 @@ pub struct App {
     pub workshop_state: HashMap<String, crate::workshop::State>,
     /// Workshops just made, not yet in a picture (see `follow_world`).
     pub workshops_coming: Vec<String>,
+    /// Whether Escape was pressed in this frame (what is chosen is let go).
+    pub escaped: bool,
     /// What was in front before, to go back to (see `front`), and how each was being looked at.
     pub behind: Vec<crate::front::Front>,
     pub views_kept: HashMap<String, crate::front::Kept>,
@@ -605,6 +607,7 @@ impl App {
             zone_views: HashMap::new(),
             workshop_state: HashMap::new(),
             workshops_coming: vec![],
+            escaped: false,
             behind: vec![],
             views_kept: HashMap::new(),
             workshop_pulls: HashMap::new(),
@@ -1870,6 +1873,8 @@ impl App {
         if help {
             self.help_open = !self.help_open;
         }
+        // Escape lets go of what is chosen, wherever it is (a 3D view's object too): said to this frame
+        self.escaped = esc;
         // back and forward, as in a browser
         let (back, forward) = ctx.input_mut(|i| {
             (
@@ -2580,27 +2585,18 @@ impl App {
             }
             for a in self.apps.clone() {
                 let on = front == Front::App(a.name.clone());
-                let sign = a.icon.clone().filter(|i| crate::icons::exists(i)).unwrap_or("app-window".into());
-                let colour = if !a.errors.is_empty() {
-                    ink.amber
-                } else if on {
-                    ui.visuals().selection.stroke.color
+                // one logic for every tab (its words read on the accent when it is in front); an app with errors
+                // says so by its sign, never by a colour that would not read on the accent
+                let sign = if a.errors.is_empty() {
+                    a.icon.clone().filter(|i| crate::icons::exists(i)).unwrap_or("app-window".into())
                 } else {
-                    ui.visuals().text_color()
+                    "triangle-alert".into()
                 };
-                let r = ui
-                    .add(
-                        egui::Button::image_and_text(
-                            crate::icons::image(&sign, 15.0, colour),
-                            RichText::new(&a.title).color(colour),
-                        )
-                        .selected(on),
-                    )
-                    .on_hover_text(if a.errors.is_empty() {
-                        a.path.display().to_string()
-                    } else {
-                        format!("{}\n{} {}", a.path.display(), a.errors.len(), t(lang, "errors_in_app"))
-                    });
+                let r = crate::icons::toggle(ui, &sign, a.title.as_str(), on).on_hover_text(if a.errors.is_empty() {
+                    a.path.display().to_string()
+                } else {
+                    format!("{}\n{} {}", a.path.display(), a.errors.len(), t(lang, "errors_in_app"))
+                });
                 if r.clicked() {
                     self.go(Front::App(a.name.clone()));
                 }
@@ -3465,10 +3461,10 @@ impl App {
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 let yes = egui::Button::image_and_text(
-                    crate::icons::image("trash-2", 15.0, ink.on_accent()),
-                    RichText::new(t(lang, if c.trash { "trash_yes" } else { "remove_yes" })).color(ink.on_accent()),
+                    crate::icons::image("trash-2", 15.0, ink.on_chosen()),
+                    RichText::new(t(lang, if c.trash { "trash_yes" } else { "remove_yes" })).color(ink.on_chosen()),
                 )
-                .fill(if c.trash { ink.accent } else { ink.amber });
+                .fill(if c.trash { ink.chosen } else { crate::style::under_words(ink.amber) });
                 if ui.add(yes).clicked() || ui.input(|i| i.key_pressed(Key::Enter)) {
                     answer = Some(true);
                 }

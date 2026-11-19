@@ -45,6 +45,7 @@ mod tour;
 mod tree;
 mod universe;
 mod view;
+mod view3d;
 mod widgets;
 mod worker;
 mod workshop;

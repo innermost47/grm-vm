@@ -306,6 +306,8 @@ pub struct Ink {
     pub panel: Color32,
     pub raised: Color32,
     pub accent: Color32,
+    /// What is chosen, filled: the accent made a ground for words (`under_words`).
+    pub chosen: Color32,
     pub amber: Color32,
     sources: [Color32; 8],
 }
@@ -324,6 +326,7 @@ impl Ink {
             panel: c(p.panel),
             raised: c(p.raised),
             accent: c(p.accent),
+            chosen: under_words(c(p.accent)),
             amber: c(p.warn),
             sources,
         }
@@ -339,15 +342,59 @@ impl Ink {
         self.sources[k % 8]
     }
 
-    /// The text that stands on the accent.
-    pub fn on_accent(&self) -> Color32 {
-        let a = self.accent;
-        let l = 0.299 * a.r() as f32 + 0.587 * a.g() as f32 + 0.114 * a.b() as f32;
-        if l > 140.0 {
-            Color32::from_rgb(0x14, 0x14, 0x16)
-        } else {
-            Color32::WHITE
+    /// The words that stand on what is filled (a chosen tab, a pressed button): always the dark ink, on a fill made
+    /// light enough for it (`under_words`).
+    pub fn on_chosen(&self) -> Color32 {
+        ON_FILL
+    }
+}
+
+/// How much two colours stand apart for the eye (WCAG: 1 .. 21; 4.5 reads as text).
+pub fn contrast(a: Color32, b: Color32) -> f32 {
+    let lum = |c: Color32| {
+        let f = |x: u8| {
+            let v = x as f32 / 255.0;
+            if v <= 0.04045 {
+                v / 12.92
+            } else {
+                ((v + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * f(c.r()) + 0.7152 * f(c.g()) + 0.0722 * f(c.b())
+    };
+    let (x, y) = (lum(a), lum(b));
+    (x.max(y) + 0.05) / (x.min(y) + 0.05)
+}
+
+/// The ink of the words on anything filled: dark, always (never white on a colour).
+pub const ON_FILL: Color32 = Color32::from_rgb(0x14, 0x14, 0x16);
+
+/// How far apart the words and what they stand on must be, at least (WCAG's 7: read without effort).
+pub const WORDS_APART: f32 = 7.0;
+
+/// A colour made a fill that words can stand on: the same colour, lightened toward white until the dark ink reads
+/// on it without effort. Never two colours close to each other, whatever the style or a look gives.
+pub fn under_words(c: Color32) -> Color32 {
+    let mut k = 0.0;
+    loop {
+        let f = mixed(c, Color32::WHITE, k);
+        if contrast(ON_FILL, f) >= WORDS_APART || k >= 1.0 {
+            return f;
         }
+        k += 0.05;
+    }
+}
+
+/// What is pressed: the raised ground tinted by the accent, as much as the text's own colour still reads on it
+/// without effort.
+pub fn pressed(ink: &Ink) -> Color32 {
+    let mut k = 0.55;
+    loop {
+        let f = mixed(ink.raised, ink.accent, k);
+        if contrast(ink.text, f) >= WORDS_APART || k <= 0.0 {
+            return f;
+        }
+        k -= 0.05;
     }
 }
 
@@ -429,8 +476,8 @@ fn visuals(p: &Palette, ink: &Ink) -> egui::Visuals {
     v.hyperlink_color = ink.accent;
     v.warn_fg_color = ink.amber;
     v.error_fg_color = ink.amber;
-    v.selection.bg_fill = ink.accent;
-    v.selection.stroke = Stroke::new(1.0_f32, ink.on_accent());
+    v.selection.bg_fill = ink.chosen;
+    v.selection.stroke = Stroke::new(1.0_f32, ink.on_chosen());
     // what can be clicked shows a hand (a text cursor only where text is written)
     v.interact_cursor = Some(egui::CursorIcon::PointingHand);
     v.window_corner_radius = CornerRadius::same(4);
@@ -457,8 +504,8 @@ fn visuals(p: &Palette, ink: &Ink) -> egui::Visuals {
     w.hovered.fg_stroke = Stroke::new(1.5_f32, ink.text);
     w.hovered.corner_radius = r;
     // pressed: the accent, softened (strong text keeps the text's own colour)
-    w.active.bg_fill = mixed(ink.raised, ink.accent, 0.55);
-    w.active.weak_bg_fill = mixed(ink.raised, ink.accent, 0.55);
+    w.active.bg_fill = pressed(&ink);
+    w.active.weak_bg_fill = pressed(&ink);
     w.active.bg_stroke = Stroke::new(1.0_f32, ink.accent);
     w.active.fg_stroke = Stroke::new(1.5_f32, if p.dark { lighter(ink.text, 0.3) } else { darker(ink.text, 0.3) });
     w.active.corner_radius = r;
@@ -549,8 +596,8 @@ pub fn terminal(ui: &mut egui::Ui, lines: &[String]) {
 /// A selected tab or button: the accent behind, the text that stands on it.
 pub fn chosen(ui: &mut egui::Ui, on: bool, text: &str) -> egui::Response {
     let ink = Ink::of(ui.ctx());
-    let rich = egui::RichText::new(text).color(if on { ink.on_accent() } else { ink.text });
-    let b = egui::Button::new(rich).fill(if on { ink.accent } else { ink.raised });
+    let rich = egui::RichText::new(text).color(if on { ink.on_chosen() } else { ink.text });
+    let b = egui::Button::new(rich).fill(if on { ink.chosen } else { ink.raised });
     ui.add(b)
 }
 
@@ -567,6 +614,53 @@ pub const BANNER: &str = concat!(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Played again: « attention aux boutons écrits en orange sur fond jaune », then « le blanc sur les boutons
+    /// jaunes ça dégage » (never two colours so close): the words on what is chosen are dark, on a fill light
+    /// enough, in every variant of the style and on any colour a look gives.
+    #[test]
+    fn the_words_on_what_is_filled_read_in_every_variant_and_on_any_colour() {
+        let (styles, _) = read(FACTORY);
+        for st in &styles {
+            let ink = Ink::from(&st.palette);
+            let c = contrast(ink.on_chosen(), ink.chosen);
+            assert!(c >= WORDS_APART, "{}: {c:.2}", st.palette.name);
+            let c = contrast(ink.text, pressed(&ink));
+            assert!(c >= WORDS_APART, "{} pressed: {c:.2}", st.palette.name);
+        }
+        for colour in [
+            Color32::from_rgb(0xB8, 0x6E, 0x00),
+            Color32::from_rgb(0x00, 0x00, 0xFF),
+            Color32::from_rgb(0x80, 0x00, 0x00),
+            Color32::from_rgb(0xFF, 0xD0, 0x40),
+            Color32::BLACK,
+            Color32::WHITE,
+        ] {
+            assert!(contrast(ON_FILL, under_words(colour)) >= WORDS_APART, "{colour:?}");
+        }
+        // a light colour is kept as it is
+        assert_eq!(under_words(Color32::from_rgb(0xFF, 0xD0, 0x40)), Color32::from_rgb(0xFF, 0xD0, 0x40));
+    }
+
+    /// Nothing filled with the accent itself: what is chosen is filled with `chosen`, its words in `on_chosen`.
+    #[test]
+    fn nothing_is_filled_with_a_colour_words_cannot_stand_on() {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/src");
+        for e in std::fs::read_dir(dir).unwrap() {
+            let p = e.unwrap().path();
+            let s = std::fs::read_to_string(&p).unwrap();
+            // written in two halves, so that this test does not find itself
+            for bad in [
+                concat!(".fill(ink.", "accent)"),
+                concat!("bg_fill = ink.", "accent"),
+                concat!("on_", "accent"),
+                concat!("Color32::", "WHITE }"),
+                concat!("{ ink.", "surface } else"),
+            ] {
+                assert!(!s.contains(bad), "{}: {bad}", p.display());
+            }
+        }
+    }
 
     #[test]
     fn the_factory_style_reads_whole_and_its_variants_change_only_what_they_say() {

@@ -923,9 +923,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
                                     let (dot, _) = ui.allocate_exact_size(vec2(10.0, 14.0), Sense::hover());
                                     ui.painter().circle_filled(dot.center(), 4.0, colour);
                                     let text =
-                                        egui::RichText::new(s).small().color(if on { ink.on_accent() } else { colour });
+                                        egui::RichText::new(s).small().color(if on { ink.on_chosen() } else { colour });
                                     let b = egui::Button::new(text)
-                                        .fill(if on { colour } else { egui::Color32::TRANSPARENT })
+                                        .fill(if on {
+                                            crate::style::under_words(colour)
+                                        } else {
+                                            egui::Color32::TRANSPARENT
+                                        })
                                         .frame(on);
                                     let r = ui.add(b);
                                     ui.label(egui::RichText::new(format!("{k}")).small().color(ink.muted));

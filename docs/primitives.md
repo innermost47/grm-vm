@@ -5,7 +5,7 @@ gallery app (`apps/gallery.grm`). What follows cannot be built that way. Each is
 engine as a browser draws a button: minimal, written once, called from GRML, taking its look from the style
 (`style/style.grm`), saying its words to whoever cannot see it (screen readers, the window's tests).
 
-Each is written here as it would be called. Nothing below exists yet.
+Each is written here as it would be called. Nothing below exists yet, but the 3D view (§ 9, lot P2a).
 
 ## 1. Lists that come from the world
 
@@ -90,11 +90,16 @@ widget epochs: timeline uni_t from 0 to 4.4e17 marks epochs
 An axis of time (zoomed by the wheel, moved by a drag), its marks (a list: their names and their times), the node
 it sets when it is clicked (where one is).
 
-## 9. `view3d`: a world in three dimensions, to look at and handle
+## 9. `view3d`: a world in three dimensions, to look at and handle (done, lot P2a)
 
 ```
-widget sky: view3d objects bodies x {b}_x y {b}_y z {b}_z size {b}_r colour {b}_colour selected chosen_body
+widget sky: view3d b in bodies: x {b}_x y {b}_y z {b}_z radius {b}_r hue {b}_hue selected chosen_body
 ```
+
+Shown in the gallery, page `3d`. Done: orbit, pan, zoom to the pointer, double click, `F`, the views along the
+axes, flat or perspective; the grid, the axes, the spheres, the names on hover; a click chooses, Escape lets go, the
+arrows and Page up / down move the one chosen. Coming with the universe (P2b), which needs them: lines between
+objects (a list of pairs), several chosen (shift, a box), a card on hover as the network shows.
 
 What a 3D view of a good piece of software does:
 

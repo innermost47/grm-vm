@@ -90,6 +90,8 @@ pub struct State {
     pub meters: HashMap<String, f64>,
     /// What is being written in each field (by app and widget), until Enter gives it to its node.
     pub fields: HashMap<String, String>,
+    /// How each 3D view looks at its world (by app and widget).
+    pub cameras: HashMap<String, crate::view3d::Camera>,
 }
 
 /// What a widget that holds others draws itself (what it holds is drawn as any widget is).
@@ -247,13 +249,13 @@ fn frames(app: &mut App, ui: &mut egui::Ui, painter: &egui::Painter, frames: Vec
                     let on = k == chosen;
                     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, title));
                     if on || resp.hovered() {
-                        let fill = if on { ink.accent } else { ink.faint.gamma_multiply(0.5) };
+                        let fill = if on { ink.chosen } else { ink.faint.gamma_multiply(0.5) };
                         painter.rect_filled(r, crate::style::corner(), fill);
                     }
                     painter.galley(
                         r.center() - galley.size() / 2.0,
                         galley,
-                        if on { ink.on_accent() } else { ink.text },
+                        if on { ink.on_chosen() } else { ink.text },
                     );
                     if resp.clicked() {
                         app.surface.tabs.insert(key.clone(), k);
@@ -452,19 +454,15 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
         let lk = widget_looks.get(&w.name).copied().unwrap_or(app_look);
         let mut ink = outer_ink;
         ink.accent = lk.accent;
+        ink.chosen = crate::style::under_words(lk.accent);
         ink.text = lk.text;
         let saved_style = ui.style().clone();
         {
             let st = ui.style_mut();
             let r = eframe::egui::CornerRadius::same(lk.round.round() as u8);
-            st.visuals.selection.bg_fill = lk.accent;
-            let l = 0.299 * lk.accent.r() as f32 + 0.587 * lk.accent.g() as f32 + 0.114 * lk.accent.b() as f32;
-            let on = if l > 140.0 {
-                eframe::egui::Color32::from_rgb(0x14, 0x14, 0x16)
-            } else {
-                eframe::egui::Color32::WHITE
-            };
-            st.visuals.selection.stroke = Stroke::new(1.0_f32, on);
+            // what is chosen: the look's accent made a ground for the dark words (never two colours close)
+            st.visuals.selection.bg_fill = crate::style::under_words(lk.accent);
+            st.visuals.selection.stroke = Stroke::new(1.0_f32, crate::style::ON_FILL);
             st.visuals.override_text_color = Some(lk.text);
             for w in [
                 &mut st.visuals.widgets.inactive,
@@ -474,7 +472,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
             ] {
                 w.corner_radius = r;
             }
-            st.visuals.widgets.active.bg_fill = lk.accent;
+            st.visuals.widgets.active.bg_fill = crate::style::under_words(lk.accent);
             st.visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, lk.accent);
             for f in st.text_styles.values_mut() {
                 f.size *= lk.size;
@@ -602,6 +600,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                         }
                     });
                 }
+            }
+            WidgetKind::View3d => {
+                let lists = view.lists.clone();
+                crate::view3d::show(app, ui, rect, w, name, &lists);
             }
             WidgetKind::Bars => {
                 // each bar as tall as its node among the others; the one the first node says, lit
@@ -1309,7 +1311,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                     let here = (at.value.round() as i64) == k - 1;
                     let plate =
                         Rect::from_min_size(pos2(rect.left() + 3.0, rect.top() + 2.0), vec2(rect.width() - 6.0, 20.0));
-                    painter.rect_filled(plate, crate::style::corner(), if here { ink.accent } else { ink.surface });
+                    painter.rect_filled(plate, crate::style::corner(), if here { ink.chosen } else { ink.surface });
                     painter.rect_stroke(
                         plate,
                         3.0,
@@ -1321,7 +1323,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                         egui::Align2::CENTER_CENTER,
                         note_name(n.value),
                         crate::style::font(crate::style::Size::Small),
-                        if here { ink.surface } else { ink.text },
+                        if here { crate::style::ON_FILL } else { ink.text },
                     );
                     let mut v = n.value;
                     let inner = Rect::from_min_max(
