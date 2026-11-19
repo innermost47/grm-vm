@@ -90,6 +90,8 @@ end
 others are. The kinds everyone uses live in the widgets' library, `widgets/` (GRML, beside `apps/`), taken with
 `use widgets/mixer.grm`.
 
+The gallery (`apps/gallery.grm`) shows every piece of the widgets' library; what the machine does not draw yet is in `docs/primitives.md`.
+
 The studio itself is such a file (`apps/studio.grm`). Lists make what grows: `list synths = t1 t2`, `repeat t in synths: call synth(name={t})`,
 `relate mix: out = sum(t in synths: {t}_out)`, and a button that grows it:
 `widget add: button "+ synth" say "list {app} synths add next"`.

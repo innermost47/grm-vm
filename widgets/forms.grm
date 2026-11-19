@@ -1,0 +1,17 @@
+# Pieces of forms: a field with its words, a choice with its words, the button that sends what was written.
+#   use widgets/forms.grm
+#   widget g: form_number(node=gravity, label=gravity, example=9.81)
+
+kind form_number(node, label, example): row size 6 1
+  widget words: text "{label}" size 2 1
+  widget field: field {node} size 4 1 "{example}" tip "a number (9,81 or 9.81)"
+end
+
+kind form_choice(node, label, options): row size 6 1
+  widget words: text "{label}" size 2 1
+  widget choice: choice {node} size 4 1 "{options}"
+end
+
+kind form_send(words, line): row size 3 1
+  widget send: button "{words}" icon send size 3 1 say "{line}"
+end

@@ -1,0 +1,19 @@
+# Pieces that show values: a value with its gauge, a value framed as a card, a row of gauges.
+#   use widgets/values.grm
+#   widget speed: value_card(node=speed, label=speed, lo=0, hi=100)
+
+kind value_gauge(node, label, lo, hi): column size 3 2
+  widget value: value {node} size 3 1 "{label}"
+  widget gauge: meter {node} {lo} .. {hi} size 3 1
+end
+
+kind value_card(node, label, lo, hi): card "{label}" size 3 3
+  widget value: value {node} size 3 1
+  widget gauge: meter {node} {lo} .. {hi} size 3 1
+end
+
+kind gauges3(a, b, c, la, lb, lc, lo, hi): row size 12 1
+  widget a: meter {a} {lo} .. {hi} size 4 1 "{la}"
+  widget b: meter {b} {lo} .. {hi} size 4 1 "{lb}"
+  widget c: meter {c} {lo} .. {hi} size 4 1 "{lc}"
+end

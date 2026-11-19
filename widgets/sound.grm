@@ -1,0 +1,70 @@
+# Pieces of sound: an envelope, an oscillator, a filter, an lfo, a keyboard and its settings, a step sequencer, a
+# scope, a player's controls. A piece NAME(n=x) binds the nodes x_... (an envelope: x_attack, x_decay...).
+#   use widgets/sound.grm
+#   widget env: envelope(n=amp)
+
+kind envelope(n): card "envelope" size 4 3
+  widget knobs: grid 4 size 4 2
+    widget a: knob {n}_attack 0.001 .. 4 size 1 2 "attack"
+    widget d: knob {n}_decay 0.001 .. 4 size 1 2 "decay"
+    widget s: knob {n}_sustain 0 .. 1 size 1 2 "sustain"
+    widget r: knob {n}_release 0.001 .. 4 size 1 2 "release"
+  end
+end
+
+kind oscillator(n): card "oscillator" size 4 3
+  widget knobs: grid 4 size 4 2
+    widget shape: knob {n}_shape 0 .. 1 size 1 2 "shape"
+    widget level: knob {n}_level 0 .. 1 size 1 2 "level"
+    widget ratio: knob {n}_ratio 0.25 .. 8 size 1 2 "ratio"
+    widget fine: knob {n}_fine -0.5 .. 0.5 size 1 2 "fine"
+  end
+end
+
+kind filter(n): card "filter" size 3 3
+  widget knobs: grid 3 size 3 2
+    widget cutoff: knob {n}_cutoff 0.005 .. 0.32 size 1 2 "cutoff"
+    widget res: knob {n}_resonance 0 .. 3.5 size 1 2 "resonance"
+    widget env: knob {n}_env 0 .. 0.3 size 1 2 "env"
+  end
+end
+
+kind lfo(n): card "lfo" size 3 3
+  widget knobs: grid 3 size 3 2
+    widget rate: knob {n}_rate 0.05 .. 12 size 1 2 "speed"
+    widget depth: knob {n}_depth 0 .. 1 size 1 2 "depth"
+    widget shape: knob {n}_shape 0 .. 1 size 1 2 "shape"
+  end
+end
+
+kind keyboard(n): card "keys" size 12 4
+  widget settings: grid 4 size 4 2
+    widget octave: knob {n}_octave -2 .. 2 size 1 2 "octave"
+    widget glide: knob {n}_glide 0.001 .. 2 size 1 2 "glide"
+  end
+  widget keys: keys {n}_pitch {n}_hold size 12 2
+end
+
+kind sequencer8(n): card "sequencer" size 12 5
+  widget steps: grid 8 size 12 3
+    widget s1: step {n}_s1 {n}_at 55 .. 880 size 1 3 "1"
+    widget s2: step {n}_s2 {n}_at 55 .. 880 size 1 3 "2"
+    widget s3: step {n}_s3 {n}_at 55 .. 880 size 1 3 "3"
+    widget s4: step {n}_s4 {n}_at 55 .. 880 size 1 3 "4"
+    widget s5: step {n}_s5 {n}_at 55 .. 880 size 1 3 "5"
+    widget s6: step {n}_s6 {n}_at 55 .. 880 size 1 3 "6"
+    widget s7: step {n}_s7 {n}_at 55 .. 880 size 1 3 "7"
+    widget s8: step {n}_s8 {n}_at 55 .. 880 size 1 3 "8"
+  end
+  widget on: switch {n}_on size 3 1 "sequencer" icon layout-grid
+end
+
+kind scope_card(node, label): card "{label}" size 6 3
+  widget wave: scope {node} size 6 2
+end
+
+kind player_controls(n, out): row size 12 1
+  widget play: play {out} size 3 1 "play" key space tip "play and stop (the space bar)"
+  widget level: slider {n}_level 0 .. 1 size 6 1 tip "how loud"
+  widget loop: switch {n}_loop size 3 1 "loop" icon repeat
+end

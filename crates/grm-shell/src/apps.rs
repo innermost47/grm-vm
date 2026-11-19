@@ -1489,6 +1489,32 @@ mod tests {
         assert!(flat.iter().any(|l| l.contains("elle_lesson in 27.5 .. 28.5")), "the lessons, each where it holds");
     }
 
+    /// The widgets' library reads whole, and the gallery shows every piece of it (a piece not shown there is a
+    /// piece nobody has seen working).
+    #[test]
+    fn every_piece_of_the_library_reads_and_the_gallery_shows_it() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let apps = root.join("apps");
+        let gallery = std::fs::read_to_string(apps.join("gallery.grm")).unwrap();
+        let p = parse(&gallery, &apps);
+        assert!(p.errors.is_empty(), "{:?}", p.errors);
+        let mut files: Vec<_> = std::fs::read_dir(root.join("widgets")).unwrap().flatten().map(|e| e.path()).collect();
+        files.sort();
+        for f in files.iter().filter(|f| f.extension().is_some_and(|x| x == "grm")) {
+            let name = f.file_name().unwrap().to_string_lossy().to_string();
+            let one = parse(&format!("app T\nuse widgets/{name}\n"), &apps);
+            assert!(one.errors.is_empty(), "{name}: {:?}", one.errors);
+            for kind in one.kinds.keys() {
+                // the studio's own pieces are shown in the studio
+                let studio = ["transport", "her_band", "synth_panel", "drums_panel", "strip", "master"];
+                assert!(
+                    studio.contains(&kind.as_str()) || gallery.contains(&format!(": {kind}(")),
+                    "{name}: {kind} is not in the gallery"
+                );
+            }
+        }
+    }
+
     #[test]
     fn what_holds_widgets_says_when_it_is_not_closed_or_named_twice() {
         let p = parse("widget a: row\nwidget b: text \"x\"\nwidget b: text \"y\"\n", Path::new("."));

@@ -1,0 +1,12 @@
+# Pieces that draw through time: a node's trend in a card, a curve through nodes, bars that say what is wanted.
+#   use widgets/charts.grm
+#   widget t: trend(node=temperature, label=temperature, lo=-10, hi=40)
+
+kind trend(node, label, lo, hi): card "{label}" size 6 4
+  widget plot: plot {node} size 6 3
+end
+
+kind meter_history(node, label, lo, hi): card "{label}" size 6 5
+  widget now: meter {node} {lo} .. {hi} size 6 1
+  widget plot: plot {node} size 6 3
+end

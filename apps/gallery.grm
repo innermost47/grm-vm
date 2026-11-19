@@ -1,0 +1,104 @@
+app Gallery
+icon layout-template
+# Every piece of the widgets' library, shown and working: a page for each of its files. What a piece binds is
+# here as inputs (g_...), so that each can be turned and seen. To make an app: take the pieces, give them your nodes.
+
+use widgets/layout.grm
+use widgets/values.grm
+use widgets/controls.grm
+use widgets/sound.grm
+use widgets/forms.grm
+use widgets/charts.grm
+use widgets/transport.grm
+use widgets/mixer.grm
+
+# what the pieces bind (a few networks to see them move)
+input g_open = 1
+input g_fold = 1
+input g_speed = 42
+input g_a = 0.3
+input g_b = 0.6
+input g_c = 0.9
+input g_gain = 0.5
+input g_on = 1
+input g_mode = 1
+input g_gravity = 9.81
+input g_size = 2
+repeat k in 1 .. 4: input g_k{k} = 0.5
+input g_amp_attack = 0.01
+input g_amp_decay = 0.3
+input g_amp_sustain = 0.7
+input g_amp_release = 0.5
+input g_osc_shape = 0.5
+input g_osc_level = 0.8
+input g_osc_ratio = 1
+input g_osc_fine = 0
+input g_flt_cutoff = 0.1
+input g_flt_resonance = 1
+input g_flt_env = 0.1
+input g_lfo_rate = 2
+input g_lfo_depth = 0.3
+input g_lfo_shape = 0
+input g_kb_octave = 0
+input g_kb_glide = 0.01
+input g_kb_pitch = 220
+input g_kb_hold = 0
+repeat k in 1 .. 8: input g_seq_s{k} = 220
+input g_seq_at = 0
+input g_seq_on = 0
+input g_pl_level = 0.7
+input g_pl_loop = 0
+# a wave, to see the scope and the trend move
+use networks/lfo.grm
+call lfo(name=g_wave, step=0.01, shape=0)
+
+widget pages: tabs at 0 0
+  widget layout: column "layout"
+    widget h1: aside_head(open=g_open, title=an aside at the left)
+    widget body1: column when g_open
+      widget t1: text "what the aside holds: shown while it is open"
+    end
+    widget h2: aside_head_right(open=g_fold, title=an aside at the right)
+    widget h3: fold_head(open=g_fold, title=a section that folds)
+    widget body3: column when g_fold
+      widget t3: text "what the section holds"
+    end
+    widget h4: title(words=a title)
+  end
+  widget values: column "values"
+    widget v1: value_gauge(node=g_speed, label=speed, lo=0, hi=100)
+    widget v2: value_card(node=g_speed, label=speed, lo=0, hi=100)
+    widget v3: gauges3(a=g_a, b=g_b, c=g_c, la=a, lb=b, lc=c, lo=0, hi=1)
+  end
+  widget controls: column "controls"
+    widget c1: labeled_slider(node=g_gain, label=gain, lo=0, hi=1)
+    widget c2: on_off(node=g_on, label=on)
+    widget c3: mode(node=g_mode, options=low=0|middle=1|high=2)
+    widget c4: knobs4(a=g_k1, b=g_k2, c=g_k3, d=g_k4, la=one, lb=two, lc=three, ld=four, lo=0, hi=1)
+    widget c5: number(node=g_size, label=size, example=2.5)
+    widget c6: action(words=sound again, icon=rotate-ccw, line=sound again)
+  end
+  widget sound: column "sound"
+    widget s1: row size 12 3
+      widget env: envelope(n=g_amp)
+      widget osc: oscillator(n=g_osc)
+      widget flt: filter(n=g_flt)
+    end
+    widget s2: row size 12 3
+      widget lfo: lfo(n=g_lfo)
+      widget scope: scope_card(node=g_wave_out, label=a wave)
+    end
+    widget s3: keyboard(n=g_kb)
+    widget s4: sequencer8(n=g_seq)
+    widget s5: player_controls(n=g_pl, out=g_wave_out)
+  end
+  widget forms: column "forms"
+    widget f1: form_number(node=g_gravity, label=gravity, example=9.81)
+    widget f2: form_choice(node=g_mode, label=mode, options=low=0|middle=1|high=2)
+    widget f3: form_send(words=send, line=show g_gravity)
+  end
+  widget charts: column "charts"
+    widget k1: trend(node=g_wave_out, label=a wave, lo=-1, hi=1)
+    widget k2: meter_history(node=g_speed, label=speed, lo=0, hi=100)
+  end
+end

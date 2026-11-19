@@ -1,0 +1,33 @@
+# Pieces to set values: a slider with its words, an on/off, a choice among modes, knobs by four, a number written
+# by hand with its words, a button that says a line.
+#   use widgets/controls.grm
+#   widget gain: labeled_slider(node=gain, label=gain, lo=0, hi=1)
+
+kind labeled_slider(node, label, lo, hi): row size 6 1
+  widget words: text "{label}" size 2 1
+  widget slider: slider {node} {lo} .. {hi} size 4 1 tip "{label}"
+end
+
+kind on_off(node, label): row size 3 1
+  widget switch: switch {node} size 3 1 "{label}"
+end
+
+kind mode(node, options): row size 4 1
+  widget choice: choice {node} size 4 1 "{options}"
+end
+
+kind knobs4(a, b, c, d, la, lb, lc, ld, lo, hi): grid 4 size 4 2
+  widget a: knob {a} {lo} .. {hi} size 1 2 "{la}"
+  widget b: knob {b} {lo} .. {hi} size 1 2 "{lb}"
+  widget c: knob {c} {lo} .. {hi} size 1 2 "{lc}"
+  widget d: knob {d} {lo} .. {hi} size 1 2 "{ld}"
+end
+
+kind number(node, label, example): row size 6 1
+  widget words: text "{label}" size 2 1
+  widget field: field {node} size 4 1 "{example}" tip "{label}"
+end
+
+kind action(words, icon, line): row size 3 1
+  widget button: button "{words}" icon {icon} size 3 1 say "{line}"
+end

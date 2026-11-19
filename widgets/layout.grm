@@ -1,0 +1,25 @@
+# Pieces to lay things out: what folds (a section, an aside at the left or the right), a title.
+# A piece is written once and serves everywhere; what it frames is written beside it, shown `when` it is open:
+#   widget side: column at 0 0 size 3 12
+#     widget head: aside_head(open=side_open, title=Universe)
+#     widget body: column when side_open
+#       widget a: text "what the aside holds"
+#     end
+#   end
+# (its node: `input side_open = 1`)
+
+kind aside_head(open, title): row size 3 1
+  widget fold: switch {open} size 3 1 "{title}" icon panel-left tip "open or fold"
+end
+
+kind aside_head_right(open, title): row size 3 1
+  widget fold: switch {open} size 3 1 "{title}" icon panel-right tip "open or fold"
+end
+
+kind fold_head(open, title): row size 12 1
+  widget fold: switch {open} size 12 1 "{title}" icon chevrons-up-down tip "open or fold"
+end
+
+kind title(words): row size 12 1
+  widget words: text "{words}" size 12 1
+end
