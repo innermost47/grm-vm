@@ -9,6 +9,8 @@
 //!           --app NAME --mode code|network|app --edit --xray --launch
 //!           --screenshot OUT.png [--wait SECONDS]       (a picture of the window, then it closes: for tests)
 
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod airlock;
 mod app;
 mod code;
@@ -111,55 +113,25 @@ fn args() -> Args {
     a
 }
 
-/// The machine's sign for the task bar: a small network of five nodes, amber on night.
-fn icon() -> eframe::egui::IconData {
-    let n = 64usize;
-    let mut rgba = vec![0u8; n * n * 4];
-    let nodes =
-        [(20.0f32, 14.0f32), (44.0, 14.0), (10.0, 34.0), (32.0, 34.0), (54.0, 34.0), (20.0, 52.0), (44.0, 52.0)];
-    let links = [(0, 1), (0, 2), (0, 3), (1, 3), (1, 4), (2, 3), (3, 4), (2, 5), (3, 5), (3, 6), (4, 6), (5, 6)];
-    let seg = |px: f32, py: f32, a: (f32, f32), b: (f32, f32)| {
-        let (dx, dy) = (b.0 - a.0, b.1 - a.1);
-        let t = (((px - a.0) * dx + (py - a.1) * dy) / (dx * dx + dy * dy)).clamp(0.0, 1.0);
-        ((px - a.0 - t * dx).powi(2) + (py - a.1 - t * dy).powi(2)).sqrt()
-    };
-    for y in 0..n {
-        for x in 0..n {
-            let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
-            // a rounded square of night
-            let (cx, cy) = ((px - 32.0).abs() - 22.0, (py - 32.0).abs() - 22.0);
-            let corner = (cx.max(0.0).powi(2) + cy.max(0.0).powi(2)).sqrt() + cx.max(cy).min(0.0) - 9.0;
-            let mut c = [0u8, 0, 0, 0];
-            if corner < 0.0 {
-                c = [0x1F, 0x20, 0x24, 255];
-            }
-            let line = links.iter().map(|&(a, b)| seg(px, py, nodes[a], nodes[b])).fold(f32::INFINITY, f32::min);
-            if line < 1.3 && corner < 0.0 {
-                c = [0x9C, 0x9F, 0xA6, 255];
-            }
-            let dot = nodes
-                .iter()
-                .map(|&(nx, ny)| ((px - nx).powi(2) + (py - ny).powi(2)).sqrt())
-                .fold(f32::INFINITY, f32::min);
-            if dot < 5.0 {
-                c = [0xE8, 0xA8, 0x3D, 255];
-            }
-            rgba[(y * n + x) * 4..(y * n + x) * 4 + 4].copy_from_slice(&c);
-        }
-    }
-    eframe::egui::IconData { rgba, width: n as u32, height: n as u32 }
+/// Load the application window icon from the assets folder.
+fn load_icon() -> Option<eframe::egui::IconData> {
+    let bytes = include_bytes!("../../../assets/icon.png");
+    eframe::icon_data::from_png_bytes(bytes).ok()
 }
 
 fn main() -> eframe::Result<()> {
     let args = args();
     let (w, h) = args.size.unwrap_or((1280.0, 800.0));
-    let options = eframe::NativeOptions {
-        viewport: eframe::egui::ViewportBuilder::default()
-            .with_inner_size([w, h])
-            .with_min_inner_size([360.0, 420.0])
-            .with_title("grm-vm")
-            .with_app_id("grm-vm")
-            .with_icon(std::sync::Arc::new(icon())),
+    let mut viewport = eframe::egui::ViewportBuilder::default()
+        .with_inner_size([w, h])
+        .with_min_inner_size([360.0, 420.0])
+        .with_title("grm-vm")
+        .with_app_id("grm-vm");
+    if let Some(app_icon) = load_icon() {
+        viewport = viewport.with_icon(std::sync::Arc::new(app_icon));
+    }
+  let options = eframe::NativeOptions {
+        viewport,
         ..Default::default()
     };
     eframe::run_native(
