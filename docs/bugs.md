@@ -15,6 +15,11 @@ Each bug found on the way: what was seen, why, the test that plays it again, the
 | The airlock's door filled with the accent | a fill left out by the colour rule | `nothing_is_filled_with_a_colour_words_cannot_stand_on` | A |
 | « Sa valeur » on a node of the workshop seemed to do nothing | its field opened in the inspector only, out of sight when the panel was closed or on another tab | `its_value_is_changed_in_the_workshop_and_the_inspector_keeps_its_width_and_closes` | A.1 |
 | Clicking in the inspector widened it to more than half the screen | the value field asked for more width than its row had; the panel grew with it, frame after frame, and kept the width once clicked | same test (its width holds) | A.1 |
+| The studio stopped, she still played notes | the play button stopped the sound only; the transport (and her clock) ran on (`playing` stayed 1) | `the_studio_plays_by_the_space_bar_and_her_key_is_given_by_its_choice` | S |
+| « heard clearly » full in silence | her clarity's floors: silence gave 1 (the floor of the squares over the square of the floor of the sum) | `silence_is_not_heard_clearly` | S |
+| A knob's double click did nothing in the studio | its start was looked for in the app's own lines, not in the network that declares it | the studio test (`default_of`) | S |
+| The arpeggiator (and its latch) had nothing to play | the arpeggiator on, the keys held were dropped before reaching the voices it reads | the studio test (the keys reach the voices) | S |
+| A USB keyboard plugged once the window was open was not heard; a port held by another program said nothing | the ports were read once, at the start | not testable here (no MIDI device): seen at Anthony's | S |
 | The inspector still widened when going from Journal to Inspector | the side panel took its width from what it held (the widest line of a tab) | same test (every tab, its width holds) | A.2 |
 | The cross of the workshop's part in the inspector did nothing | the workshop drawn again set it back at once | same test (closed, it stays closed; a node asked for brings it back) | A.1 |
 | A scroll bar on the workshop on a tall screen | the screen's rows had a fixed height | seen in capture (a tall window: no bar) | A.1 |

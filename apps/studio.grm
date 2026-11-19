@@ -73,6 +73,21 @@ repeat t in her_synths: call synth(name={t}, clock_i=tr_i, clock_f=tr_f, hers=1,
 repeat t in drums: call drums(name={t}, clock_i=tr_i, clock_f=tr_f, clock_h=tr_h, her_k=elle_strike1, her_s=elle_strike2, her_h=elle_strike3, her_t=elle_strike4)
 
 # each track's strip: level, pan (0 left .. 1 right), sends, on
+# what she may turn on her synthesiser, part by part, given by the human (a `hand turn_...` each): she turns at most
+# two things at once, keeps what pleases her, puts back what does not
+repeat t in her_synths: input {t}_may_osc = 0
+repeat t in her_synths: input {t}_may_filter = 0
+repeat t in her_synths: input {t}_may_env = 0
+repeat t in her_synths: input {t}_may_lfo = 0
+repeat t in her_synths: input {t}_may_seq = 0
+repeat t in her_synths: input {t}_may_arp = 0
+repeat t in her_synths: hand turn_osc when {t}_may_osc: {t}_shape {t}_o1_level {t}_o2_level {t}_o2_ratio {t}_o3_level {t}_o3_ratio {t}_fm {t}_noise {t}_pitch_env
+repeat t in her_synths: hand turn_filter when {t}_may_filter: {t}_cutoff {t}_env_amount {t}_resonance {t}_fa_time {t}_fd_time {t}_f_sustain {t}_fr_time
+repeat t in her_synths: hand turn_env when {t}_may_env: {t}_aa_time {t}_ad_time {t}_a_sustain {t}_ar_time {t}_glide
+repeat t in her_synths: hand turn_lfo when {t}_may_lfo: {t}_lfo_rate {t}_lfo_shape {t}_lfo_cut {t}_lfo_pitch {t}_lfo_amp
+repeat t in her_synths: hand turn_seq when {t}_may_seq: {t}_seq_on {t}_s_n1 {t}_s_on1 {t}_s_n2 {t}_s_on2 {t}_s_n3 {t}_s_on3 {t}_s_n4 {t}_s_on4 {t}_s_n5 {t}_s_on5 {t}_s_n6 {t}_s_on6 {t}_s_n7 {t}_s_on7 {t}_s_n8 {t}_s_on8
+repeat t in her_synths: hand turn_arp when {t}_may_arp: {t}_arp_on {t}_arp_latch {t}_arp_mode {t}_arp_oct {t}_arp_rate
+
 repeat t in my_synths: input {t}_level = 0.6
 repeat t in her_synths: input {t}_level = 0.6
 repeat t in drums: input {t}_level = 0.9
@@ -123,6 +138,7 @@ end
 widget body: column at 0 9
   repeat t in my_synths: widget {t}sec: synth_panel(t={t}, label=synth)
   repeat t in her_synths: widget {t}sec: synth_panel(t={t}, label=her synth)
+  repeat t in her_synths: widget {t}may: her_rights(t={t})
   repeat t in drums: widget {t}sec: drums_panel(t={t}, label=drums)
   widget mixer: row size 12 7
     repeat t in my_synths: widget {t}mix: strip(ch={t}, label=synth)

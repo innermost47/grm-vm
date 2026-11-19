@@ -15,7 +15,20 @@ kind her_band: column size 12 3
   end
   widget choose: row size 12 2
     widget lessons: toggle elle_lessons_on size 2 1 "lessons" tip "she learns lesson after lesson"
+    widget wake: button elle_wake "wake her" icon hand size 2 1 tip "a tap on her shoulder: the choices she left alone become a little wanted again, and she tries them"
     widget key: choice elle_key_pick size 3 1 "key: hers=-1|key: A=0|key: Bb=1|key: B=2|key: C=3|key: C#=4|key: D=5|key: Eb=6|key: E=7|key: F=8|key: F#=9|key: G=10|key: Ab=11" tip "a key given to her, or hers"
     widget wants: bars elle_choice elle_want1 elle_want2 elle_want3 elle_want4 elle_want5 elle_want6 elle_want7 elle_want8 elle_want9 elle_want10 elle_want11 elle_want12 elle_want13 elle_want14 elle_want15 elle_want16 size 4 2 "what she wants" tip "-7 .. +7 semitones, and a rest: the one she chose lit"
   end
+end
+
+# What she may turn on her synthesiser, part by part: the human gives it (each a switch). She turns at most two things
+# at once, slowly, keeps what pleases her and puts back what does not. Its nodes: {t}_may_osc .. {t}_may_arp.
+#   widget {t}may: her_rights(t={t})
+kind her_rights(t): row size 12 1
+  widget o: switch {t}_may_osc size 2 1 "she may: sound" icon audio-waveform tip "its oscillators: shape, levels, ratios, FM, noise"
+  widget f: switch {t}_may_filter size 2 1 "filter" icon sliders-horizontal tip "its filter and the filter's envelope"
+  widget e: switch {t}_may_env size 2 1 "envelope" icon activity tip "its loudness envelope and its glide"
+  widget l: switch {t}_may_lfo size 2 1 "LFO" icon waves tip "its LFO: rate, shape, where it goes"
+  widget s: switch {t}_may_seq size 2 1 "sequencer" icon grid-3x3 tip "its sequencer: on, its notes, its steps"
+  widget a: switch {t}_may_arp size 2 1 "arpeggiator" icon list-music tip "its arpeggiator: on, latch, mode, octaves, speed"
 end

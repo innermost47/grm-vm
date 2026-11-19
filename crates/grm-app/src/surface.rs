@@ -96,6 +96,8 @@ pub struct State {
     pub cameras: HashMap<String, crate::view3d::Camera>,
     /// The next surface drawn is fitted to its room (a screen, when it is tall enough).
     pub fit: bool,
+    /// What a play button last wrote to what runs while it is heard (`play out RUN`).
+    pub runs: HashMap<String, f64>,
 }
 
 /// What a widget that holds others draws itself (what it holds is drawn as any widget is).
@@ -757,6 +759,17 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                 .selected(playing);
                 if ui.put(rect, b).clicked() || pressed_by(ui, w) {
                     app.say(if playing { format!("stop {}", w.nodes[0]) } else { format!("play {}", w.nodes[0]) });
+                }
+                // `play out RUN`: what runs only while it is heard (a transport, and her with it) follows the sound,
+                // however it was stopped (this button, the space bar, a stop line, panic)
+                if let Some(run) = w.nodes.get(1) {
+                    let want = if playing { 1.0 } else { 0.0 };
+                    let said = app.surface.runs.get(run).copied();
+                    let now = app.picture.node(run).map(|n| n.value);
+                    if said != Some(want) || now.is_some_and(|v| (v - want).abs() > 0.5 && said.is_none()) {
+                        observe(app, run, want);
+                        app.surface.runs.insert(run.clone(), want);
+                    }
                 }
             }
             WidgetKind::Rec => {

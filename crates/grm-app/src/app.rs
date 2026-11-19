@@ -247,6 +247,8 @@ pub struct App {
     pub ws_menus: Option<(String, String)>,
     /// The workshop in front (the inspector shows its nodes and relations).
     pub ws_front: Option<String>,
+    /// Her hands on what she is given to turn.
+    pub turns: crate::turns::Turns,
     /// The workshops whose part of the inspector was closed by its cross.
     pub ws_inspector_closed: std::collections::HashSet<String>,
     /// Workshops just made, not yet in a picture (see `follow_world`).
@@ -622,6 +624,7 @@ impl App {
             ws_views: HashMap::new(),
             ws_menus: None,
             ws_front: None,
+            turns: Default::default(),
             ws_inspector_closed: Default::default(),
             workshops_coming: vec![],
             escaped: false,
@@ -844,6 +847,10 @@ impl App {
 
     /// Where an app first puts a node (`input NAME = value` in its file), for a knob double-clicked.
     pub fn default_of(&self, node: &str) -> Option<f64> {
+        // what its line says it starts from, wherever the line is (a network called by the app too)
+        if let Some(n) = self.picture.node(node) {
+            return Some(n.start);
+        }
         for view in &self.apps {
             let original =
                 view.prefix.iter().find(|(_, v)| v.as_str() == node).map(|(k, _)| k.as_str()).unwrap_or(node);
@@ -1242,9 +1249,9 @@ impl App {
             self.hands_view = Some(view.clone());
         }
         let voices = self.voices_in(&view);
-        // the arpeggiator on, the keys held are its
-        let arp = self.value_in(&view, "arp_on").is_some_and(|v| v > 0.5);
-        let held = if arp { Default::default() } else { self.surface.keys_held.clone() };
+        // the keys held go to the voices, the arpeggiator on or not: on, it reads them there (and the voices keep
+        // still while it plays them; its latch holds them when they are let go)
+        let held = self.surface.keys_held.clone();
         let now = self.ear_now();
         // let go
         for (k, voice) in voices.iter().enumerate() {
@@ -3230,6 +3237,7 @@ impl App {
 
     /// What the controllers sent since the last frame: learned, or turned into observations and lines.
     fn midi_in(&mut self, ctx: &egui::Context) {
+        self.midi.watch();
         let came = self.midi.drain();
         if came.is_empty() {
             if self.midi_learn.is_some() {
@@ -3274,7 +3282,7 @@ impl App {
     }
 
     /// What she writes by ear, straight into the world (not through the prompt: no line to keep, nothing to undo).
-    fn by_ear(&self, node: &str, v: f64) {
+    pub(crate) fn by_ear(&self, node: &str, v: f64) {
         self.taped(node, v);
         self.sound_now(node, v);
         let line = format!("observe {node} = {} ± 0.000001", grm_engine::lang::g(v));
@@ -3285,6 +3293,7 @@ impl App {
         self.midi_in(ctx);
         self.replaying(ctx);
         self.hands();
+        self.turns();
         self.clock();
         self.fuses();
         self.elle();

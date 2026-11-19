@@ -9,6 +9,11 @@ network drums(name, clock_i, clock_f, clock_h, her_k, her_s, her_h, her_t)
   node {name}_pos signed
   relate {name}_where: {name}_pos = {clock_i} + 16 * {clock_h} * {name}_long
   input {name}_k_hers = 0
+  # a drum given to her: she strikes it, and she turns its sound too (its pitch, its decay), two things at most at once
+  hand turn_kick when {name}_k_hers: {name}_k_tune {name}_k_decay
+  hand turn_snare when {name}_s_hers: {name}_s_tune {name}_s_decay
+  hand turn_hat when {name}_h_hers: {name}_h_tune {name}_h_decay
+  hand turn_tom when {name}_t_hers: {name}_t_tune {name}_t_decay
   input {name}_k_pad = 0
   input {name}_k_level = 0.9
   input {name}_k_tune = 50 positive

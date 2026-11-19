@@ -719,9 +719,50 @@ fn the_studio_plays_by_the_space_bar_and_her_key_is_given_by_its_choice() {
     frames_for(&mut h, 100);
     h.key_press(egui::Key::Space);
     frames_until(&mut h, "playing", playing);
+    // played again: « quand le studio est sur stop elle joue encore des notes »: what runs while it is heard (the
+    // transport, and her with it) follows the sound
+    frames_until(&mut h, "the transport runs", |a| a.picture.node("playing").is_some_and(|n| n.value > 0.5));
     h.key_press(egui::Key::Space);
     frames_until(&mut h, "stopped", |a| !playing(a));
+    frames_until(&mut h, "the transport stops, and her with it", |a| {
+        a.picture.node("playing").is_some_and(|n| n.value < 0.5)
+    });
+
     frames_for(&mut h, 250);
+    // played again: « au double clic les knobs doivent revenir à leur valeur initiale »: what a knob starts from is
+    // found in the network that declares it (a synthesiser called by the studio)
+    assert_eq!(h.state().default_of("t1_cutoff"), Some(0.06));
+    assert_eq!(h.state().default_of("t1_resonance"), Some(1.0));
+    // played again: « réparer le latch et l'arpégiateur »: the arpeggiator on, the keys held still go to the voices
+    // (it reads them there; they were dropped)
+    say(&mut h, "observe t1_arp_on = 1");
+    frames_until(&mut h, "the arpeggiator on", |a| a.picture.node("t1_arp_on").is_some_and(|n| n.value > 0.5));
+    h.state_mut().surface.poly = Some("t1_pitch".into());
+    h.state_mut().surface.keys_held = [60, 64, 67].into_iter().collect();
+    frames_until(&mut h, "the keys held reach the voices", |a| {
+        a.picture.node("t1_hold").is_some_and(|n| n.value > 0.5)
+            && a.picture.node("t1_lead_gate").is_some_and(|n| n.value > 0.5)
+    });
+    h.state_mut().surface.keys_held.clear();
+    // her hands: what the human gives her (a part of her synthesiser), two things at most at once, only what she
+    // may turn, and only while it is heard
+    assert!(h.state().picture.node("t2_may_filter").is_some() && h.state().picture.node("elle_wake").is_some());
+    say(&mut h, "observe t2_may_filter = 1");
+    frames_until(&mut h, "the filter given", |a| crate::turns::allowed(a).iter().any(|m| m.0 == "t2_cutoff"));
+    let given = crate::turns::allowed(h.state());
+    assert!(given.iter().all(|m| m.0.starts_with("t2_")), "{given:?}");
+    frames_for(&mut h, 300);
+    assert!(h.state().turns.moving().is_empty(), "she turns while nothing is heard");
+    h.key_press(egui::Key::Space);
+    frames_until(&mut h, "she turns", |a| !a.turns.moving().is_empty());
+    for _ in 0..30 {
+        frames_for(&mut h, 100);
+        let held = h.state().turns.moving();
+        assert!(held.len() <= crate::turns::AT_ONCE, "{held:?}");
+        assert!(held.iter().all(|n| given.iter().any(|m| &m.0 == n)), "{held:?}");
+    }
+    h.key_press(egui::Key::Space);
+    frames_until(&mut h, "stopped again", |a| !playing(a));
     h.query_all_by_role(egui::accesskit::Role::ComboBox)
         .find(|n| n.value().as_deref() == Some("key: hers"))
         .expect("her key's choice")

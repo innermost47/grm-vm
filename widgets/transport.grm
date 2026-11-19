@@ -5,7 +5,7 @@
 #   widget top: transport at 0 0
 
 kind transport: row size 12 1
-  widget play: play out size 2 1 "play" key space tip "play and stop (the space bar)"
+  widget play: play out playing size 2 1 "play" key space tip "play and stop (the space bar): the transport runs only while it is heard"
   widget bar: value tr_bars size 1 1 "bar"
   widget beat: value tr_beats size 1 1 "beat"
   widget tempo: field bpm size 2 1 "120" tip "beats a minute"

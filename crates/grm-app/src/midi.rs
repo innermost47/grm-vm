@@ -156,14 +156,39 @@ pub struct Midi {
     tx: Sender<(String, Signal)>,
     rx: Receiver<(String, Signal)>,
     pub error: Option<String>,
+    /// Every port the system shows, listened to or not (a change: listened to again).
+    seen: Vec<String>,
+    looked: std::time::Instant,
 }
 
 impl Midi {
     pub fn start() -> Midi {
         let (tx, rx) = channel();
-        let mut m = Midi { ports: vec![], connections: vec![], tx, rx, error: None };
+        let mut m = Midi {
+            ports: vec![],
+            connections: vec![],
+            tx,
+            rx,
+            error: None,
+            seen: vec![],
+            looked: std::time::Instant::now(),
+        };
         m.rescan();
         m
+    }
+
+    /// Every two seconds, the ports the system shows: one plugged or unplugged since, and all are listened to again
+    /// (a keyboard plugged in USB once the window is open is heard).
+    pub fn watch(&mut self) {
+        if self.looked.elapsed() < std::time::Duration::from_secs(2) {
+            return;
+        }
+        self.looked = std::time::Instant::now();
+        let Ok(probe) = midir::MidiInput::new("grm-vm-probe") else { return };
+        let names: Vec<String> = probe.ports().iter().filter_map(|p| probe.port_name(p).ok()).collect();
+        if names != self.seen {
+            self.rescan();
+        }
     }
 
     /// Listens again to every controller there is now (one plugged since is heard).
@@ -179,6 +204,9 @@ impl Midi {
             }
         };
         let names: Vec<String> = probe.ports().iter().filter_map(|p| probe.port_name(p).ok()).collect();
+        self.seen = names.clone();
+        self.looked = std::time::Instant::now();
+        let mut busy = vec![];
         for (k, name) in names.into_iter().enumerate() {
             let Ok(input) = midir::MidiInput::new("grm-vm") else { continue };
             let ports = input.ports();
@@ -199,8 +227,13 @@ impl Midi {
                     self.connections.push(c);
                     self.ports.push(name);
                 }
-                Err(e) => self.error = Some(e.to_string()),
+                // on Windows a port is one program's at a time: another (a DAW) may hold it
+                Err(e) => busy.push(format!("{name}: {e}")),
             }
+        }
+        if !busy.is_empty() {
+            self.error =
+                Some(format!("{} — {}", busy.join(" · "), "busy: another program may hold it (close it, then wait)"));
         }
     }
 

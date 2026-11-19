@@ -550,7 +550,7 @@ impl Machine {
         Ok(())
     }
 
-    pub(crate) fn shift_of(&self, n: &str) -> f64 {
+    pub fn shift_of(&self, n: &str) -> f64 {
         self.shift.get(n).copied().unwrap_or(0.0)
     }
 

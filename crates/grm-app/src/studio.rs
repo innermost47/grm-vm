@@ -232,4 +232,20 @@ mod tests {
         let lesson = parsed.widgets.iter().find(|w| w.name == "lesson").expect("the lesson's choice");
         assert_eq!(lesson.text.split('|').count(), files.len() + 1);
     }
+
+    /// Played again: « c'est écrit heard clearly avec la barre à fond alors qu'elle n'est pas supposée s'entendre »:
+    /// her lines of clarity (`mind/elle.grm`: the sum of squares over the square of the sum, each with its floor)
+    /// say that silence is not heard clearly: the floor of the squares far below the square of the sum's.
+    #[test]
+    fn silence_is_not_heard_clearly() {
+        let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../mind/elle.grm")).unwrap();
+        let floor = |key: &str| -> f64 {
+            let line = text.lines().find(|l| l.contains(key)).expect(key);
+            line.rsplit('+').next().unwrap().trim().parse().expect(line)
+        };
+        let (tot, sq) = (floor("relate {name}_all:"), floor("relate {name}_squares:"));
+        // silence: every band empty, only the floors
+        let clar = sq / (tot * tot);
+        assert!(clar < 0.01, "silence heard clearly: {clar}");
+    }
 }

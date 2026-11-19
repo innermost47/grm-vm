@@ -1722,7 +1722,7 @@ mod tests {
             assert!(one.errors.is_empty(), "{name}: {:?}", one.errors);
             for kind in one.kinds.keys() {
                 // the studio's own pieces are shown in the studio
-                let studio = ["transport", "her_band", "synth_panel", "drums_panel", "strip", "master"];
+                let studio = ["transport", "her_band", "her_rights", "synth_panel", "drums_panel", "strip", "master"];
                 assert!(
                     studio.contains(&kind.as_str()) || gallery.contains(&format!(": {kind}(")),
                     "{name}: {kind} is not in the gallery"

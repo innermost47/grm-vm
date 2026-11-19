@@ -89,11 +89,12 @@ network elle(name, ear, clock_i, clock_f, ctx_song, ctx_human, lessons)
   repeat b in 1 .. 36: set {name}_lo{b} = {name}_lo{b} + {2*sin(pi*110*2^((b-1)/12)/48000)} * {name}_bp{b} when {name}_ears in 0.5 .. 1.5
   repeat b in 1 .. 36: set {name}_bp{b} = {1 - (2*sin(pi*110*2^((b-1)/12)/48000))^2 - 0.025*2*sin(pi*110*2^((b-1)/12)/48000)} * {name}_bp{b} + {2*sin(pi*110*2^((b-1)/12)/48000)} * {ear} - {2*sin(pi*110*2^((b-1)/12)/48000)} * {name}_lo{b} when {name}_ears in 0.5 .. 1.5
   repeat b in 1 .. 36: set {name}_e{b} = {name}_e{b} + 0.0007 * {name}_bp{b} * {name}_bp{b} - 0.0007 * {name}_e{b} when {name}_ears in 0.5 .. 1.5
-  # how clear: the energy in few places (the sum of squares over the square of the sum)
+  # how clear: the energy in few places (the sum of squares over the square of the sum); silence is not heard
+  # clearly (its floor far below the floor of the sum's square)
   node {name}_tot
   relate {name}_all: {name}_tot = sum(b in 1 .. 36: {name}_e{b}) + 0.000000001
   node {name}_sq
-  relate {name}_squares: {name}_sq = sum(b in 1 .. 36: {name}_e{b} * {name}_e{b}) + 0.000000000000000001
+  relate {name}_squares: {name}_sq = sum(b in 1 .. 36: {name}_e{b} * {name}_e{b}) + 0.000000000000000000000000001
   node {name}_clar
   relate {name}_clarity: {name}_clar * {name}_tot^2 = {name}_sq
   var {name}_ca = 0.1
@@ -686,12 +687,28 @@ network elle(name, ear, clock_i, clock_f, ctx_song, ctx_human, lessons)
   # concentrated (half of it at no concentration, one and a half at full)
   var {name}_last = 16
   set {name}_last = {name}_choice when {name}_ev in 0.5 .. 1.5
+  # ---- suppleness: each choice remembers how long it has not been played ({name}_age{k}, in notes); one left
+  # alone for some sixty notes is supple ({name}_fresh{k}): when it comes back, it learns twice as fast. Her nodes
+  # are not frozen once learned, nor do they jump about: what is not lived again loosens, nothing more.
+  repeat k in 1 .. 16: memory {name}_age{k} = 0
+  repeat k in 1 .. 16: var {name}_fresh{k} = 0
+  repeat k in 1 .. 16: set {name}_fresh{k} = 0
+  repeat k in 1 .. 16: set {name}_fresh{k} = 1 when {name}_age{k} in 64 .. 99999
   repeat j in 1 .. 6: var {name}_sd{j} = 0
   repeat j in 1 .. 6: set {name}_sd{j} = {name}_s{j} when {name}_ev in 0.5 .. 1.5
-  repeat k in 1 .. 16: repeat j in 1 .. 6: set {name}_w{k}_{j} = {name}_w{k}_{j} + 0.05 * {name}_delta * {name}_sd{j} + 0.1 * {name}_delta * {name}_sd{j} * {name}_conc when {name}_ev in 0.5 .. 1.5 and {name}_last in {k - 0.5} .. {k + 0.5}
-  repeat k in 1 .. 16: set {name}_taste{k} = {name}_taste{k} + 0.025 * {name}_delta + 0.05 * {name}_delta * {name}_conc when {name}_ev in 0.5 .. 1.5 and {name}_last in {k - 0.5} .. {k + 0.5}
+  repeat k in 1 .. 16: repeat j in 1 .. 6: set {name}_w{k}_{j} = {name}_w{k}_{j} + 0.05 * {name}_delta * {name}_sd{j} + 0.1 * {name}_delta * {name}_sd{j} * {name}_conc + 0.05 * {name}_delta * {name}_sd{j} * {name}_fresh{k} when {name}_ev in 0.5 .. 1.5 and {name}_last in {k - 0.5} .. {k + 0.5}
+  repeat k in 1 .. 16: set {name}_taste{k} = {name}_taste{k} + 0.025 * {name}_delta + 0.05 * {name}_delta * {name}_conc + 0.025 * {name}_delta * {name}_fresh{k} when {name}_ev in 0.5 .. 1.5 and {name}_last in {k - 0.5} .. {k + 0.5}
   repeat k in 1 .. 16: repeat c in 1 .. 4: set {name}_ts{k}_{c} = {name}_ts{k}_{c} + 0.05 * {name}_delta * {name}_xs{c} + 0.1 * {name}_delta * {name}_xs{c} * {name}_conc when {name}_ev in 0.5 .. 1.5 and {name}_last in {k - 0.5} .. {k + 0.5}
   repeat k in 1 .. 16: repeat h in 1 .. 4: set {name}_th{k}_{h} = {name}_th{k}_{h} + 0.05 * {name}_delta * {name}_xh{h} + 0.1 * {name}_delta * {name}_xh{h} * {name}_conc when {name}_ev in 0.5 .. 1.5 and {name}_last in {k - 0.5} .. {k + 0.5}
+  # what was played is young again; what was not, a note older (up to 9999)
+  repeat k in 1 .. 16: set {name}_age{k} = {name}_age{k} + 1 when {name}_ev in 0.5 .. 1.5 and {name}_age{k} in -1 .. 9998
+  repeat k in 1 .. 16: set {name}_age{k} = 0 when {name}_ev in 0.5 .. 1.5 and {name}_last in {k - 0.5} .. {k + 0.5}
+  # ---- a tap on her shoulder ({name}_wake, pressed by the human: « wouhou, Her? »): the choices she left alone
+  # become a little wanted again, once a press (never past 1), and she tries them. Nothing by chance.
+  input {name}_wake = 0
+  var {name}_wk = 0
+  repeat k in 1 .. 16: set {name}_taste{k} = {name}_taste{k} + 0.2 when {name}_wake in 0.5 .. 9 and {name}_wk in -9 .. 0.5 and {name}_fresh{k} in 0.5 .. 9 and {name}_taste{k} in -9 .. 0.8
+  set {name}_wk = {name}_wake
 
 
   # ---- her hand on the drums (kick, snare, hat, tom: 1 .. 4), played when the human gives her a drum: at each

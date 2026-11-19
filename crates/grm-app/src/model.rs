@@ -26,6 +26,8 @@ pub struct NodeView {
     pub input: bool,
     pub output: bool,
     pub tracked: bool,
+    /// What it starts from, as its line says it (a knob's double click brings it back there).
+    pub start: f64,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -167,6 +169,7 @@ impl Picture {
                     input: s.input,
                     output: s.output,
                     tracked: w.time.nodes.contains_key(n),
+                    start: s.guess * 10f64.powf(m.shift_of(n)),
                 }
             })
             .collect();
