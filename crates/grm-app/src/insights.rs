@@ -17,7 +17,7 @@
 use eframe::egui::{self, RichText, Stroke};
 
 use crate::app::{App, Ink};
-use crate::model::{NodeView, Picture};
+use crate::model::NodeView;
 use crate::text::t;
 
 /// Whether a source is the world outside (its values are not changed by hand).
@@ -126,54 +126,6 @@ pub fn control(app: &mut App, ui: &mut egui::Ui, n: &NodeView, workshop: Option<
                 });
             }
         });
-}
-
-/// In a simulation: what moved from its reality, before -> after, and the file to share it.
-pub fn differences(app: &mut App, ui: &mut egui::Ui, ws: &str, pic: &Picture) {
-    if pic.differences.is_empty() {
-        return;
-    }
-    let ink = Ink::of(ui.ctx());
-    let lang = app.settings.lang;
-    ui.horizontal(|ui| {
-        crate::icons::show(ui, "flask-conical", 15.0, ink.accent);
-        ui.label(RichText::new(t(lang, "sim_moved")).strong());
-    });
-    ui.label(RichText::new(t(lang, "sim_note")).small().color(ink.muted));
-    let lines = lines_of(pic);
-    crate::style::terminal(ui, &lines);
-    if crate::icons::button(ui, "share-2", t(lang, "sim_export")).on_hover_text(t(lang, "sim_export_d")).clicked() {
-        let dir = app.memory.with_extension("simulations");
-        let path = dir.join(format!("{ws}.grm"));
-        let mut text = pic.written.join("\n");
-        text.push_str("\n# what moved (before -> after, ± its spread now):\n");
-        for l in &lines {
-            text.push_str(&format!("# {l}\n"));
-        }
-        let done = std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&path, text));
-        match done {
-            Ok(_) => app.toast(format!("{} {}", t(lang, "sim_written"), path.display())),
-            Err(e) => app.note(grm_shell::Kind::Warning, format!("! {}: {e}", path.display())),
-        }
-    }
-}
-
-fn lines_of(pic: &Picture) -> Vec<String> {
-    pic.differences
-        .iter()
-        .take(14)
-        .map(|(n, a, b, s)| {
-            let pc = (b - a) / a.abs().max(1e-12) * 100.0;
-            format!(
-                "{n}: {} -> {} (± {}) {}{:.1} %",
-                grm_engine::lang::g((a * 1000.0).round() / 1000.0),
-                grm_engine::lang::g((b * 1000.0).round() / 1000.0),
-                grm_engine::lang::g((s * 1000.0).round() / 1000.0),
-                if pc >= 0.0 { "+" } else { "" },
-                pc
-            )
-        })
-        .collect()
 }
 
 /// The Insights tab: reality, the reflection on it, what is shared.

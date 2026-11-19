@@ -24,6 +24,8 @@ use crate::view::reading;
 
 /// Rows of the grid are this high (points).
 pub const ROW: f32 = 46.0;
+/// A screen fitted to its room keeps at least this part of a row's height (below, it scrolls).
+pub const FIT_LEAST: f32 = 0.75;
 const GAP: f32 = 6.0;
 /// The keys of a computer keyboard that play notes (from the lowest), as on many music programs.
 const PIANO: [(egui::Key, i32); 13] = [
@@ -92,6 +94,8 @@ pub struct State {
     pub fields: HashMap<String, String>,
     /// How each 3D view looks at its world (by app and widget).
     pub cameras: HashMap<String, crate::view3d::Camera>,
+    /// The next surface drawn is fitted to its room (a screen, when it is tall enough).
+    pub fit: bool,
 }
 
 /// What a widget that holds others draws itself (what it holds is drawn as any widget is).
@@ -377,7 +381,13 @@ pub(crate) fn observe(app: &App, node: &str, v: f64) {
 pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
     let ink = Ink::of(ui.ctx());
     let lang = app.settings.lang;
-    let Some(view) = app.apps.iter().find(|a| a.name == name).cloned() else { return };
+    // an app, or one of the window's own screens (written in GRML too)
+    let screen = !app.apps.iter().any(|a| a.name == name);
+    let Some(view) =
+        app.apps.iter().find(|a| a.name == name).cloned().or_else(|| app.screens.get(name).map(|s| s.1.clone()))
+    else {
+        return;
+    };
     // the plots hear each new picture of the world
     if app.picture_frame != app.surface.seen_frame {
         app.surface.seen_frame = app.picture_frame;
@@ -394,11 +404,18 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
             }
         }
     }
-    let editing = app.editing;
+    // a screen is changed in its file (edit mode moves an app's widgets)
+    let editing = app.editing && !screen;
     let area = ui.available_rect_before_wrap();
     let col = (area.width() - GAP) / COLUMNS as f32;
     let rows = view.widgets.iter().map(|w| w.at.1 + w.size.1).max().unwrap_or(0).max(1);
-    let height = (rows as f32 * ROW + GAP).max(area.height());
+    // a screen fitted to its room: its rows share the height it has (no scroll while each keeps most of its height)
+    let row = if std::mem::take(&mut app.surface.fit) {
+        ((area.height() - GAP) / rows as f32).clamp(ROW * FIT_LEAST, ROW * 1.6)
+    } else {
+        ROW
+    };
+    let height = (rows as f32 * row + GAP).max(area.height());
     let (whole, _) = ui.allocate_exact_size(vec2(area.width(), height), Sense::hover());
     let painter = ui.painter_at(whole);
     // its looks: a small network of their own (see looks.rs)
@@ -411,8 +428,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
     painter.rect_filled(whole, 0.0, app_look.background);
     let cell = |c: i32, r: i32, w: i32, h: i32| {
         Rect::from_min_size(
-            pos2(whole.left() + GAP + c as f32 * col, whole.top() + GAP + r as f32 * ROW),
-            vec2(w as f32 * col - GAP, h as f32 * ROW - GAP),
+            pos2(whole.left() + GAP + c as f32 * col, whole.top() + GAP + r as f32 * row),
+            vec2(w as f32 * col - GAP, h as f32 * row - GAP),
         )
     };
     if editing {
@@ -568,7 +585,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
             continue;
         }
         // the widget at work, never out of its place: small, it says less (its words come on the pointer)
-        let label = if w.text.is_empty() { w.name.clone() } else { w.text.clone() };
+        let label = crate::screen::label_of(w, lang);
         let clip_before = ui.clip_rect();
         ui.set_clip_rect(rect.expand(1.0).intersect(clip_before));
         let painter = painter.with_clip_rect(rect.expand(1.0).intersect(clip_before));
@@ -605,6 +622,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
                 let lists = view.lists.clone();
                 crate::view3d::show(app, ui, rect, w, name, &lists);
             }
+            WidgetKind::Rows => crate::screen::rows(app, ui, &view, w, rect),
+            WidgetKind::Editor => crate::screen::editor(app, ui, w, rect),
+            WidgetKind::Network => crate::screen::network(app, ui, &view, w, rect, false),
+            WidgetKind::Airlock => crate::screen::airlock(app, ui, w, rect),
             WidgetKind::Bars => {
                 // each bar as tall as its node among the others; the one the first node says, lit
                 let lit = node(0).map(|n| now_of(app, &n).round() as i64).unwrap_or(0);
@@ -1663,7 +1684,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, name: &str) {
         ui.set_clip_rect(clip_before);
         ui.set_style(saved_style);
         // what it does, said when the pointer rests on it (unless the human hid this kind of tips)
-        if let Some(tip) = w.tip.as_ref().filter(|_| tips_on && !editing) {
+        let tip = match (&w.tip_fr, lang) {
+            (Some(fr), crate::text::Lang::Fr) => Some(fr),
+            _ => w.tip.as_ref(),
+        };
+        if let Some(tip) = tip.filter(|_| tips_on && !editing) {
             let still = ui.input(|i| i.pointer.time_since_last_movement()) > 0.5;
             if still && ui.rect_contains_pointer(rect) {
                 let r = ui.interact(rect, id.with("tip"), Sense::hover());

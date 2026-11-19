@@ -1,0 +1,36 @@
+# The paths that teach the language, step by step (written in GRML: a path added here is in the workshop).
+# path NAME icon SIGN "title" fr "titre"
+# step "what is said" fr "ce qui est dit" [line "the line written at this step"]
+
+path a_blank_page icon file "A blank page" fr "Une page blanche"
+step "What are the quantities? Each is a node: a name, a value if it is known (Node, on the left)." fr "Quelles sont les quantités ? Chacune est un nœud : un nom, une valeur si on la connaît (Nœud, à gauche)."
+step "How are they linked? Each law is a relation: an equation between them (Relate)." fr "Comment sont-elles liées ? Chaque loi est une relation : une équation entre elles (Relier)."
+step "What was measured? Each measurement is an observation (Observe): the network settles around it." fr "Qu'est-ce qui a été mesuré ? Chaque mesure est une observation (Observer) : le réseau s'ajuste autour."
+step "Ask: what is a quantity worth, how sure, and why (Ask). Then, when it is ready: let it into the main network." fr "Demander : ce que vaut une quantité, avec quelle certitude, et pourquoi (Demander). Puis, quand il est prêt : le faire entrer dans le réseau principal."
+
+path newton_s_law icon apple "Newton's law" fr "La loi de Newton"
+step "A mass: a person of 70 kg (a node)." fr "Une masse : une personne de 70 kg (un nœud)." line "node mass = 70"
+step "The acceleration of gravity, 9.81 m/s²." fr "L'accélération de la pesanteur, 9,81 m/s²." line "node acceleration = 9.81"
+step "The force: not known yet." fr "La force : pas encore connue." line "node force"
+step "The law that links them: the force is the mass times the acceleration (a relation)." fr "La loi qui les lie : la force est la masse fois l'accélération (une relation)." line "relate newton: force = mass * acceleration"
+step "A measurement: the mass was weighed (an observation). The network settles: the force follows." fr "Une mesure : la masse a été pesée (une observation). Le réseau s'ajuste : la force suit." line "observe mass = 70"
+step "The question: what is the force? About 687 newtons, with how sure the machine is." fr "La question : que vaut la force ? Environ 687 newtons, avec la certitude de la machine." line "ask force"
+
+path a_falling_body icon arrow-down-to-line "A falling body" fr "La chute d'un corps"
+step "Time, in seconds: it comes from outside (an input)." fr "Le temps, en secondes : il vient de dehors (une entrée)." line "input t positive"
+step "The height fallen, in metres: not known yet." fr "La hauteur parcourue, en mètres : pas encore connue." line "node h"
+step "The law of a fall: the height is 4.9 times the time squared (half of g)." fr "La loi de la chute : la hauteur vaut 4,9 fois le temps au carré (la moitié de g)." line "relate fall: h = 4.9 * t^2"
+step "Three seconds have passed." fr "Trois secondes ont passé." line "observe t = 3"
+step "How far has it fallen? About 44 metres. (A table of a real fall, loaded here, finds this law by itself.)" fr "De combien est-il tombé ? Environ 44 mètres. (Un tableau d'une vraie chute, chargé ici, trouve cette loi tout seul.)" line "ask h"
+
+path an_oscillator_heard icon audio-waveform "An oscillator, heard" fr "Un oscillateur, qu'on entend"
+step "A pitch, in hertz: it comes from outside (a slider, a key)." fr "Une hauteur, en hertz : elle vient de dehors (un curseur, une touche)." line "input pitch = 220 positive"
+step "How far it turns at each of the 48 000 samples of a second." fr "De combien il tourne à chacun des 48 000 échantillons d'une seconde." line "node step = 0.0288"
+step "The step follows the pitch (2 π divided by 48 000, times the pitch)." fr "Le pas suit la hauteur (2 π divisé par 48 000, fois la hauteur)." line "relate turn_rate: step = 0.000130899693899575 * pitch"
+step "Two states that turn: a cosine..." fr "Deux états qui tournent : un cosinus…" line "var lead_c = 1"
+step "... and a sine (this one is heard)." fr "… et un sinus (c'est lui qu'on entend)." line "var lead_s = 0"
+step "Where the cosine goes next." fr "Où va le cosinus ensuite." line "node lead_new signed"
+step "It turns a little." fr "Il tourne un peu." line "relate lead_turn: lead_new = lead_c - step * lead_s"
+step "At each step, the cosine becomes where it was going." fr "À chaque pas, le cosinus devient ce vers quoi il allait." line "set lead_c = lead_new"
+step "And the sine follows it (they never drift: its loudness holds for ever)." fr "Et le sinus le suit (ils ne dérivent jamais : son volume tient pour toujours)." line "set lead_s = lead_s + step * lead_new"
+step "Listen: the sine, played 48 000 times a second." fr "Écouter : le sinus, joué 48 000 fois par seconde." line "play lead_s"

@@ -49,9 +49,10 @@ pub fn node_menu(app: &mut App, ui: &mut egui::Ui, n: &str) {
     let ink = Ink::of(ui.ctx());
     ui.label(RichText::new(n).strong().size(crate::style::size(crate::style::Size::Subtitle)).color(ink.accent));
     ui.separator();
-    // in a workshop, what is done is done in it (never in the main network, where the node is not)
-    if let Some(ws) = app.write_into.clone() {
-        workshop_node_menu(app, ui, &ws, n);
+    // in a workshop, what is done is done in it (never in the main network, where the node is not): its screen's
+    // menu (written in GRML)
+    if app.write_into.is_some() {
+        crate::screen::network_menu(app, ui, Some(n));
         return;
     }
     let node = app.picture.node(n).cloned();
@@ -122,42 +123,19 @@ pub fn node_menu(app: &mut App, ui: &mut egui::Ui, n: &str) {
     }
 }
 
-/// The menu of a node of a workshop (the picture shown is the workshop's): heard from it, or its line taken back.
-fn workshop_node_menu(app: &mut App, ui: &mut egui::Ui, ws: &str, n: &str) {
-    let lang = app.settings.lang;
-    if item(ui, "play", t(lang, "play"), t(lang, "m_play_d")) {
-        app.say(format!("workshop play {ws} {n}"));
-        ui.close();
-    }
-    // the line that made it (node, input, var, output, learn NAME …)
-    let made = app.picture.written.iter().position(|l| {
-        let mut w = l.split_whitespace();
-        matches!(w.next(), Some("node" | "input" | "var" | "output" | "learn" | "observe"))
-            && w.next().map(|x| x.trim_end_matches(':')) == Some(n)
-    });
-    if item_if(ui, made.is_some(), "undo-2", t(lang, "ws_unsay"), t(lang, "m_ws_unsay_d")) {
-        if let Some(k) = made {
-            app.say(format!("workshop unsay {ws} {k}"));
-        }
-        ui.close();
-    }
-}
-
 /// The menu of the background.
 pub fn background_menu(app: &mut App, ui: &mut egui::Ui, at: [f32; 2]) {
     let lang = app.settings.lang;
+    // in a workshop: its screen's menu (written in GRML)
+    if app.write_into.is_some() && crate::screen::network_menu(app, ui, None) {
+        return;
+    }
     if item(ui, "circle-plus", t(lang, "new_node"), t(lang, "m_new_node_d")) {
         app.node_form = Some(NodeForm { at, into: app.write_into.clone(), ..Default::default() });
         ui.close();
     }
     if item(ui, "link", t(lang, "m_new_relation"), t(lang, "m_new_relation_d")) {
-        match app.write_into.clone() {
-            // in a workshop: its form, to fill
-            Some(ws) => {
-                app.workshop_state.entry(ws).or_default().form = Some(("relate", Default::default()));
-            }
-            None => app.line_draft = Some((app.current.clone(), None, "relate r: a = 2 * b".into())),
-        }
+        app.line_draft = Some((app.current.clone(), None, "relate r: a = 2 * b".into()));
         ui.close();
     }
     let any = !app.picture.nodes.is_empty();
@@ -248,9 +226,7 @@ pub fn node_form(app: &mut App, ctx: &egui::Context) {
         app.graph.pinned.insert(key);
         app.node_form = None;
         match f.into.clone() {
-            Some(ws) => {
-                crate::workshop::write(app, &ws, &line);
-            }
+            Some(ws) => app.say(format!("workshop say {ws} {line}")),
             None => app.write_line(&line),
         }
     } else {

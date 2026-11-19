@@ -59,14 +59,15 @@ pub fn door(app: &mut App, ui: &mut egui::Ui, ws: &str, ready: bool, big: bool) 
         _ => t(lang, "ws_changed_again_d"),
     };
     let clicked = if big {
-        let (fill, text) = if enabled && now.is_none() { (ink.accent, ink.on_chosen()) } else { (ink.faint, ink.text) };
+        let (fill, text) =
+            if enabled && now.is_none() { (ink.chosen, ink.on_chosen()) } else { (ink.raised, ink.text) };
         ui.add_enabled(
             enabled,
             egui::Button::image_and_text(
                 crate::icons::image(sign, 15.0, text),
                 RichText::new(t(lang, key)).color(text),
             )
-            .fill(if enabled { fill } else { ink.faint.gamma_multiply(0.5) }),
+            .fill(if enabled { fill } else { ink.raised }),
         )
         .on_hover_text(hover)
         .on_disabled_hover_text(hover)

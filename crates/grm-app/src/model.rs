@@ -73,6 +73,8 @@ pub struct Picture {
     pub passages: Vec<(String, String)>,
     /// What was written in it (a workshop's picture).
     pub written: Vec<String>,
+    /// What it proposes, waiting for a human (a workshop's): its lines, and why.
+    pub proposals: Vec<(Vec<String>, String)>,
     /// Its master equation, said (a workshop's picture).
     pub master: Option<(String, String)>,
     /// What passes through the witness now (it keeps nothing: made again with each picture).
@@ -230,6 +232,7 @@ impl Picture {
             glance: grm_engine::witness::glance(w),
             differences: w.differences(),
             written: w.written.clone(),
+            proposals: w.proposals.iter().map(|p| (p.lines.clone(), p.why.clone())).collect(),
             master: None,
             passages: w.workshops.keys().filter_map(|n| w.passage(n).map(|s| (n.clone(), s.to_string()))).collect(),
             workshops: w

@@ -236,7 +236,19 @@ pub struct App {
     pub detached: Vec<crate::space::Kind>,
     pub zone_views: HashMap<String, crate::view::View>,
     /// The workshops' windows: what each keeps, and its picture.
-    pub workshop_state: HashMap<String, crate::workshop::State>,
+    /// The window's screens written in GRML (`screens/`), read for a workshop: when their file was written, and
+    /// what they are.
+    pub screens: HashMap<String, (Option<std::time::SystemTime>, grm_shell::runtime::AppView)>,
+    /// Each workshop's editor (the line being written, what came back).
+    pub benches: HashMap<String, crate::screen::Bench>,
+    /// Each workshop's way of being looked at.
+    pub ws_views: HashMap<String, crate::view::View>,
+    /// While a workshop's network is drawn: its screen and the menu its right button offers.
+    pub ws_menus: Option<(String, String)>,
+    /// The workshop in front (the inspector shows its nodes and relations).
+    pub ws_front: Option<String>,
+    /// The workshops whose part of the inspector was closed by its cross.
+    pub ws_inspector_closed: std::collections::HashSet<String>,
     /// Workshops just made, not yet in a picture (see `follow_world`).
     pub workshops_coming: Vec<String>,
     /// Whether Escape was pressed in this frame (what is chosen is let go).
@@ -605,7 +617,12 @@ impl App {
             zone_screen: None,
             detached: vec![],
             zone_views: HashMap::new(),
-            workshop_state: HashMap::new(),
+            screens: HashMap::new(),
+            benches: HashMap::new(),
+            ws_views: HashMap::new(),
+            ws_menus: None,
+            ws_front: None,
+            ws_inspector_closed: Default::default(),
             workshops_coming: vec![],
             escaped: false,
             behind: vec![],
@@ -1513,11 +1530,11 @@ impl App {
             format!("relate {name}: {to} = 1 * {from}")
         };
         if let Some(ws) = self.write_into.clone() {
-            // in a workshop: its relation form, filled with what the drag said
-            let mut v = std::collections::HashMap::new();
-            v.insert("name".to_string(), name);
-            v.insert("equation".to_string(), text.split_once(':').map(|x| x.1.trim().to_string()).unwrap_or_default());
-            self.workshop_state.entry(ws).or_default().form = Some(("relate", v));
+            // in a workshop: the relation the drag said, in its editor, to be changed or written
+            let b = self.benches.entry(ws).or_default();
+            b.text = format!("relate {name}: {}", text.split_once(':').map(|x| x.1.trim()).unwrap_or(""));
+            b.replacing = None;
+            b.focus = true;
             return;
         }
         self.line_draft = Some((self.current.clone(), None, text));
@@ -1541,6 +1558,10 @@ impl App {
     /// Says a line to the prompt (as if typed).
     pub fn say(&mut self, line: impl Into<String>) {
         let line = line.into();
+        // the window's own lines (a screen's: `screen write WS LINE`...): done here
+        if crate::screen::window_line(self, &line) {
+            return;
+        }
         if line.trim() == "sleep" {
             self.slept = Some(Instant::now());
         }
@@ -1676,6 +1697,7 @@ impl App {
             if self.quiet_yes.as_deref() == Some(a.typed.as_str()) {
                 self.quiet_yes = None;
             }
+            crate::screen::heard(self, &a.typed, &a.lines);
             for l in a.lines {
                 if answered && l.kind == LineKind::Ask {
                     continue;
@@ -1776,11 +1798,16 @@ impl App {
                         self.settings.lang = if l.starts_with("fr") { Lang::Fr } else { Lang::En };
                     }
                     grm_shell::Order::Clear => self.log.clear(),
+                    grm_shell::Order::PickTable(ws) => {
+                        self.workshop_loading = Some(ws);
+                        self.pick(crate::app::Pick::Open);
+                    }
                     grm_shell::Order::Workshop(n) => {
                         // a workshop opened (or a table just learned): in place of the space, at once
                         if !self.workshops_coming.contains(&n) {
                             self.workshops_coming.push(n.clone());
                         }
+                        self.ws_inspector_closed.remove(&n);
                         let kind = crate::space::Kind::Workshop(n);
                         self.space.put(kind.clone());
                         self.zone_center = Some(kind);
@@ -2462,7 +2489,17 @@ impl eframe::App for App {
                     .resizable(true)
                     .default_width(sizes.side)
                     .width_range(260.0..=(size.x * 0.6).max(280.0))
-                    .show(ctx, |ui| crate::panels::show(self, ui));
+                    .show(ctx, |ui| {
+                        // the panel keeps the width it has, whatever it shows (a tab, a wide line): what it holds
+                        // is laid out in that width and clipped there, never widening it frame after frame
+                        let room = ui.available_rect_before_wrap();
+                        let mut held = ui.new_child(
+                            egui::UiBuilder::new().max_rect(room).layout(egui::Layout::top_down(egui::Align::Min)),
+                        );
+                        held.set_clip_rect(room.intersect(ui.clip_rect()));
+                        crate::panels::show(self, &mut held);
+                        ui.allocate_rect(room, egui::Sense::hover());
+                    });
                 self.areas.insert("side", r.response.rect);
                 let w = r.response.rect.width();
                 if (w - self.layout.sizes.side).abs() > 2.0 && r.response.ctx.input(|i| i.pointer.any_down()) {

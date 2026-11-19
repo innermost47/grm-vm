@@ -14,6 +14,7 @@ mod app;
 mod code;
 mod desk;
 mod elle;
+mod explain;
 mod files;
 mod flow;
 mod french;
@@ -35,6 +36,7 @@ mod panels;
 mod player;
 mod plot;
 mod prepared;
+mod screen;
 mod settings;
 mod space;
 mod studio;
@@ -48,7 +50,6 @@ mod view;
 mod view3d;
 mod widgets;
 mod worker;
-mod workshop;
 mod zone;
 
 #[derive(Debug, Default, Clone)]

@@ -300,6 +300,8 @@ pub enum Order {
     },
     /// A workshop to show.
     Workshop(String),
+    /// A table to choose in the system's window, for a workshop to learn.
+    PickTable(String),
     Tour,
     Lang(String),
     Clear,

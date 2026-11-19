@@ -90,6 +90,18 @@ pub enum WidgetKind {
     Choice,
     /// A number written by hand (`9,81` as well as `9.81`): the node takes it when Enter is pressed.
     Field,
+    /// A workshop's network as it grows (`network WS menu M`): its nodes chosen by a click, its menu (a `menu` of
+    /// the file) by the right button.
+    Network,
+    /// A list the world fills (`rows SOURCE [WS] [menu M]`): the nodes, the relations, the lines, the proposals of
+    /// a workshop; the words of the language; the paths that teach it. A row chosen by a click, its menu by the
+    /// right button.
+    Rows,
+    /// Where a line of the language is written for a workshop (`editor WS`): coloured as it is written, said in
+    /// words, what is wrong said at once; the names, the constants and the operators to put in it; a path's step.
+    Editor,
+    /// A workshop's way into the main network (`airlock WS`): what it would change, and two clear choices.
+    Airlock,
     // what holds other widgets (written `widget NAME: KIND ...`, the widgets it holds under it, then `end`)
     /// Side by side, each as wide as its size says.
     Row,
@@ -137,6 +149,10 @@ impl WidgetKind {
             "bars" => WidgetKind::Bars,
             "view3d" => WidgetKind::View3d,
             "field" => WidgetKind::Field,
+            "network" => WidgetKind::Network,
+            "rows" => WidgetKind::Rows,
+            "editor" => WidgetKind::Editor,
+            "airlock" => WidgetKind::Airlock,
             "row" => WidgetKind::Row,
             "column" => WidgetKind::Column,
             "grid" => WidgetKind::Grid,
@@ -177,6 +193,10 @@ impl WidgetKind {
             WidgetKind::Bars => "bars",
             WidgetKind::View3d => "view3d",
             WidgetKind::Field => "field",
+            WidgetKind::Network => "network",
+            WidgetKind::Rows => "rows",
+            WidgetKind::Editor => "editor",
+            WidgetKind::Airlock => "airlock",
             WidgetKind::Row => "row",
             WidgetKind::Column => "column",
             WidgetKind::Grid => "grid",
@@ -229,6 +249,10 @@ impl WidgetKind {
             WidgetKind::Choice | WidgetKind::Field => (3, 1),
             WidgetKind::Bars => (4, 2),
             WidgetKind::View3d => (12, 8),
+            WidgetKind::Network => (8, 6),
+            WidgetKind::Rows => (4, 6),
+            WidgetKind::Editor => (8, 3),
+            WidgetKind::Airlock => (2, 1),
             WidgetKind::Slider => (4, 1),
             WidgetKind::Toggle | WidgetKind::Button | WidgetKind::Play | WidgetKind::Rec => (2, 1),
             WidgetKind::Meter => (3, 1),
@@ -252,7 +276,7 @@ impl WidgetKind {
         }
     }
 
-    pub const ALL: [WidgetKind; 34] = [
+    pub const ALL: [WidgetKind; 38] = [
         WidgetKind::Slider,
         WidgetKind::Toggle,
         WidgetKind::Button,
@@ -280,6 +304,10 @@ impl WidgetKind {
         WidgetKind::Bars,
         WidgetKind::View3d,
         WidgetKind::Field,
+        WidgetKind::Network,
+        WidgetKind::Rows,
+        WidgetKind::Editor,
+        WidgetKind::Airlock,
         WidgetKind::Row,
         WidgetKind::Column,
         WidgetKind::Grid,
@@ -340,6 +368,14 @@ pub struct Widget {
     /// `grid N`: its columns.
     #[serde(default)]
     pub columns: Option<i32>,
+    /// `menu NAME`: what its right button offers (a `menu NAME ... end` of the file).
+    #[serde(default)]
+    pub menu: Option<String>,
+    /// `fr "mots"`: its words in French; `tipfr "mots"`: its tip in French (the window's language chooses).
+    #[serde(default)]
+    pub fr: Option<String>,
+    #[serde(default)]
+    pub tip_fr: Option<String>,
     /// What it holds (a row, a column, a card...), in their order.
     #[serde(default)]
     pub children: Vec<Widget>,
@@ -398,6 +434,15 @@ impl Widget {
         if let Some(i) = &self.icon {
             s.push_str(&format!(" icon {i}"));
         }
+        if let Some(m) = &self.menu {
+            s.push_str(&format!(" menu {m}"));
+        }
+        if let Some(f) = &self.fr {
+            s.push_str(&format!(" fr \"{f}\""));
+        }
+        if let Some(f) = &self.tip_fr {
+            s.push_str(&format!(" tipfr \"{f}\""));
+        }
         s
     }
 }
@@ -406,9 +451,23 @@ impl Widget {
 pub fn parse_widget(rest: &str, line: usize) -> Result<Widget, String> {
     let usage = "widget NAME: KIND [NODE..] [LO .. HI] [at COLUMN ROW] [size COLUMNS ROWS] [\"words\"] [tip \"words\"] [when NODE]";
     let Some((name, body)) = rest.split_once(':') else { return Err(usage.into()) };
+    let mut body = body.to_string();
+    // the French words first (`tipfr "..."`, `fr "..."`): they are not the widget's own
+    let take = |key: &str, body: &mut String| -> Result<Option<String>, String> {
+        let Some(k) = body.find(&format!("{key} \"")) else { return Ok(None) };
+        if k > 0 && !body[..k].ends_with(' ') {
+            return Ok(None);
+        }
+        let after = body[k + key.len() + 2..].to_string();
+        let end = after.find('"').ok_or(format!("{key} \"words\": its words end with a quote"))?;
+        let words = after[..end].to_string();
+        *body = format!("{}{}", &body[..k], &after[end + 1..]);
+        Ok(Some(words))
+    };
+    let tip_fr = take("tipfr", &mut body)?;
+    let fr = take("fr", &mut body)?;
     // `tip "words"` first (its words are not the widget's own)
     let mut tip = None;
-    let mut body = body.to_string();
     if let Some(k) = body.find("tip \"") {
         let after = &body[k + 5..];
         let end = after.find('"').ok_or("tip \"words\": its words end with a quote")?;
@@ -490,6 +549,7 @@ pub fn parse_widget(rest: &str, line: usize) -> Result<Widget, String> {
     let mut when = None;
     let mut key = None;
     let mut columns = None;
+    let mut menu = None;
     let num = |s: Option<&&str>| -> Result<f64, String> {
         s.ok_or_else(|| usage.to_string())?.parse::<f64>().map_err(|_| format!("{} is not a number", s.unwrap()))
     };
@@ -510,6 +570,10 @@ pub fn parse_widget(rest: &str, line: usize) -> Result<Widget, String> {
             }
             "icon" => {
                 icon = words.get(k + 1).map(|w| w.to_string());
+                k += 2;
+            }
+            "menu" if words.get(k + 1).is_some_and(|w| is_name(w)) => {
+                menu = words.get(k + 1).map(|w| w.to_string());
                 k += 2;
             }
             // `key K`: only a key's name (a node may be called key)
@@ -568,8 +632,62 @@ pub fn parse_widget(rest: &str, line: usize) -> Result<Widget, String> {
         over,
         fields,
         columns,
+        menu,
+        fr,
+        tip_fr,
         children: vec![],
     })
+}
+
+/// One thing a menu offers: its words, its sign, the line it says (`{item}`: the one it is opened on), and what
+/// it waits for (`when FLAG`: an item that has it; greyed otherwise).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MenuItem {
+    pub words: String,
+    pub icon: Option<String>,
+    pub say: String,
+    pub when: Option<String>,
+    /// What it does, said under its words.
+    pub what: String,
+    /// Its words and what it does, in French (`fr "..."`, `whatfr "..."`).
+    pub fr: Option<String>,
+    pub what_fr: Option<String>,
+    pub line: usize,
+}
+
+/// `item "words" [icon SIGN] say "LINE" [when FLAG] [what "words"]`
+pub fn parse_item(rest: &str, line: usize) -> Result<MenuItem, String> {
+    let usage = "item \"words\" [icon SIGN] say \"LINE\" [when FLAG] [what \"what it does\"]";
+    let quoted = |key: &str, s: &str| -> Option<(String, String)> {
+        let k = s.find(&format!("{key}\""))?;
+        let after = &s[k + key.len() + 1..];
+        let end = after.find('"')?;
+        Some((after[..end].to_string(), format!("{}{}", &s[..k], &after[end + 1..])))
+    };
+    let (say, rest) = quoted("say ", rest).ok_or(usage)?;
+    let (what_fr, rest) = match quoted("whatfr ", &rest) {
+        Some((w, r)) => (Some(w), r),
+        None => (None, rest),
+    };
+    let (fr, rest) = match quoted("fr ", &rest) {
+        Some((w, r)) => (Some(w), r),
+        None => (None, rest),
+    };
+    let (what, rest) = quoted("what ", &rest).unwrap_or((String::new(), rest));
+    let (words, rest) = quoted("", &rest).ok_or(usage)?;
+    let w: Vec<&str> = rest.split_whitespace().collect();
+    let mut icon = None;
+    let mut when = None;
+    let mut k = 0;
+    while k < w.len() {
+        match (w[k], w.get(k + 1)) {
+            ("icon", Some(i)) => icon = Some(i.to_string()),
+            ("when", Some(f)) => when = Some(f.to_string()),
+            (other, _) => return Err(format!("{other}: {usage}")),
+        }
+        k += 2;
+    }
+    Ok(MenuItem { words, icon, say, when, what, fr, what_fr, line })
 }
 
 /// A plain statement of the language, with where it was written.
@@ -632,6 +750,8 @@ pub struct Parsed {
     /// Its lists (`list tracks = synths drums`: a list in a list is its items), their items in their order, and the
     /// line each is written on.
     pub lists: IndexMap<String, (Vec<String>, usize)>,
+    /// Its menus (`menu NAME` then `item ...` lines, then `end`): what a right button offers.
+    pub menus: IndexMap<String, Vec<MenuItem>>,
     /// The widgets that hold others, open while their lines are read (closed by `end`).
     open: Vec<Widget>,
     /// While a kind is unfolded: the line of the app's file everything comes from.
@@ -789,6 +909,7 @@ fn unfold(
     let mut recording: Option<(String, Vec<String>, Vec<String>)> = None;
     // a kind of widget being written: (name, params, its first line, its body, how deep in what it holds)
     let mut kind_rec: Option<KindRecord> = None;
+    let mut menu_rec: Option<(String, Vec<MenuItem>)> = None;
     for (k, raw) in lines.iter().enumerate() {
         let line_no = outer.as_ref().map(|o| o.0).or(p.at_line).unwrap_or(k + 1);
         let from = outer.as_ref().map(|o| format!("{} line {}", o.1, k + 1));
@@ -801,6 +922,22 @@ fn unfold(
                     body.push(text.to_string());
                 }
                 recording = Some((name, params, body));
+            }
+            continue;
+        }
+        if let Some((name, mut items)) = menu_rec.take() {
+            if text.eq_ignore_ascii_case("end") {
+                p.menus.insert(name, items);
+            } else {
+                if let Some(rest) = text.strip_prefix("item ") {
+                    match parse_item(rest, line_no) {
+                        Ok(i) => items.push(i),
+                        Err(e) => p.errors.push((line_no, e)),
+                    }
+                } else if !text.is_empty() {
+                    p.errors.push((line_no, format!("menu {name}: `item ...` lines, then `end`")));
+                }
+                menu_rec = Some((name, items));
             }
             continue;
         }
@@ -870,6 +1007,10 @@ fn unfold(
             "kind" => match parse_kind_head(rest) {
                 Ok((name, params, head)) => kind_rec = Some((name, params, head, vec![], 0)),
                 Err(e) => p.errors.push((line_no, e)),
+            },
+            "menu" => match rest.split_whitespace().next().filter(|n| is_name(n)) {
+                Some(n) => menu_rec = Some((n.to_string(), vec![])),
+                None => p.errors.push((line_no, "menu NAME, then its `item ...` lines, then `end`".into())),
             },
             "end" if outer.is_none() => p.close_widget(line_no),
             "app" if outer.is_none() => p.title = Some(rest.to_string()),
@@ -1020,6 +1161,9 @@ fn unfold(
     }
     if let Some((name, _, _)) = recording {
         p.errors.push((outer.as_ref().map(|o| o.0).unwrap_or(lines.len()), format!("network {name}: no end")));
+    }
+    if let Some((name, _)) = menu_rec {
+        p.errors.push((p.at_line.unwrap_or(lines.len()), format!("menu {name}: no end")));
     }
     if let Some((name, ..)) = kind_rec {
         p.errors.push((p.at_line.unwrap_or(lines.len()), format!("kind {name}: no end")));

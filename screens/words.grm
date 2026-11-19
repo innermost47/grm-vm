@@ -1,0 +1,41 @@
+# The words of the language, as the workshop shows them (written in GRML: a word added here is in the workshop).
+# family NAME icon SIGN "words" fr "mots"
+# word WORD family NAME level 1|2|3 icon SIGN example "a line" "what it does" fr "ce qu'il fait"
+family there icon box "What there is" fr "Ce qui existe"
+family links icon link "What links them" fr "Ce qui les lie"
+family known icon eye "What is known" fr "Ce qu'on sait"
+family time icon timer "Time" fr "Le temps"
+family constants icon pi "The constants" fr "Les constantes"
+family more icon blocks "More" fr "Plus loin"
+
+word node family there level 1 icon circle-dot example "node mass = 70" "a quantity: a mass, a length, a price, a pitch... (signed: it can be negative)" fr "une quantité : une masse, une longueur, un prix, une hauteur de note… (signed : elle peut être négative)"
+word input family there level 2 icon log-in example "input pitch = 220 positive" "a quantity that comes from outside: a slider, a sensor, a table" fr "une quantité qui vient de dehors : un curseur, un capteur, un tableau"
+word output family there level 2 icon log-out example "output force" "what is read, shown or heard" fr "ce qu'on lit, montre ou entend"
+word learn family there level 3 icon brain example "learn k = 1" "a weight the machine learns from what it sees" fr "un poids que la machine apprend de ce qu'elle voit"
+word memory family there level 3 icon archive example "memory last = 0" "a quantity that keeps what it was given" fr "une quantité qui garde ce qu'on lui a donné"
+word rail family there level 3 icon fence example "rail mass 1000" "a quantity kept within a factor of where it is (it never goes to infinity)" fr "une quantité tenue à un facteur près de là où elle est (elle ne part jamais à l'infini)"
+
+word relate family links level 1 icon spline example "relate newton: force = mass * acceleration" "an equation between quantities: a law, a definition, a rule (+ - * / ^, ln, exp, sqrt, the constants)" fr "une équation entre des quantités : une loi, une définition, une règle (+ - * / ^, ln, exp, sqrt, les constantes)"
+word keep family links level 2 icon fence example "keep floor: height >= 0" "a limit: a quantity kept at least, or at most, at a value" fr "une limite : une quantité gardée au moins, ou au plus, à une valeur"
+word fuse family links level 3 icon merge example "fuse weight mass" "two names of the same quantity made one" fr "deux noms d'une même quantité réunis en un"
+
+word observe family known level 1 icon gauge example "observe mass = 70" "a measurement: what was seen of a quantity (± how sure)" fr "une mesure : ce qu'on a vu d'une quantité (± avec quelle certitude)"
+word ask family known level 1 icon circle-help example "ask force" "a question: what a quantity is worth, how sure, and why" fr "une question : ce que vaut une quantité, avec quelle certitude, et pourquoi"
+word forget family known level 2 icon eraser example "forget mass" "a measurement taken back: the quantity is free again" fr "une mesure retirée : la quantité redevient libre"
+
+word var family time level 3 icon variable example "var position = 0" "a state that changes at each step (what set writes)" fr "un état qui change à chaque pas (ce que set écrit)"
+word set family time level 3 icon step-forward example "set position = position + speed" "at each step, what a state becomes" fr "à chaque pas, ce que devient un état"
+word carry family time level 3 icon arrow-right-left example "carry x = y" "from step to step, a quantity carried with how sure it is" fr "d'un pas à l'autre, une quantité portée avec sa certitude"
+word delay family time level 3 icon history example "delay echo = voice by 0.25" "what a quantity was a while ago (seconds)" fr "ce que valait une quantité il y a un moment (en secondes)"
+word play family time level 2 icon play example "play lead_s" "a quantity heard, 48 000 times a second" fr "une quantité qu'on entend, 48 000 fois par seconde"
+
+word pi family constants level 1 icon pi example "relate circle: perimeter = 2 * pi * radius" "pi, 3.14159...: half a turn (tau is a whole one)" fr "pi, 3,14159… : un demi-tour (tau en est un entier)"
+word tau family constants level 1 icon rotate-cw example "node turn = tau / 4" "tau, 6.28318...: a whole turn, 2 pi" fr "tau, 6,28318… : un tour entier, 2 pi"
+word e family constants level 2 icon trending-up example "relate growth: amount = e * start" "e, 2.71828...: what grows by itself" fr "e, 2,71828… : ce qui croît de lui-même"
+word phi family constants level 2 icon shell example "node gold = phi" "phi, 1.61803...: the golden ratio" fr "phi, 1,61803… : le nombre d'or"
+word sqrt2 family constants level 3 icon square example "relate diagonal: d = sqrt2 * side" "the square root of 2: a square's diagonal" fr "la racine de 2 : la diagonale d'un carré"
+word c0 family constants level 3 icon zap example "relate light: distance = c0 * seconds" "the speed of light, 299 792 458 m/s" fr "la vitesse de la lumière, 299 792 458 m/s"
+
+word repeat family more level 3 icon repeat example "repeat k in 1 .. 4: node mass_{k} = 1" "a line said for each k" fr "une ligne dite pour chaque k"
+word network family more level 3 icon network example "network spring(k): ... end" "a network of one's own, to call as often as wished (its lines, then end)" fr "un réseau à soi, à appeler autant de fois qu'on veut (ses lignes, puis end)"
+word call family more level 3 icon phone-outgoing example "call spring(k=a)" "a network of one's own, called" fr "un réseau à soi, appelé"

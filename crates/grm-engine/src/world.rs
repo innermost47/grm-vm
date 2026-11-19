@@ -249,11 +249,88 @@ pub struct World {
     /// Where a workshop is on its way into the main network (`waiting`, `entering`, `refused`), and the lines it
     /// had then (as `written_hash` says them): changed since, it has to go through the airlock again.
     pub passage: Option<(String, u64)>,
+    /// A workshop asks before it changes: what it finds (laws in its rows, laws it knows, what its values say) waits
+    /// here for a human to take or to refuse.
+    pub asks_first: bool,
+    pub proposals: Vec<Proposal>,
+    /// What was refused (its lines, joined): never proposed again.
+    pub refused: Vec<String>,
+}
+
+/// Something a network proposes and waits for a human to take or refuse: its lines, and why.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Proposal {
+    pub lines: Vec<String>,
+    pub why: String,
+}
+
+/// A relation known elsewhere (the knowledge she starts with): its name, its equation, its nodes, where it is
+/// known, and the value of each of its nodes there.
+#[derive(Debug, Clone)]
+pub struct Known {
+    pub name: String,
+    pub text: String,
+    pub nodes: Vec<(String, f64, bool)>,
+    pub source: String,
 }
 
 impl Default for World {
     fn default() -> Self {
         World::new()
+    }
+}
+
+/// A word replaced where it stands alone (`m` in `f = m * a`, not in `mass`).
+fn replace_word(text: &str, from: &str, to: &str) -> String {
+    let mut out = String::new();
+    let mut word = String::new();
+    let flush = |word: &mut String, out: &mut String| {
+        out.push_str(if word == from { to } else { word });
+        word.clear();
+    };
+    for c in text.chars() {
+        if c.is_ascii_alphanumeric() || c == '_' || c == '~' {
+            word.push(c);
+        } else {
+            flush(&mut word, &mut out);
+            out.push(c);
+        }
+    }
+    flush(&mut word, &mut out);
+    out
+}
+
+/// The words a line of the language begins with.
+pub const WORDS: &[&str] = &[
+    "node", "relate", "observe", "forget", "input", "output", "var", "learn", "memory", "set", "keep", "carry", "rail",
+    "delay", "audio", "fuse", "repeat", "network", "call", "use", "end",
+];
+
+/// A word that is not of the language, said with the closest one.
+pub fn unknown_word(word: &str) -> String {
+    let distance = |a: &str, b: &str| {
+        let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+        let mut row: Vec<usize> = (0..=b.len()).collect();
+        for i in 1..=a.len() {
+            let mut prev = row[0];
+            row[0] = i;
+            for j in 1..=b.len() {
+                let here = row[j];
+                row[j] = (row[j] + 1).min(row[j - 1] + 1).min(prev + usize::from(a[i - 1] != b[j - 1]));
+                prev = here;
+            }
+        }
+        row[b.len()]
+    };
+    let lower = word.to_lowercase();
+    let best = WORDS.iter().min_by_key(|w| distance(&lower, w)).copied().unwrap_or("node");
+    if distance(&lower, best) <= 2 {
+        format!(
+            "'{word}' is not a word of the language: did you mean '{best}'? (a line begins with {})",
+            WORDS.join(", ")
+        )
+    } else {
+        format!("'{word}' is not a word of the language: a line begins with {}", WORDS.join(", "))
     }
 }
 
@@ -286,7 +363,302 @@ impl World {
             baseline: IndexMap::new(),
             written: vec![],
             passage: None,
+            asks_first: false,
+            proposals: vec![],
+            refused: vec![],
         }
+    }
+
+    /// The relations known here that a workshop may be proposed (the knowledge she starts with).
+    pub fn known(&self) -> Vec<Known> {
+        let net = &self.machine.net;
+        net.relations
+            .iter()
+            .filter(|r| r.origin.source.starts_with("knowledge:"))
+            .map(|r| Known {
+                name: r.name.clone(),
+                text: r.text.clone(),
+                nodes: r
+                    .nodes()
+                    .into_iter()
+                    .map(|n| {
+                        let signed = net.nodes.get(&n).is_some_and(|s| s.signed);
+                        (n.clone(), self.machine.value_si(&n), signed)
+                    })
+                    .collect(),
+                source: r.origin.source.clone(),
+            })
+            .collect()
+    }
+
+    /// A workshop: a world of its own that asks before it changes (what it finds waits as proposals).
+    pub fn workshop() -> Self {
+        World { asks_first: true, ..World::new() }
+    }
+
+    /// A line written in a workshop: said, its network built anew so that everything it holds is heard at once,
+    /// and kept among its lines. A line that is not of the language is said so, with the closest word.
+    pub fn write_line(&mut self, line: &str, origin: &Provenance) -> Result<String> {
+        let said = self.say(line, origin)?;
+        let Some(said) = said else {
+            let word = line.split_whitespace().next().unwrap_or("");
+            bail!("{}", unknown_word(word));
+        };
+        if let Ok(m) = Machine::new(self.machine.net.clone()) {
+            self.machine = m;
+        }
+        self.machine.run(4000);
+        self.written.push(line.to_string());
+        self.forget_proposals_done();
+        Ok(said)
+    }
+
+    /// A workshop said again from its lines (one taken back, changed, or removed): what it learned from its rows,
+    /// its laws, what it proposes and its way to the main network are kept.
+    pub fn said_again(&mut self, lines: Vec<String>, origin: &Provenance) -> Result<()> {
+        let mut fresh = World::new();
+        for (k, l) in lines.iter().enumerate() {
+            if let Err(e) = fresh.say(l, origin) {
+                bail!("line {} ({l}): {e}", k + 1);
+            }
+        }
+        if let Ok(m) = Machine::new(fresh.machine.net.clone()) {
+            fresh.machine = m;
+        }
+        fresh.machine.run(4000);
+        fresh.written = lines;
+        fresh.rows = std::mem::replace(&mut self.rows, Rows::new());
+        fresh.laws = std::mem::take(&mut self.laws);
+        fresh.senses = std::mem::take(&mut self.senses);
+        fresh.time.unit = self.time.unit.clone();
+        fresh.passage = self.passage.take();
+        fresh.asks_first = self.asks_first;
+        fresh.proposals = std::mem::take(&mut self.proposals);
+        fresh.refused = std::mem::take(&mut self.refused);
+        *self = fresh;
+        Ok(())
+    }
+
+    /// The line that made a node or a relation (its declaration), by its name.
+    pub fn line_of(&self, name: &str) -> Option<usize> {
+        self.written.iter().position(|l| {
+            let l = lang::normal(l);
+            let mut w = l.split_whitespace();
+            let first = w.next().unwrap_or("");
+            let second = w.next().unwrap_or("").trim_end_matches(':');
+            let second = second.split('=').next().unwrap_or("").trim();
+            matches!(
+                first,
+                "node"
+                    | "input"
+                    | "var"
+                    | "learn"
+                    | "output"
+                    | "memory"
+                    | "relate"
+                    | "keep"
+                    | "rail"
+                    | "delay"
+                    | "audio"
+            ) && second == name
+        })
+    }
+
+    /// The lines that use a name (but the one that made it).
+    pub fn lines_using(&self, name: &str) -> Vec<usize> {
+        let made = self.line_of(name);
+        self.written
+            .iter()
+            .enumerate()
+            .filter(|(k, l)| Some(*k) != made && names_in(l).iter().any(|n| n == name))
+            .map(|(k, _)| k)
+            .collect()
+    }
+
+    /// Proposals already done (their lines all written) are let go.
+    fn forget_proposals_done(&mut self) {
+        let written = &self.written;
+        self.proposals.retain(|p| !p.lines.iter().all(|l| written.contains(l)));
+    }
+
+    /// A proposal taken: its lines written, one after another (none of them if one cannot be).
+    pub fn accept(&mut self, k: usize, origin: &Provenance) -> Result<String> {
+        let Some(p) = self.proposals.get(k).cloned() else {
+            bail!("no proposal {} (there are {})", k + 1, self.proposals.len())
+        };
+        let mut lines = self.written.clone();
+        lines.extend(p.lines.iter().filter(|l| !self.written.contains(l)).cloned());
+        let before = self.clone();
+        if let Err(e) = self.said_again(lines, origin) {
+            *self = before;
+            bail!("the proposal cannot be written: {e}");
+        }
+        self.proposals.retain(|x| x != &p);
+        Ok(format!("taken: {}", p.lines.join(" · ")))
+    }
+
+    /// A proposal refused: never proposed again.
+    pub fn refuse(&mut self, k: usize) -> Result<String> {
+        if k >= self.proposals.len() {
+            bail!("no proposal {} (there are {})", k + 1, self.proposals.len());
+        }
+        let p = self.proposals.remove(k);
+        self.refused.push(p.lines.join("\n"));
+        Ok(format!("refused: {}", p.lines.join(" · ")))
+    }
+
+    fn propose(&mut self, p: Proposal) -> bool {
+        let key = p.lines.join("\n");
+        let new = !self.refused.contains(&key)
+            && !self.proposals.iter().any(|x| x.lines == p.lines)
+            && !p.lines.iter().all(|l| self.written.contains(l));
+        if new {
+            self.proposals.push(p);
+        }
+        new
+    }
+
+    /// What the network proposes, looked for now: the laws its rows hold (a table, an API), the laws known
+    /// elsewhere among its names (with the nodes missing, at the value they have there), and what its values say
+    /// (a node that is the product, the quotient or the sum of two others). Each waits for a human. Returns what
+    /// was found, in words.
+    pub fn look_for_proposals(&mut self, known: &[Known]) -> Vec<String> {
+        let mut said = vec![];
+        if self.rows.rows.len() >= crate::discover::MIN_ROWS {
+            said.extend(self.discover());
+        }
+        // a relation written here already (by its equation, whatever its name)
+        let written_eq: Vec<String> = self.machine.net.relations.iter().map(|r| r.text.replace(' ', "")).collect();
+        let here: Vec<String> = self.machine.net.nodes.keys().filter(|n| !n.contains("__")).cloned().collect();
+        // what is known elsewhere, said with the names of here (`phys_fall_h` is `fall_h`, or `h`)
+        let stem = |n: &str| -> Vec<String> {
+            let mut out = vec![n.to_string()];
+            if let Some((_, rest)) = n.split_once('_') {
+                out.push(rest.to_string());
+                if let Some((_, last)) = rest.rsplit_once('_') {
+                    out.push(last.to_string());
+                }
+            }
+            out
+        };
+        for k in known {
+            let mut map = vec![];
+            let mut missing = vec![];
+            for (n, v, signed) in &k.nodes {
+                match stem(n).into_iter().find(|s| here.contains(s)) {
+                    Some(s) => map.push((n.clone(), s)),
+                    None => {
+                        let short = stem(n).pop().unwrap_or(n.clone());
+                        let short =
+                            if lang::is_name(&short) && lang::constant(&short).is_none() { short } else { n.clone() };
+                        missing.push((n.clone(), short, *v, *signed))
+                    }
+                }
+            }
+            if map.len() < 2 || missing.len() > 1 {
+                continue;
+            }
+            let mut text = k.text.clone();
+            let mut lines = vec![];
+            for (from, to) in map
+                .iter()
+                .map(|(a, b)| (a.clone(), b.clone()))
+                .chain(missing.iter().map(|m| (m.0.clone(), m.1.clone())))
+            {
+                text = replace_word(&text, &from, &to);
+            }
+            if written_eq.contains(&text.replace(' ', "")) {
+                continue;
+            }
+            for (_, short, v, signed) in &missing {
+                lines.push(format!("node {short} = {}{}", lang::g(*v), if *signed { " signed" } else { "" }));
+            }
+            let short_name = stem(&k.name).pop().unwrap_or(k.name.clone());
+            let name = (1..)
+                .map(|i| if i == 1 { short_name.clone() } else { format!("{short_name}_{i}") })
+                .find(|n| self.machine.net.relation(n).is_none() && lang::is_name(n))
+                .unwrap_or(k.name.clone());
+            lines.push(format!("relate {name}: {text}"));
+            let why = if missing.is_empty() {
+                format!("a law known in {}: {}", k.source, k.text)
+            } else {
+                format!(
+                    "a law known in {} ({} is missing here, at its value there): {}",
+                    k.source, missing[0].1, k.text
+                )
+            };
+            if self.propose(Proposal { lines, why: why.clone() }) {
+                said.push(why);
+            }
+        }
+        // what the values say: a node that is the product, the quotient or the sum of two others
+        let values: Vec<(String, f64)> = here
+            .iter()
+            .filter(|n| self.machine.net.nodes.get(*n).is_some_and(|s| !s.var))
+            .map(|n| (n.clone(), self.machine.value_si(n)))
+            .filter(|(_, v)| v.is_finite() && *v != 0.0 && (*v - 1.0).abs() > 1e-12)
+            .collect();
+        let relation_nodes: Vec<Vec<String>> = self.machine.net.relations.iter().map(|r| r.nodes()).collect();
+        let linked = |a: &str, b: &str, c: &str| {
+            relation_nodes.iter().any(|ns| [a, b, c].iter().filter(|x| ns.iter().any(|n| n == *x)).count() >= 3)
+        };
+        let close = |a: f64, b: f64| (a - b).abs() <= 1e-6 * a.abs().max(b.abs());
+        let relation_names: Vec<String> = self.machine.net.relations.iter().map(|r| r.name.clone()).collect();
+        let mut found = 0;
+        // a product or a sum first (f = m * a), then a quotient (m = f / a): the same three nodes are proposed once
+        'outer: for quotients in [false, true] {
+            for (z, vz) in &values {
+                for (i, (x, vx)) in values.iter().enumerate() {
+                    for (y, vy) in values.iter().skip(i) {
+                        if z == x || z == y || linked(z, x, y) {
+                            continue;
+                        }
+                        // the same three nodes said another way (m = f / a, f = m * a): proposed once
+                        let three = |l: &str| {
+                            [z.as_str(), x.as_str(), y.as_str()].iter().all(|n| names_in(l).iter().any(|m| m == n))
+                        };
+                        if self.proposals.iter().any(|p| p.lines.iter().any(|l| three(l))) {
+                            continue;
+                        }
+                        let mut forms = vec![];
+                        if x != y && !quotients && close(*vz, vx * vy) {
+                            forms.push(format!("{z} = {x} * {y}"));
+                        }
+                        if x != y && quotients && close(*vz, vx / vy) {
+                            forms.push(format!("{z} = {x} / {y}"));
+                        }
+                        if x != y && quotients && close(*vz, vy / vx) {
+                            forms.push(format!("{z} = {y} / {x}"));
+                        }
+                        if x != y && !quotients && close(*vz, vx + vy) {
+                            forms.push(format!("{z} = {x} + {y}"));
+                        }
+                        for f in forms {
+                            let taken = |n: &str| {
+                                relation_names.iter().any(|r| r == n)
+                                    || self
+                                        .proposals
+                                        .iter()
+                                        .any(|p| p.lines.iter().any(|l| l.starts_with(&format!("relate {n}:"))))
+                            };
+                            let name = (1..).map(|i| format!("guess_{i}")).find(|n| !taken(n)).unwrap_or_default();
+                            let p = Proposal {
+                                lines: vec![format!("relate {name}: {f}")],
+                                why: format!("their values say so now ({f}): one moment only, to be checked"),
+                            };
+                            if self.propose(p) {
+                                said.push(format!("their values say {f}"));
+                                found += 1;
+                                if found >= 6 {
+                                    break 'outer;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        said
     }
 
     pub fn net(&self) -> &Network {
@@ -578,6 +950,8 @@ impl World {
                 ws.sleep(&dir.join(format!("{name}.world")))?;
                 let lines = serde_json::to_string(&ws.written).unwrap_or_default();
                 let _ = std::fs::write(dir.join(format!("{name}.lines.json")), lines);
+                let refused = serde_json::to_string(&ws.refused).unwrap_or_default();
+                let _ = std::fs::write(dir.join(format!("{name}.refused.json")), refused);
                 let passage = dir.join(format!("{name}.passage.grm"));
                 match &ws.passage {
                     Some((status, hash)) => {
@@ -746,6 +1120,9 @@ impl World {
             baseline: IndexMap::new(),
             written: vec![],
             passage: None,
+            asks_first: false,
+            proposals: vec![],
+            refused: vec![],
         };
         // its workshops, woken too
         let dir = path.with_extension("workshops");
@@ -767,6 +1144,11 @@ impl World {
                             _ => None,
                         }
                     });
+                    ws.asks_first = true;
+                    ws.refused = std::fs::read_to_string(dir.join(format!("{name}.refused.json")))
+                        .ok()
+                        .and_then(|t| serde_json::from_str(&t).ok())
+                        .unwrap_or_default();
                     w.workshops.insert(name, Box::new(ws));
                 }
             }
@@ -1054,6 +1436,14 @@ impl World {
             let nodes = &self.machine.net.nodes;
             let statements = law.statements(&name, &|n: &str| nodes.get(n).is_some_and(|s| !s.signed));
             self.laws.push((law.target.clone(), law.inputs.clone()));
+            if self.asks_first {
+                // a workshop asks: the law waits for a human (found in its rows: a table, an API)
+                let why = format!("found in its {} rows: {}", law.rows, law.text());
+                if self.propose(Proposal { lines: statements.clone(), why: why.clone() }) {
+                    said.push(format!("{why} — proposed"));
+                }
+                continue;
+            }
             let tried = self.open_sandbox(&name).and_then(|_| {
                 for l in &statements {
                     self.say_in(&name, l)?;
@@ -1567,6 +1957,88 @@ mod tests {
         assert!(!w.net().nodes.contains_key("e") && !w.net().nodes.contains_key("sqrt2"));
         // a node is not called as a constant is
         assert!(w.say("node pi = 3", &Provenance::of("base")).is_err());
+        // in a little arithmetic too (played again: `node m = 2*pi` was not a number)
+        let mut w = world(&["node m = 2*pi", "node q = tau / 4", "node k = 1e3 * 2", "node v = c0 * 1e-9"]);
+        assert!(close(w.machine.value_si("m"), 2.0 * PI));
+        assert!(close(w.machine.value_si("q"), TAU / 4.0));
+        assert!(close(w.machine.value_si("k"), 2000.0));
+        assert!(close(w.machine.value_si("v"), 0.299792458));
+        let e = w.say("node z = 2*pie", &Provenance::of("base")).unwrap_err().to_string();
+        assert!(e.contains("pie is not a constant") && e.contains("tau"), "{e}");
+    }
+
+    /// A workshop proposes, and asks: what its values say, the laws known elsewhere among its names (the node
+    /// missing at its value there), the laws of its rows; nothing is written before a human takes it, and what is
+    /// refused is never proposed again.
+    #[test]
+    fn a_workshop_proposes_and_waits_for_a_human() {
+        let o = Provenance::of("workshop:t");
+        let mut ws = World::workshop();
+        for l in ["node m = 70", "node a = 9.81", "node f = 686.7"] {
+            ws.write_line(l, &o).unwrap();
+        }
+        let known = vec![Known {
+            name: "phys_weight".into(),
+            text: "phys_w = phys_m * phys_g".into(),
+            nodes: vec![
+                ("phys_w".into(), 1.0, false),
+                ("phys_m".into(), 1.0, false),
+                ("phys_g".into(), 9.80665, false),
+            ],
+            source: "knowledge:physics".into(),
+        }];
+        let said = ws.look_for_proposals(&known);
+        assert!(!said.is_empty());
+        let lines: Vec<String> = ws.proposals.iter().flat_map(|p| p.lines.clone()).collect();
+        assert!(lines.iter().any(|l| l.ends_with("f = m * a")), "{lines:?}");
+        // nothing written yet
+        assert_eq!(ws.machine.net.relations.len(), 0);
+        let k = ws.proposals.iter().position(|p| p.lines.iter().any(|l| l.ends_with("f = m * a"))).unwrap();
+        ws.accept(k, &o).unwrap();
+        assert_eq!(ws.machine.net.relations.len(), 1);
+        assert!(ws.written.iter().any(|l| l.ends_with("f = m * a")));
+        // refused: never again
+        let n = ws.proposals.len();
+        if n > 0 {
+            let gone = ws.proposals[0].lines.clone();
+            ws.refuse(0).unwrap();
+            ws.look_for_proposals(&known);
+            assert!(!ws.proposals.iter().any(|p| p.lines == gone));
+        }
+        // a word that is not of the language, said with the closest
+        let e = ws.write_line("nod x = 1", &o).unwrap_err().to_string();
+        assert!(e.contains("did you mean 'node'"), "{e}");
+        // what a table holds is proposed, not written
+        let mut table = World::workshop();
+        table.write_line("input x positive", &o).unwrap();
+        table.write_line("input y positive", &o).unwrap();
+        let rows: Vec<(f64, IndexMap<String, f64>)> = (1..40)
+            .map(|k| {
+                let x = k as f64;
+                (x, [("x".to_string(), x), ("y".to_string(), 3.0 * x * x)].into_iter().collect())
+            })
+            .collect();
+        table.feed_rows(&rows).unwrap();
+        assert!(!table.proposals.is_empty(), "a law of its rows is proposed");
+        assert!(table.machine.net.relations.iter().all(|r| !r.name.starts_with("found_")));
+        let k = table.proposals.len() - 1;
+        table.accept(k, &o).unwrap();
+        assert!(table.machine.net.relations.iter().any(|r| r.name.starts_with("found_")));
+    }
+
+    /// Played again: `relate r2: f = m *` was taken (what follows an operator was missing, and nothing said so).
+    #[test]
+    fn an_equation_cut_short_is_said_so() {
+        let mut w = world(&["node f", "node m = 2"]);
+        for (line, said) in [
+            ("relate r2: f = m *", "ends with *"),
+            ("relate r3: f = * m", "begins with *"),
+            ("relate r4: f = m * / m", "between them"),
+        ] {
+            let e = w.say(line, &Provenance::of("base")).unwrap_err().to_string();
+            assert!(e.contains(said), "{line}: {e}");
+        }
+        assert!(w.say("relate r5: f = 3 * m", &Provenance::of("base")).is_ok());
     }
 
     #[test]

@@ -5,9 +5,14 @@ gallery app (`apps/gallery.grm`). What follows cannot be built that way. Each is
 engine as a browser draws a button: minimal, written once, called from GRML, taking its look from the style
 (`style/style.grm`), saying its words to whoever cannot see it (screen readers, the window's tests).
 
-Each is written here as it would be called. Nothing below exists yet, but the 3D view (§ 9, lot P2a).
+Each is written here as it would be called. Nothing below exists yet, but the 3D view (§ 9, lot P2a), and in part
+the lists the world fills, the list to choose from and the menus (§ 1, 3, 4: lot A, for the workshop).
 
 ## 1. Lists that come from the world
+
+*In part (lot A)*: `widget n: rows nodes WS` draws a list the world fills (a workshop's `nodes`, `relations`,
+`lines`, `proposals`, `moved`; the language's `words`; the `paths`), each row with its menu and a line said by a
+click (`say "screen pick {ws} {item}"`). Still to come: such a list read by `repeat` and `sum`.
 
 ```
 list sources = world sources          # the networks the world holds, kept up to date
@@ -41,7 +46,7 @@ widget networks: list sources selected chosen_source filter "networks" menu sour
 One row per item (its words, its sign, its menu), always scrolled by its own bar, Ctrl+F to filter, the chosen one
 written to a node (or to a list of one), keys up and down. A tree is a list whose items are lists (`tree`).
 
-## 4. `menu`: what a right click offers
+## 4. `menu`: what a right click offers (done, lot A)
 
 ```
 menu source_menu
@@ -64,6 +69,10 @@ end
 Shown while its node is 1; Escape and its cross set it to 0. What it holds is laid out as a column.
 
 ## 6. `editor`: code that is written
+
+*In part (lot A)*: `widget e: editor WS`, one line of the language for a workshop: coloured, said in words, what is
+wrong said at once, the names, the constants and the operators to put in it, a path's step. Still to come: a whole
+file, its errors at their lines, undo and redo, completion.
 
 ```
 widget code: editor file apps/studio.grm

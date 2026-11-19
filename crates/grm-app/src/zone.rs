@@ -127,7 +127,7 @@ pub fn body(app: &mut App, ui: &mut egui::Ui, kind: &Kind, view: &mut crate::vie
             app.view.passive = false;
             std::mem::swap(&mut app.view, view);
         }
-        Kind::Workshop(w) => crate::workshop::show(app, ui, w, view, small),
+        Kind::Workshop(w) => crate::screen::workshop(app, ui, w, view, small),
         Kind::File(p) => {
             let k = match app.files.iter().position(|f| &f.path == p) {
                 Some(k) => k,

@@ -12,20 +12,21 @@ use crate::text::{t, Lang};
 /// What a field waits for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Need {
-    /// A name: letters, digits and `_`, beginning with a letter.
-    Name,
-    /// A number (a comma or a point before the decimals, as one writes it).
+    /// A number (a comma or a point before the decimals, as one writes it; a constant, a little arithmetic).
     Number,
-    /// An equation: `NAME = expression`.
-    Equation,
-    /// An expression: `x + speed`.
-    Expression,
 }
 
 /// A number as it is written or pasted: `9,81`, `9.81`, `-2,5e3`, `1 000,5`, `9,81 m/s²` (what follows the number
 /// is its unit, left aside). None: there is no number in it.
 pub fn number(s: &str) -> Option<f64> {
     let s = s.trim();
+    // a constant, or a little arithmetic (2*pi, tau/4, c0): what the language reads
+    if s.starts_with(|c: char| c.is_ascii_alphabetic() || c == '(') || s.contains(['*', '/', '^', '(']) {
+        let whole = if s.matches(',').count() == 1 && !s.contains('.') { s.replace(',', ".") } else { s.to_string() };
+        if let Some(v) = grm_engine::lang::number(&whole).ok().filter(|v| v.is_finite()) {
+            return Some(v);
+        }
+    }
     let mut kept = String::new();
     let chars: Vec<char> = s.chars().collect();
     for (k, &c) in chars.iter().enumerate() {
@@ -61,29 +62,15 @@ pub fn number(s: &str) -> Option<f64> {
 pub fn missing(need: Need, s: &str, lang: Lang) -> Option<String> {
     let s = s.trim();
     let fine = match need {
-        Need::Name => grm_engine::lang::is_name(s),
         Need::Number => number(s).is_some(),
-        Need::Equation => s.contains('=') && crate::math::parse(s).is_some(),
-        Need::Expression => crate::math::parse(s).is_some(),
     };
     if fine {
         return None;
     }
     let key = match need {
-        Need::Name => "need_name",
         Need::Number => "need_number",
-        Need::Equation => "need_equation",
-        Need::Expression => "need_expression",
     };
     Some(t(lang, key).to_string())
-}
-
-/// What a field holds, written as the language wants it (a number with a point).
-pub fn written(need: Need, s: &str) -> String {
-    match need {
-        Need::Number => number(s).map(grm_engine::lang::g).unwrap_or_else(|| s.trim().to_string()),
-        _ => s.trim().to_string(),
-    }
 }
 
 /// A field: what it waits for shown in it while empty (an example), and under it, once something is written,
@@ -98,16 +85,12 @@ pub fn field(
     lang: Lang,
 ) -> (bool, egui::Response) {
     let ink = Ink::of(ui.ctx());
-    let code = matches!(need, Need::Equation | Need::Expression);
     let wrong = missing(need, value, lang);
     ui.vertical(|ui| {
-        let mut edit = egui::TextEdit::singleline(value)
+        let edit = egui::TextEdit::singleline(value)
             .margin(crate::style::field())
             .desired_width(width)
             .hint_text(crate::style::hint(example));
-        if code {
-            edit = edit.font(egui::TextStyle::Monospace);
-        }
         let r = ui.add(edit);
         if let Some(w) = wrong.as_ref().filter(|_| !value.trim().is_empty()) {
             ui.label(RichText::new(w).small().color(ink.amber));
@@ -172,7 +155,13 @@ mod tests {
         for s in ["", "m/s", "-", ",", "abc 3"] {
             assert_eq!(number(s), None, "{s}");
         }
-        assert_eq!(written(Need::Number, "9,81"), "9.81");
+        // a constant, or a little arithmetic on them (« pouvoir utiliser les constantes dans l'inspecteur »)
+        let close = |a: Option<f64>, b: f64| a.is_some_and(|a| (a - b).abs() < 1e-9);
+        assert!(close(number("2*pi"), std::f64::consts::TAU));
+        assert!(close(number("tau/4"), std::f64::consts::FRAC_PI_2));
+        assert!(close(number("c0"), 299_792_458.0));
+        assert!(close(number("2,5*pi"), 2.5 * std::f64::consts::PI));
+        assert_eq!(number("pie"), None);
     }
 
     /// Played again: « le symbole # ne marche pas dans la liste des tonalités » (the fonts have no ♯ nor ♭): her
@@ -189,8 +178,5 @@ mod tests {
         let fr = Lang::Fr;
         assert!(missing(Need::Number, "9,81", fr).is_none());
         assert!(missing(Need::Number, "vite", fr).unwrap().contains("9,81"));
-        assert!(missing(Need::Name, "2x", fr).is_some() && missing(Need::Name, "masse_1", fr).is_none());
-        assert!(missing(Need::Equation, "force = masse * a", fr).is_none());
-        assert!(missing(Need::Equation, "masse *", fr).is_some());
     }
 }

@@ -43,6 +43,8 @@ pub struct AppView {
     pub looks: Vec<(usize, String)>,
     /// The parts she may take in hand (`hand NAME when SWITCH: NODE ...`).
     pub hands: Vec<crate::apps::Hand>,
+    /// Its menus: what a right button offers.
+    pub menus: IndexMap<String, Vec<crate::apps::MenuItem>>,
 }
 
 /// A running app.
@@ -153,6 +155,7 @@ impl Shell {
                 can_redo: !a.redo.is_empty(),
                 looks: a.parsed.looks.clone(),
                 hands: a.parsed.hands.clone(),
+                menus: a.parsed.menus.clone(),
             })
             .collect()
     }

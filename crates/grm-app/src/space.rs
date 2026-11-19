@@ -294,7 +294,9 @@ impl App {
         self.detached = detached.into_iter().filter(|k| !gone(self, k)).collect();
         let here: std::collections::HashSet<String> = seen.into_iter().chain(self.workshops_coming.clone()).collect();
         self.workshop_pulls.retain(|w, _| here.contains(w));
-        self.workshop_state.retain(|w, _| here.contains(w));
+        self.benches.retain(|w, _| here.contains(w));
+        self.ws_views.retain(|w, _| here.contains(w));
+        self.screens.retain(|k, _| k.split_once(':').is_none_or(|(_, w)| here.contains(w)));
     }
 }
 

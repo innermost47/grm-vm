@@ -885,8 +885,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
         // the room of both rows kept, whether one is there or two (what is under them does not move)
         y = y.max(rect.top() + 8.0 + 2.0 * app.view.eq_row);
         app.view.eq_below = y - rect.top();
-        // the networks in the network: a list on the left, searched, scrolled (as many as there are)
-        if !app.view.passive {
+        // the networks in the network: a list on the left, searched, scrolled (as many as there are; a workshop is
+        // one network of its own: no list)
+        if !app.view.passive && app.write_into.is_none() {
             let counts = &prep.counts;
             let list =
                 Rect::from_min_max(pos2(rect.left() + 6.0, y + 2.0), pos2(rect.left() + 206.0, rect.bottom() - 28.0));

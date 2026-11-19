@@ -1,0 +1,16 @@
+# The inspector's part for the workshop in front: its nodes and its relations at once, their values changed in
+# place (a number or a constant: 2*pi, tau/4, c0). Written in GRML; {ws} is the workshop's name.
+app Inspector {ws}
+menu node_menu
+  item "change it" fr "le changer" icon pencil say "screen pick {ws} {item}" what "its line in the workshop's editor" whatfr "sa ligne dans l'éditeur de l'atelier"
+  item "its value" fr "sa valeur" icon hash say "screen value {ws} {item}" what "a number or a constant: 2*pi, tau/4, c0" whatfr "un nombre ou une constante : 2*pi, tau/4, c0"
+  item "ask" fr "demander" icon circle-help say "workshop ask {ws} {item}" what "what it is worth, how sure, and why" whatfr "ce qu'il vaut, avec quelle certitude, et pourquoi"
+  item "remove" fr "supprimer" icon trash-2 say "workshop remove {ws} {item}" when alone what "its line taken away" whatfr "sa ligne retirée"
+  item "remove with what uses it" fr "supprimer avec ce qui l'utilise" icon trash say "workshop remove {ws} {item} all" when used what "it, and every line that uses it" whatfr "lui, et chaque ligne qui l'utilise"
+end
+menu relation_menu
+  item "change it" fr "la changer" icon pencil say "screen pick {ws} {item}" what "its line in the workshop's editor" whatfr "sa ligne dans l'éditeur de l'atelier"
+  item "remove" fr "supprimer" icon trash-2 say "workshop remove {ws} {item} all" what "its line taken away" whatfr "sa ligne retirée"
+end
+widget nodes: rows nodes {ws} menu node_menu say "screen value {ws} {item}" at 0 0 size 12 5 "the nodes of the workshop {ws}" fr "les nœuds de l'atelier {ws}"
+widget relations: rows relations {ws} menu relation_menu say "screen pick {ws} {item}" at 0 5 size 12 3 "its relations" fr "ses relations"

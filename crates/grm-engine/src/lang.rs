@@ -58,10 +58,10 @@ pattern!(re_and, r"\s+and\s+".to_string());
 pattern!(re_dim, r"\[([^\]]*)\]\s*$".to_string());
 pattern!(re_ln, format!(r"^\s*({NAME})\s*=\s*ln\(\s*({NAME})\s*\)\s*$"));
 pattern!(re_keep, format!(r"^\s*({NAME})\s*(>=|<=)\s*(\S+)\s*$"));
-pattern!(re_node, format!(r"^({NAME})\s*(?:=\s*(\S+))?((?:\s+(?:fixed|signed))*)$"));
+pattern!(re_node, format!(r"^({NAME})\s*(?:=\s*(.+?))?((?:\s+(?:fixed|signed))*)$"));
 pattern!(re_observe, format!(r"^({NAME})\s*=\s*([^±]+?)\s*(?:±\s*(.+))?$"));
 pattern!(re_call, format!(r"^({NAME})\s*\(([^)]*)\)$"));
-pattern!(re_role, format!(r"^({NAME})\s*(?:=\s*(\S+))?(\s+positive)?$"));
+pattern!(re_role, format!(r"^({NAME})\s*(?:=\s*(.+?))?(\s+positive)?$"));
 pattern!(re_set, format!(r"^({NAME})\s*=\s*(.+)$"));
 pattern!(re_side_split, r"\s*([*/])\s*".to_string());
 pattern!(re_tight, r"([*/^(])\s+".to_string());
@@ -154,12 +154,65 @@ pub fn number(text: &str) -> Result<f64> {
             return Ok(v);
         }
     }
-    if re_arith().is_match(&lower) && lower.chars().any(|c| c.is_ascii_digit()) {
-        if let Some(v) = Arith::new(&lower).eval() {
+    // a decimal comma, as it is written in French (9,81)
+    if lower.matches(',').count() == 1 && !lower.contains('.') {
+        let pointed = lower.replace(',', ".");
+        if re_number_full().is_match(&pointed) {
+            if let Ok(v) = pointed.parse::<f64>() {
+                return Ok(v);
+            }
+        }
+    }
+    // the constants inside a little arithmetic: 2*pi, tau / 4, c0 * 1e-9
+    let with_constants = with_constants(&lower);
+    if re_arith().is_match(&with_constants) && with_constants.chars().any(|c| c.is_ascii_digit()) {
+        if let Some(v) = Arith::new(&with_constants).eval() {
             return Ok(v);
         }
     }
+    let names: Vec<&str> = lower
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .filter(|w| w.starts_with(|c: char| c.is_ascii_alphabetic()) && constant(w).is_none() && *w != "e")
+        .collect();
+    if let Some(n) = names.first() {
+        bail!(
+            "not a number: '{}' ({n} is not a constant; the constants are {})",
+            text,
+            CONSTANTS.iter().map(|c| c.0).collect::<Vec<_>>().join(", ")
+        )
+    }
     bail!("not a number: '{}'", text)
+}
+
+/// A little arithmetic with its constants written as numbers (`2*pi` → `2*3.141592653589793`).
+fn with_constants(text: &str) -> String {
+    let mut out = String::new();
+    let mut word = String::new();
+    let flush = |word: &mut String, out: &mut String| {
+        match constant(word).filter(|v| v.is_finite()) {
+            // a number's exponent (`1e3`) is not the constant e
+            Some(v) if !(word == "e" && out.ends_with(|c: char| c.is_ascii_digit() || c == '.')) => {
+                out.push_str(&format!("({v})"))
+            }
+            _ => out.push_str(word),
+        }
+        word.clear();
+    };
+    for c in text.chars() {
+        if c.is_ascii_alphanumeric() || c == '_' {
+            // a word begins with a letter: digits before it are a number
+            if word.is_empty() && c.is_ascii_digit() {
+                out.push(c);
+                continue;
+            }
+            word.push(c);
+        } else {
+            flush(&mut word, &mut out);
+            out.push(c);
+        }
+    }
+    flush(&mut word, &mut out);
+    out
 }
 
 /// A tiny evaluator of + - * / and parentheses on numbers.
@@ -288,14 +341,24 @@ pub fn parse_side(text: &str, signed_ok: bool) -> Result<(IndexMap<String, f64>,
         last = whole.end();
     }
     parts.push(&text[last..]);
+    // an operator stands between two terms: never first, never last, never two in a row
+    let mut wants_term: Option<&str> = Some("");
     for part in parts {
         if part == "*" || part == "/" {
+            if let Some(op) = wants_term {
+                if op.is_empty() {
+                    bail!("'{text}' begins with {part}: a term is missing before it");
+                }
+                bail!("'{text}': {op} then {part}, a term is missing between them");
+            }
+            wants_term = Some(part);
             sign = if part == "*" { 1.0 } else { -1.0 };
             continue;
         }
-        if part.is_empty() {
+        if part.trim().is_empty() {
             continue;
         }
+        wants_term = None;
         let (base, exp) = match part.split_once('^') {
             Some((b, e)) => (b, Some(e)),
             None => (part, None),
@@ -322,6 +385,9 @@ pub fn parse_side(text: &str, signed_ok: bool) -> Result<(IndexMap<String, f64>,
             bail!("cannot read '{}'", part);
         }
         sign = 1.0;
+    }
+    if let Some(op) = wants_term.filter(|op| !op.is_empty()) {
+        bail!("'{text}' ends with {op}: a term is missing after it");
     }
     Ok((terms, if signed_ok { coef } else { log_const }))
 }
@@ -842,7 +908,9 @@ fn vector_expansion(net: &Network, word: &str, rest: &str) -> Result<Option<Vec<
 
 fn node(net: &mut Network, rest: &str, origin: &Provenance) -> Result<String> {
     let (dim, rest) = dim_of(rest)?;
-    let Some(m) = re_node().captures(&rest) else { bail!("node NAME [= value] [fixed] [signed]") };
+    let Some(m) = re_node().captures(&rest) else {
+        bail!("node NAME [= value] [fixed] [signed], for example: node mass = 70")
+    };
     let name = m[1].to_string();
     own_name(&name)?;
     let flags: Vec<&str> = m.get(3).map(|f| f.as_str().split_whitespace().collect()).unwrap_or_default();

@@ -43,7 +43,7 @@ impl Home {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        for d in ["apps", "mind", "data", "widgets"] {
+        for d in ["apps", "mind", "data", "widgets", "screens"] {
             copy_dir(&root.join(d), &dir.join(d));
         }
         // the visit is not made again: it was made
@@ -141,7 +141,7 @@ fn a_workshop_closed_while_shown_leaves_nothing_behind_even_after_a_restart() {
     let a = h.state();
     assert!(!a.space.items.iter().any(|i| i.kind == kind), "the space still has the workshop");
     assert_ne!(a.zone_center.as_ref(), Some(&kind));
-    assert!(a.workshop_pulls.is_empty() && a.workshop_state.is_empty());
+    assert!(a.workshop_pulls.is_empty() && a.benches.is_empty());
     close(h);
     let written = std::fs::read_to_string(home.dir.join("space.grm")).unwrap_or_default();
     assert!(!written.contains("workshop fall"), "space.grm still places it:\n{written}");
@@ -188,24 +188,24 @@ fn where_a_workshop_is_on_its_way_in_is_kept_and_a_change_sends_it_through_the_a
     let mut h = open(&home);
     workshop_with_three_nodes(&mut h, "fall");
     frames_for(&mut h, 500);
-    click(&mut h, "Le faire entrer dans le réseau principal");
+    click(&mut h, "Le faire entrer");
     frames_until(&mut h, "the airlock", |a| a.airlock.is_some());
     click(&mut h, "Refuser");
     frames_until(&mut h, "refused", |a| a.picture.passages.iter().any(|p| p.0 == "fall" && p.1 == "refused"));
     assert_eq!(crate::airlock::passage(h.state(), "fall"), Some(crate::airlock::Passage::Refused));
-    assert!(h.query_by_label("Le faire entrer dans le réseau principal").is_none());
-    assert!(h.query_by_label("Refusé : repasser par le sas").is_some());
+    assert!(h.query_by_label("Le faire entrer").is_none());
+    assert!(h.query_by_label("Refusé : repasser").is_some());
     close(h);
     let mut h = open(&home);
     frames_until(&mut h, "the workshop again", |a| !a.picture.workshops.is_empty());
     assert_eq!(crate::airlock::passage(h.state(), "fall"), Some(crate::airlock::Passage::Refused), "forgotten");
     frames_for(&mut h, 300);
-    assert!(h.query_by_label("Refusé : repasser par le sas").is_some());
+    assert!(h.query_by_label("Refusé : repasser").is_some());
     say(&mut h, "workshop say fall node d = 4");
     frames_until(&mut h, "changed", |a| a.picture.passages.is_empty());
     assert_eq!(crate::airlock::passage(h.state(), "fall"), None);
     frames_for(&mut h, 300);
-    assert!(h.query_by_label("Le faire entrer dans le réseau principal").is_some());
+    assert!(h.query_by_label("Le faire entrer").is_some());
     close(h);
 }
 
@@ -387,26 +387,227 @@ fn widgets_hold_widgets_in_an_app() {
 }
 
 /// Played again: « le copié-collé ne marche pas dans le formulaire, c'est à cause de la virgule » and « il manque
-/// quoi ? ». A value written with a comma (pasted with its unit) is taken; what is missing is said.
+/// quoi ? ». The workshop is its GRML screen (`screens/workshop.grm`): a line written in its editor with a comma is
+/// taken (written as the language writes it); what is wrong is said in words before it is written.
 #[test]
-fn the_workshop_form_takes_a_comma_and_says_what_is_missing() {
-    let home = Home::new("ws-form");
+fn the_workshop_is_its_grml_screen_and_its_editor_says_what_is_wrong() {
+    let home = Home::new("ws-editor");
     let mut h = open(&home);
     say(&mut h, "workshop new fall");
     frames_until(&mut h, "the workshop", |a| a.picture.workshops.iter().any(|w| w.0 == "fall"));
-    let form = |name: &str, value: &str| {
-        let v: std::collections::HashMap<String, String> =
-            [("name".to_string(), name.to_string()), ("value".to_string(), value.to_string())].into_iter().collect();
-        crate::workshop::State { level: 1, form: Some(("node", v)), ..Default::default() }
-    };
-    h.state_mut().workshop_state.insert("fall".into(), form("2g", ""));
+    frames_until(&mut h, "its screen, read from its GRML file", |a| a.screens.contains_key("workshop:fall"));
+    // a word that is not of the language: said, with the closest one
+    say(&mut h, "screen write fall nod g = 1");
     frames_for(&mut h, 300);
-    assert!(h.query_by_label_contains("il manque").is_some(), "what is missing is not said");
-    h.state_mut().workshop_state.insert("fall".into(), form("g", "9,81 m/s²"));
+    assert!(h.query_by_label_contains("vouliez-vous dire « node »").is_some(), "the wrong word is not said");
+    // an equation cut short: said before it is written
+    say(&mut h, "screen write fall relate r: f = m *");
+    frames_for(&mut h, 300);
+    assert!(h.query_by_label_contains("il manque un terme après").is_some(), "the missing term is not said");
+    // a value with a comma, as it is pasted
+    say(&mut h, "screen write fall node g = 9,81");
     click(&mut h, "L'écrire");
     frames_until(&mut h, "the node written", |a| a.picture.workshops.iter().any(|w| w.0 == "fall" && w.1 == 1));
     let written = h.state().engine.query(|w| w.workshops["fall"].written.clone()).unwrap();
     assert_eq!(written, ["node g = 9.81"]);
+    // a constant in a value
+    say(&mut h, "screen write fall node turn = tau / 4");
+    click(&mut h, "L'écrire");
+    frames_until(&mut h, "the constant read", |a| a.picture.workshops.iter().any(|w| w.0 == "fall" && w.1 == 2));
+    let v = h.state().engine.query(|w| w.workshops["fall"].machine.value_si("turn")).unwrap();
+    assert!((v - std::f64::consts::FRAC_PI_2).abs() < 1e-6, "{v}");
+    // a line the machine refuses: what it said is in the editor, in words
+    say(&mut h, "workshop say fall node pi = 3");
+    frames_until(&mut h, "the error in the editor", |a| a.benches.get("fall").is_some_and(|b| b.error.is_some()));
+    frames_for(&mut h, 200);
+    assert!(
+        h.query_all_by_label_contains("pi est une constante").count() >= 1,
+        "the machine's answer is not said there"
+    );
+    close(h);
+}
+
+/// Every choice of the workshop's menus (written in GRML) does what it says: each line it says is understood,
+/// and does what its words say (« les clics droits dans les menus qui faisaient pas ce qu'ils disaient »).
+#[test]
+fn every_choice_of_the_workshop_menus_does_what_it_says() {
+    let home = Home::new("ws-menus");
+    let mut h = open(&home);
+    workshop_with_three_nodes(&mut h, "fall");
+    say(&mut h, "workshop say fall relate r: d = 2 * c");
+    frames_until(&mut h, "the relation", |a| a.picture.workshops.iter().any(|w| w.0 == "fall" && w.2 == 1));
+    frames_until(&mut h, "its screen", |a| a.screens.contains_key("workshop:fall"));
+    let view = h.state().screens["workshop:fall"].1.clone();
+    let node_menu = view.menus["node_menu"].clone();
+    let item_of = |h: &mut Harness<'static, App>, name: &str| {
+        crate::screen::items(h.state_mut(), "nodes", "fall").into_iter().find(|i| i.key == name).expect("the node")
+    };
+    let say_item = |h: &mut Harness<'static, App>, words: &str, item: &crate::screen::Item| {
+        let m = node_menu.iter().find(|m| m.words == words).unwrap_or_else(|| panic!("no item {words}"));
+        assert!(m.when.as_deref().is_none_or(|f| item.flags.contains(&f)), "{words} greyed on {}", item.key);
+        say(h, &crate::screen::with_item(&m.say, item));
+    };
+    // change it: its line in the editor, to change
+    let c = item_of(&mut h, "c");
+    say_item(&mut h, "change it", &c);
+    assert_eq!(h.state().benches["fall"].text, "node c = 3");
+    assert_eq!(h.state().benches["fall"].replacing, Some(2));
+    // its value: a field in place; a constant taken
+    say_item(&mut h, "its value", &c);
+    assert!(h.state().benches["fall"].value_of.as_ref().is_some_and(|v| v.0 == "c"));
+    say(&mut h, "workshop value fall c 2*pi");
+    frames_until(&mut h, "the value", |a| a.benches["fall"].value_of.is_none());
+    let v = h.state().engine.query(|w| w.workshops["fall"].machine.value_si("c")).unwrap();
+    assert!((v - std::f64::consts::TAU).abs() < 1e-6, "{v}");
+    // ask: its answer in the editor
+    say_item(&mut h, "ask", &c);
+    frames_until(&mut h, "the answer", |a| a.benches["fall"].answer.as_ref().is_some_and(|x| x.starts_with("c = ")));
+    // remove: a node used by a relation is not removed alone (greyed), with what uses it, it goes
+    let c = item_of(&mut h, "c");
+    assert!(c.flags.contains(&"used") && !c.flags.contains(&"alone"));
+    let a_node = item_of(&mut h, "a");
+    say_item(&mut h, "remove", &a_node);
+    frames_until(&mut h, "a removed", |a| a.picture.workshops.iter().any(|w| w.0 == "fall" && w.1 == 3));
+    say_item(&mut h, "remove with what uses it", &c);
+    frames_until(&mut h, "c and its relation removed", |a| {
+        a.picture.workshops.iter().any(|w| w.0 == "fall" && w.2 == 0)
+    });
+    let written = h.state().engine.query(|w| w.workshops["fall"].written.clone()).unwrap();
+    assert_eq!(written, ["node b = 2"], "what is left");
+    // a line taken back, from the lines' menu
+    let line_menu = view.menus["line_menu"].clone();
+    let line = crate::screen::items(h.state_mut(), "lines", "fall").remove(0);
+    say(&mut h, &crate::screen::with_item(&line_menu[1].say, &line));
+    frames_until(&mut h, "the line taken back", |a| a.picture.workshops.iter().any(|w| w.0 == "fall" && w.1 == 0));
+    // every line every menu says is one the window or the prompt understands
+    for (name, items) in &view.menus {
+        for m in items {
+            let word = m.say.split_whitespace().next().unwrap_or("");
+            assert!(matches!(word, "screen" | "workshop"), "{name}: {}", m.say);
+        }
+    }
+    close(h);
+}
+
+/// Played again: « au click droit c'est supposé faire quoi … Sa valeur ? » (its field opened out of sight, in the
+/// inspector), « quand Anthony a cliqué sur inspecteur, ça a étendu l'inspecteur sur la gauche jusqu'à plus de la
+/// moitié de l'écran », and « le bouton de fermeture … de l'atelier dans l'inspecteur marche pas ». Its value is
+/// changed in the workshop itself; the inspector keeps its width; its cross closes the workshop's part, which comes
+/// back when a node is asked for.
+#[test]
+fn its_value_is_changed_in_the_workshop_and_the_inspector_keeps_its_width_and_closes() {
+    let home = Home::new("ws-value");
+    let mut h = open(&home);
+    workshop_with_three_nodes(&mut h, "fall");
+    h.state_mut().tab = super::Tab::Inspector;
+    h.state_mut().side_open = true;
+    frames_until(&mut h, "the inspector's part", |a| a.screens.contains_key("workshop_inspector:fall"));
+    frames_for(&mut h, 400);
+    assert!(h.query_by_label_contains("les nœuds de l'atelier fall").is_some());
+    let side = h.state().areas["side"];
+    // its value: a field in the workshop (left of the inspector), focused
+    say(&mut h, "screen value fall c");
+    frames_for(&mut h, 400);
+    let field = h.get_by_label("ws-value").rect();
+    assert!(field.right() < side.left(), "the field is not in the workshop: {field:?} / {side:?}");
+    if let Some(v) = h.state_mut().benches.get_mut("fall").and_then(|b| b.value_of.as_mut()) {
+        v.1 = "2*pi".into();
+    }
+    frames_for(&mut h, 100);
+    h.key_press(egui::Key::Enter);
+    frames_until(&mut h, "the value written", |a| a.benches["fall"].value_of.is_none());
+    let v = h.state().engine.query(|w| w.workshops["fall"].machine.value_si("c")).unwrap();
+    assert!((v - std::f64::consts::TAU).abs() < 1e-6, "{v}");
+    // the inspector, clicked and written in: its width holds
+    frames_for(&mut h, 1000);
+    let now = h.state().areas["side"];
+    assert!((now.width() - side.width()).abs() < 2.0, "the inspector widened: {} -> {}", side.width(), now.width());
+    // played again: « si Anthony est sur Journal et passe sur Inspecteur, il grandit encore »: every tab, its width
+    for tab in [
+        super::Tab::Journal,
+        super::Tab::Inspector,
+        super::Tab::Sandboxes,
+        super::Tab::Sources,
+        super::Tab::Sound,
+        super::Tab::Insights,
+        super::Tab::Inspector,
+    ] {
+        h.state_mut().tab = tab;
+        frames_for(&mut h, 300);
+        let now = h.state().areas["side"];
+        assert!((now.width() - side.width()).abs() < 2.0, "{tab:?}: {} -> {}", side.width(), now.width());
+    }
+    // its cross: closed, and it stays closed
+    h.get_all_by_label("Fermer").find(|n| n.rect().left() > side.left()).unwrap().click();
+    frames_for(&mut h, 600);
+    assert!(h.query_by_label_contains("les nœuds de l'atelier fall").is_none(), "it did not close");
+    // a node asked for: back
+    say(&mut h, "screen pick fall c");
+    frames_for(&mut h, 400);
+    assert!(h.query_by_label_contains("les nœuds de l'atelier fall").is_some(), "it did not come back");
+    close(h);
+}
+
+/// The network proposes what is missing, and asks: a proposal is taken or refused by a click; a table loaded in a
+/// workshop has its laws proposed, never written before a human takes them.
+#[test]
+fn the_network_proposes_and_a_human_takes_or_refuses() {
+    let home = Home::new("ws-propose");
+    let mut h = open(&home);
+    say(&mut h, "workshop new weigh");
+    for l in ["node m = 70", "node a = 9.81", "node f = 686.7"] {
+        say(&mut h, &format!("workshop say weigh {l}"));
+    }
+    frames_until(&mut h, "three nodes", |a| a.picture.workshops.iter().any(|w| w.0 == "weigh" && w.1 == 3));
+    click(&mut h, "proposer");
+    frames_until(&mut h, "a proposal", |a| {
+        a.workshop_pulls.get("weigh").and_then(|p| p.1.clone()).is_some_and(|p| !p.proposals.is_empty())
+    });
+    frames_for(&mut h, 300);
+    assert!(h.query_all_by_label_contains("f = m * a").count() >= 1, "the proposal is not shown");
+    click(&mut h, "Le prendre");
+    frames_until(&mut h, "the relation taken", |a| a.picture.workshops.iter().any(|w| w.0 == "weigh" && w.2 == 1));
+    // a table: its law proposed, not written
+    let csv: String = std::iter::once("x,y".to_string())
+        .chain((1..40).map(|k| format!("{k},{}", 3 * k * k)))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let path = home.dir.join("square.csv");
+    std::fs::write(&path, csv).unwrap();
+    say(&mut h, &format!("load {} x y --into table", path.display()));
+    frames_until(&mut h, "the table's workshop", |a| a.picture.workshops.iter().any(|w| w.0 == "table"));
+    let (relations, proposals) = h
+        .state()
+        .engine
+        .query(|w| (w.workshops["table"].machine.net.relations.len(), w.workshops["table"].proposals.len()))
+        .unwrap();
+    assert_eq!(relations, 0, "a law was written before a human took it");
+    assert!(proposals > 0, "the table's law is not proposed");
+    say(&mut h, &format!("workshop refuse table {proposals}"));
+    let left = h.state().engine.query(|w| w.workshops["table"].proposals.len()).unwrap();
+    assert_eq!(left, proposals - 1);
+    close(h);
+}
+
+/// The inspector shows the workshop in front: its nodes and its relations at once; a path puts its steps in the
+/// editor, and they are written from there.
+#[test]
+fn the_inspector_shows_the_workshop_and_a_path_teaches_it() {
+    let home = Home::new("ws-path");
+    let mut h = open(&home);
+    say(&mut h, "workshop new learn");
+    frames_until(&mut h, "the workshop", |a| a.picture.workshops.iter().any(|w| w.0 == "learn"));
+    frames_for(&mut h, 300);
+    h.get_all_by_label("La loi de Newton").next().expect("the path").click();
+    frames_for(&mut h, 200);
+    assert!(h.state().benches["learn"].path.is_some());
+    click(&mut h, "La mettre dans l'éditeur");
+    assert_eq!(h.state().benches["learn"].text, "node mass = 70");
+    click(&mut h, "L'écrire");
+    frames_until(&mut h, "the step written", |a| a.picture.workshops.iter().any(|w| w.0 == "learn" && w.1 == 1));
+    frames_for(&mut h, 400);
+    assert!(h.query_by_label_contains("les nœuds de l'atelier learn").is_some(), "the inspector does not show it");
+    assert!(h.query_all_by_label("mass").count() >= 1, "its node is not shown");
     close(h);
 }
 

@@ -1143,13 +1143,27 @@ A **workshop** is a network apart, where nothing touches the main one. *New work
 loaded (`load FILE.csv`, a file dropped on the window) is learned in a workshop of its own (its time, the laws it
 finds), shown at once. `load FILE.csv COLUMNS --here` still learns it in the main network directly.
 
-**The workshop teaches the language.** On its left, the words of GRML as buttons, by what they say (what there is,
-what links them, what is known, time, the app): three levels show more of them (*First steps*, *More*,
-*Everything*). A word clicked opens a form, field by field (the nodes already there as buttons, the operators as
-buttons), with the line it will write shown as a terminal shows it and as mathematics. Every line written stays
-under the network with a sentence that says what it means, and can be taken back. *Step by step* walks through
-small paths (a blank page, Newton's second law, a falling body, an oscillator that is heard), each step explained,
-and `ask` answers in a card. Workshops are kept when the machine sleeps, beside its memory.
+**The workshop is written in GRML** (`screens/workshop.grm`, read again as soon as it changes) and **teaches the
+language.** On its left, the words of GRML by family (`screens/words.grm`: every word of the language, the
+constants too; a click puts its example in the editor) and the paths that teach it step by step
+(`screens/paths.grm`: a blank page, Newton's second law, a falling body, an oscillator that is heard). In the
+middle, the editor: the line coloured as it is written, said in words, what is wrong said at once and in words
+(*'nod' is not a word of the language: did you mean 'node'?*, *'f = m *' ends with *: a term is missing after it*),
+the names, the constants and the operators as buttons; Enter writes it. Under it, the network as it grows (a right
+click: what can be done with a node, or with nothing; every choice does what it says). Every line written stays
+below with a sentence that says what it means: a click changes it, the right button takes it back. Its nodes and
+relations are in the inspector at once, their values changed in place: a number, a constant or a little arithmetic
+(`2*pi`, `tau / 4`, `c0`, `9,81`). A node is removed alone, or with every line that uses it (said first).
+
+**The network proposes, and asks.** *Propose* looks for what is missing: a law known among its names (from the
+knowledge she starts with, the node missing at the value it has there), what its values say (a node that is the
+product, the quotient or the sum of two others), the laws a table's rows hold. Each proposal waits, to *take* or to
+*refuse* (refused, it is never proposed again). A table (CSV) or the world's data loaded in a workshop has its laws
+proposed, never written before a human takes them. Workshops are kept when the machine sleeps, beside its memory.
+
+In a line: `workshop say|edit|unsay|remove|value|ask|propose|accept|refuse|table|play|merge|close NAME ...`.
+
+![A workshop: the words, the editor, the network, a proposal; its nodes in the inspector](docs/workshop.png)
 
 **The airlock.** *Let it into my network* shows, before anything changes, what the workshop would bring (its nodes,
 its relations), what it would change (what would move, the strains before and after, conflicts), and the harmony

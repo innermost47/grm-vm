@@ -15,6 +15,44 @@ fn rules() -> &'static Vec<Rule> {
         let r = |p: &str, to: &'static str| (Regex::new(p).expect("a rule"), to);
         vec![
             r(r"^node (\S+) = (.*)$", "nœud $1 = $2"),
+            // the workshop: what is wrong said in French, with what to do
+            r(
+                r"^'(.*)' is not a word of the language: did you mean '(.*)'\? \(a line begins with (.*)\)$",
+                "« $1 » n'est pas un mot du langage : vouliez-vous dire « $2 » ? (une ligne commence par $3)",
+            ),
+            r(r"^'(.*)' is not a word of the language: a line begins with (.*)$", "« $1 » n'est pas un mot du langage : une ligne commence par $2"),
+            r(r"^'(.*)' ends with (\S+): a term is missing after it$", "« $1 » finit par $2 : il manque un terme après"),
+            r(r"^'(.*)' begins with (\S+): a term is missing before it$", "« $1 » commence par $2 : il manque un terme avant"),
+            r(r"^'(.*)': (\S+) then (\S+), a term is missing between them$", "« $1 » : $2 puis $3, il manque un terme entre les deux"),
+            r(
+                r"^not a number: '(.*)' \((\S+) is not a constant; the constants are (.*)\)$",
+                "pas un nombre : « $1 » ($2 n'est pas une constante ; les constantes sont $3)",
+            ),
+            r(r"^not a number: '(.*)'$", "pas un nombre : « $1 »"),
+            r(r"^(\S+) is a constant \((.*)\): a node is called otherwise$", "$1 est une constante ($2) : un nœud s'appelle autrement"),
+            r(
+                r"^(\S+) is used by: (.*)\. To remove it with them: (.*)$",
+                "$1 est utilisé par : $2. Pour le supprimer avec elles : « supprimer avec ce qui l'utilise » ($3)",
+            ),
+            r(r"^(\S+) is not a node of the workshop (\S+)$", "$1 n'est pas un nœud de l'atelier $2"),
+            r(r"^(\S+) is not in the workshop (\S+) \(nothing written makes it or uses it\)$", "$1 n'est pas dans l'atelier $2 (aucune ligne ne le fait ni ne l'utilise)"),
+            r(r"^removed from (\S+): (.*)$", "supprimé de $1 : $2"),
+            r(r"^taken back from (\S+): (.*)$", "repris de $1 : $2"),
+            r(r"^taken: (.*)$", "pris : $1"),
+            r(r"^their values say so now \((.*)\): one moment only, to be checked$", "leurs valeurs le disent maintenant ($1) : un seul instant, à vérifier"),
+            r(r"^a law known in (\S+) \((\S+) is missing here, at its value there\): (.*)$", "une loi connue dans $1 ($2 manque ici, à sa valeur de là-bas) : $3"),
+            r(r"^a law known in (\S+): (.*)$", "une loi connue dans $1 : $2"),
+            r(r"^found in its (\d+) rows: (.*)$", "trouvée dans ses $1 lignes : $2"),
+            r(r"^refused: (.*)$", "refusé : $1"),
+            r(r"^(\d+) new, (\d+) proposal\(s\) waiting in (\S+): take or refuse each$", "$1 nouvelle(s), $2 proposition(s) en attente dans $3 : à prendre ou à refuser"),
+            r(
+                r"^nothing to propose in (\S+) for now: .*$",
+                "rien à proposer dans $1 pour l'instant : plus de nœuds avec des valeurs, ou un tableau, lui donneraient de quoi chercher",
+            ),
+            r(r"^(\d+) proposal\(s\) wait in the workshop (\S+): take or refuse each$", "$1 proposition(s) attendent dans l'atelier $2 : à prendre ou à refuser"),
+            r(r"^no workshop (\S+) \(workshop new (\S+) makes one\)$", "pas d'atelier $1 (workshop new $2 en fait un)"),
+            r(r"^the proposal cannot be written: (.*)$", "la proposition ne peut pas être écrite : $1"),
+            r(r"^line (\d+) \((.*)\): (.*) — nothing was changed$", "ligne $1 ($2) : $3 — rien n'a changé"),
             // why: who says what of a node, and how much it weighs
             r(r"^why (\S+) = (.*)$", "pourquoi $1 = $2"),
             r(
@@ -153,6 +191,10 @@ pub fn fr(text: &str) -> String {
     if text.contains('\n') {
         return text.split('\n').map(fr).collect::<Vec<_>>().join("\n");
     }
+    // what to do, said after what went wrong: `(for example: LINE)`
+    if let Some((what, example)) = text.strip_suffix(')').and_then(|t| t.rsplit_once(" (for example: ")) {
+        return format!("{} (par exemple : {example})", fr(what));
+    }
     for (re, to) in rules() {
         if re.is_match(text) {
             return re.replace(text, *to).to_string();
@@ -171,6 +213,12 @@ mod tests {
         assert_eq!(fr("observed mass = 2 ± 0.01 dex"), "observé mass = 2 ± 0.01 dex");
         assert_eq!(fr("synth, line 4: no node x"), "synth, ligne 4 : no node x");
         assert_eq!(fr("something new"), "something new");
+        assert_eq!(
+            fr("'m *' ends with *: a term is missing after it (for example: relate newton: force = mass * acceleration)"),
+            "« m * » finit par * : il manque un terme après (par exemple : relate newton: force = mass * acceleration)"
+        );
+        assert!(fr("'nod' is not a word of the language: did you mean 'node'? (a line begins with node, relate)")
+            .contains("vouliez-vous dire « node »"));
         let why = "why distance = 18 (± 0.01 dex)\n  50.0 %  relation run: distance = speed * time\n          says 18\n  and 1 that say almost nothing of it";
         assert_eq!(
             fr(why),

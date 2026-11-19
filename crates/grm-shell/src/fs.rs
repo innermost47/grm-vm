@@ -857,8 +857,10 @@ impl Shell {
             let origin = grm_engine::Provenance::of(format!("owid:{entity}"));
             let ws_name = name.clone();
             let learned = engine.ask(move |w| {
-                let ws =
-                    w.workshops.entry(ws_name.clone()).or_insert_with(|| Box::new(grm_engine::world::World::new()));
+                let ws = w
+                    .workshops
+                    .entry(ws_name.clone())
+                    .or_insert_with(|| Box::new(grm_engine::world::World::workshop()));
                 ws.time.unit = "year".into();
                 for (n, pos) in &positive {
                     if !ws.machine.net.nodes.contains_key(n) {
@@ -909,8 +911,11 @@ impl Shell {
         let table = grm_connect::csv::read(&grm_connect::csv::text_of(&bytes));
         let leaning = self.leaning(file, &table);
         let numeric: Vec<bool> = (0..table.names.len()).map(|k| table.numeric(k)).collect();
-        let mut chosen: Vec<String> =
-            paths[1..].iter().filter(|s| **s != "--mix" && **s != "--here").map(|s| s.to_string()).collect();
+        let mut chosen: Vec<String> = paths[1..]
+            .iter()
+            .filter(|s| !matches!(**s, "--mix" | "--here" | "--into"))
+            .map(|s| s.to_string())
+            .collect();
         // the name after `--into` is not a column
         if let Some(k) = rest.split_whitespace().position(|w| w == "--into") {
             if let Some(n) = rest.split_whitespace().nth(k + 1) {
@@ -1071,7 +1076,8 @@ impl Shell {
         let origin = grm_engine::Provenance::of(source);
         let ws_name = name.to_string();
         let mut out = crate::said(engine.ask(move |w| {
-            let ws = w.workshops.entry(ws_name.clone()).or_insert_with(|| Box::new(grm_engine::world::World::new()));
+            let ws =
+                w.workshops.entry(ws_name.clone()).or_insert_with(|| Box::new(grm_engine::world::World::workshop()));
             for (n, pos) in names.iter().zip(&positive) {
                 if !ws.machine.net.nodes.contains_key(n) {
                     ws.say(&format!("input {n}{}", if *pos { " positive" } else { "" }), &origin)?;
@@ -1085,6 +1091,10 @@ impl Shell {
             );
             for f in found {
                 text.push_str(&format!("\nfound by itself: {f}"));
+            }
+            let waiting = ws.proposals.len();
+            if waiting > 0 {
+                text.push_str(&format!("\n{waiting} proposal(s) wait in the workshop {ws_name}: take or refuse each"));
             }
             text.push_str(&format!("\nwhen it is ready: workshop merge {ws_name}"));
             let tick = w.machine.net.ticks;
@@ -1156,7 +1166,7 @@ impl Shell {
                     if w.workshops.contains_key(&n) {
                         return Err(grm_engine::GrmError::new(format!("there is already a workshop {n}")));
                     }
-                    w.workshops.insert(n.clone(), Box::new(grm_engine::world::World::new()));
+                    w.workshops.insert(n.clone(), Box::new(grm_engine::world::World::workshop()));
                     Ok(format!("workshop {n} opened: a network of its own, empty"))
                 }));
                 if self.window {
@@ -1168,48 +1178,177 @@ impl Shell {
                 // the rest of the line, as written, said in the workshop only
                 let line = rest.trim_start().strip_prefix("say").unwrap_or("").trim_start();
                 let line = line.strip_prefix(name.as_str()).unwrap_or("").trim().to_string();
+                if line.is_empty() {
+                    return vec![Line::warn(format!("? workshop say {name} LINE (for example: node mass = 70)"))];
+                }
+                if let Some(node) = line.strip_prefix("ask ") {
+                    return self.workshop(engine, &format!("ask {name} {node}"));
+                }
+                if let Some(node) = line.strip_prefix("play ") {
+                    return self.workshop(engine, &format!("play {name} {node}"));
+                }
                 let n = name.clone();
                 crate::said(engine.ask(move |w| {
-                    let Some(ws) = w.workshops.get_mut(&n) else {
-                        return Err(grm_engine::GrmError::new(format!("no workshop {n}")));
-                    };
+                    let ws = workshop_of_world(w, &n)?;
                     let origin = grm_engine::Provenance::of(format!("workshop:{n}"));
-                    let said = ws.say(&line, &origin)?;
-                    // a small network: built anew, so that everything it holds is heard at once
-                    if let Ok(m) = grm_engine::machine::Machine::new(ws.machine.net.clone()) {
-                        ws.machine = m;
-                    }
-                    ws.machine.run(4000);
-                    ws.written.push(line.clone());
-                    Ok(said.unwrap_or_default())
+                    ws.write_line(&line, &origin).map_err(|e| explained(&line, e))
                 }))
             }
-            "unsay" => {
-                // a line taken back: the workshop is said again without it
-                let k: usize = words.next().and_then(|x| x.parse().ok()).unwrap_or(usize::MAX);
+            "unsay" | "edit" | "remove" | "value" => {
+                // a line taken back, changed, a node or a relation removed, a value changed: the workshop is said
+                // again from its lines
+                let what = what.to_string();
+                let tail: Vec<String> = words.map(String::from).collect();
                 let n = name.clone();
                 crate::said(engine.ask(move |w| {
-                    let Some(ws) = w.workshops.get_mut(&n) else {
-                        return Err(grm_engine::GrmError::new(format!("no workshop {n}")));
-                    };
-                    if k >= ws.written.len() {
-                        return Err(grm_engine::GrmError::new(format!("no line {k} in the workshop {n}")));
-                    }
-                    let mut lines = ws.written.clone();
-                    let gone = lines.remove(k);
-                    let mut fresh = grm_engine::world::World::new();
+                    let ws = workshop_of_world(w, &n)?;
                     let origin = grm_engine::Provenance::of(format!("workshop:{n}"));
-                    for l in &lines {
-                        let _ = fresh.say(l, &origin);
-                    }
-                    if let Ok(m) = grm_engine::machine::Machine::new(fresh.machine.net.clone()) {
-                        fresh.machine = m;
-                    }
-                    fresh.machine.run(4000);
-                    fresh.written = lines;
-                    **ws = fresh;
-                    Ok(format!("taken back from {n}: {gone}"))
+                    let mut lines = ws.written.clone();
+                    let said = match what.as_str() {
+                        "unsay" => {
+                            let k: usize = tail.first().and_then(|x| x.parse().ok()).unwrap_or(usize::MAX);
+                            if k >= lines.len() {
+                                return Err(grm_engine::GrmError::new(format!("no line {k} in the workshop {n}")));
+                            }
+                            format!("taken back from {n}: {}", lines.remove(k))
+                        }
+                        "edit" => {
+                            let k: usize = tail.first().and_then(|x| x.parse().ok()).unwrap_or(usize::MAX);
+                            let new = tail.iter().skip(1).cloned().collect::<Vec<_>>().join(" ");
+                            if k >= lines.len() {
+                                return Err(grm_engine::GrmError::new(format!("no line {k} in the workshop {n}")));
+                            }
+                            if new.trim().is_empty() {
+                                return Err(grm_engine::GrmError::new(
+                                    "? workshop edit NAME K LINE: the new line is missing",
+                                ));
+                            }
+                            let old = std::mem::replace(&mut lines[k], new.clone());
+                            format!("{old} → {new}")
+                        }
+                        "remove" => {
+                            let Some(target) = tail.first().cloned() else {
+                                return Err(grm_engine::GrmError::new("? workshop remove NAME NODE_OR_RELATION [all]"));
+                            };
+                            let all = tail.get(1).is_some_and(|x| x == "all");
+                            let made = ws.line_of(&target);
+                            let users = ws.lines_using(&target);
+                            if made.is_none() && users.is_empty() {
+                                return Err(grm_engine::GrmError::new(format!(
+                                    "{target} is not in the workshop {n} (nothing written makes it or uses it)"
+                                )));
+                            }
+                            if !users.is_empty() && !all {
+                                let used: Vec<String> = users.iter().map(|k| ws.written[*k].clone()).collect();
+                                return Err(grm_engine::GrmError::new(format!(
+                                    "{target} is used by: {}. To remove it with them: workshop remove {n} {target} all",
+                                    used.join(" · ")
+                                )));
+                            }
+                            let mut gone: Vec<usize> = made.into_iter().chain(users).collect();
+                            gone.sort_unstable();
+                            gone.dedup();
+                            let said: Vec<String> = gone.iter().map(|k| lines[*k].clone()).collect();
+                            for k in gone.into_iter().rev() {
+                                lines.remove(k);
+                            }
+                            format!("removed from {n}: {}", said.join(" · "))
+                        }
+                        _ => {
+                            // value NODE EXPRESSION: what it starts from, or what was measured of it
+                            let Some(target) = tail.first().cloned() else {
+                                return Err(grm_engine::GrmError::new(
+                                    "? workshop value NAME NODE VALUE (2*pi, tau/4, 9.81)",
+                                ));
+                            };
+                            let expr = tail.iter().skip(1).cloned().collect::<Vec<_>>().join(" ");
+                            let v = grm_engine::lang::number(&expr)?;
+                            let observed = lines.iter().rposition(|l| {
+                                let l = grm_engine::lang::normal(l);
+                                l.starts_with("observe ")
+                                    && l[8..].split('=').next().map(str::trim) == Some(target.as_str())
+                            });
+                            // a node others depend on holds the value given as a measurement (the others follow it);
+                            // a node alone starts from it
+                            let used = ws.machine.net.relations.iter().any(|r| r.nodes().contains(&target));
+                            match (observed, ws.line_of(&target)) {
+                                (Some(k), _) => lines[k] = format!("observe {target} = {expr}"),
+                                (None, Some(_)) | (None, None) if used => {
+                                    lines.push(format!("observe {target} = {expr}"))
+                                }
+                                (None, Some(k)) => lines[k] = with_value(&lines[k], &target, &expr),
+                                (None, None) => lines.push(format!("node {target} = {expr}")),
+                            }
+                            format!("{target} = {expr} ({})", grm_engine::lang::g(v))
+                        }
+                    };
+                    ws.said_again(lines, &origin)
+                        .map_err(|e| grm_engine::GrmError::new(format!("{e} — nothing was changed")))?;
+                    Ok(said)
                 }))
+            }
+            "ask" => {
+                let node = words.next().unwrap_or("").to_string();
+                let n = name.clone();
+                crate::said(engine.ask(move |w| {
+                    let ws = workshop_of_world(w, &n)?;
+                    if !ws.machine.net.nodes.contains_key(&node) {
+                        return Err(grm_engine::GrmError::new(format!("{node} is not a node of the workshop {n}")));
+                    }
+                    let (v, s) = ws.machine.reading(&node);
+                    let signed = ws.machine.net.nodes.get(&node).is_some_and(|x| x.signed);
+                    // its spread as one says it: a percentage, or that nothing holds it yet
+                    let spread = if signed {
+                        format!("± {}", grm_engine::lang::g(s))
+                    } else if s < 5e-4 {
+                        "(exactly)".to_string()
+                    } else if s > 2.0 {
+                        "(not sure at all: nothing measured holds it)".to_string()
+                    } else {
+                        format!("± {}%", grm_engine::lang::fmt_g((10f64.powf(s) - 1.0) * 100.0, 2))
+                    };
+                    let why = ws.why_value(&node).unwrap_or_default();
+                    Ok(format!("{node} = {} {spread}\n{why}", grm_engine::lang::g(v)).trim_end().to_string())
+                }))
+            }
+            "propose" => {
+                let n = name.clone();
+                crate::said(engine.ask(move |w| {
+                    let known = w.known();
+                    let ws = workshop_of_world(w, &n)?;
+                    let found = ws.look_for_proposals(&known);
+                    let waiting = ws.proposals.len();
+                    if waiting == 0 {
+                        return Ok(format!(
+                            "nothing to propose in {n} for now: more nodes with values, or a table (workshop table {n}), give it more to look at"
+                        ));
+                    }
+                    Ok(format!("{} new, {waiting} proposal(s) waiting in {n}: take or refuse each", found.len()))
+                }))
+            }
+            "accept" | "refuse" => {
+                let k: usize = words.next().and_then(|x| x.parse::<usize>().ok()).unwrap_or(0);
+                let n = name.clone();
+                let accept = what == "accept";
+                crate::said(engine.ask(move |w| {
+                    let ws = workshop_of_world(w, &n)?;
+                    let origin = grm_engine::Provenance::of(format!("workshop:{n}"));
+                    // counted from 1, as the window shows them
+                    let k = k.saturating_sub(1);
+                    if accept {
+                        ws.accept(k, &origin)
+                    } else {
+                        ws.refuse(k)
+                    }
+                }))
+            }
+            "table" => {
+                if self.window {
+                    self.orders.push(Order::PickTable(name.clone()));
+                    vec![Line::dim(format!("a table for the workshop {name}: choose it"))]
+                } else {
+                    vec![Line::warn(format!("? load FILE.csv --into {name}"))]
+                }
             }
             "play" => {
                 let node = words.next().unwrap_or("").to_string();
@@ -1234,9 +1373,7 @@ impl Shell {
                     None => Err(grm_engine::GrmError::new(format!("no workshop {n}"))),
                 }))
             }
-            _ => vec![Line::warn(
-                "? workshop [list | new NAME | show NAME | say NAME LINE | unsay NAME K | play NAME NODE | merge NAME | close NAME]",
-            )],
+            _ => vec![Line::warn(WORKSHOP_USAGE)],
         }
     }
 
@@ -1253,6 +1390,58 @@ impl Shell {
             })
             .collect()
     }
+}
+
+const WORKSHOP_USAGE: &str =
+    "? workshop [list | new NAME | show NAME | say NAME LINE | edit NAME K LINE | unsay NAME K | \
+    remove NAME NODE [all] | value NAME NODE VALUE | ask NAME NODE | propose NAME | accept NAME K | refuse NAME K | \
+    table NAME | play NAME NODE | merge NAME | close NAME]";
+
+/// A workshop of the world, by its name (said so when there is none).
+fn workshop_of_world<'a>(
+    w: &'a mut grm_engine::world::World,
+    n: &str,
+) -> grm_engine::Result<&'a mut grm_engine::world::World> {
+    match w.workshops.get_mut(n) {
+        Some(ws) => Ok(ws),
+        None => Err(grm_engine::GrmError::new(format!("no workshop {n} (workshop new {n} makes one)"))),
+    }
+}
+
+/// A line that could not be said, said with what to do: its example when its word is known.
+fn explained(line: &str, e: grm_engine::GrmError) -> grm_engine::GrmError {
+    let word = line.split_whitespace().next().unwrap_or("").to_lowercase();
+    let example = match word.as_str() {
+        "node" => "node mass = 70",
+        "relate" => "relate newton: force = mass * acceleration",
+        "observe" => "observe mass = 70",
+        "input" => "input pitch = 220 positive",
+        "keep" => "keep floor: height >= 0",
+        "set" => "set position = position + speed",
+        "var" => "var position = 0",
+        _ => "",
+    };
+    let text = e.to_string();
+    if example.is_empty() || text.contains("for example") {
+        e
+    } else {
+        grm_engine::GrmError::new(format!("{text} (for example: {example})"))
+    }
+}
+
+/// A line that makes a node, with another value (`node m = 70 signed` → `node m = 2*pi signed`).
+fn with_value(line: &str, name: &str, expr: &str) -> String {
+    let normal = grm_engine::lang::normal(line);
+    let mut words = normal.split_whitespace();
+    let word = words.next().unwrap_or("node").to_string();
+    let flags: Vec<&str> =
+        normal.split_whitespace().filter(|w| matches!(*w, "signed" | "fixed" | "positive")).collect();
+    let mut out = format!("{word} {name} = {expr}");
+    for f in flags {
+        out.push(' ');
+        out.push_str(f);
+    }
+    out
 }
 
 #[cfg(test)]

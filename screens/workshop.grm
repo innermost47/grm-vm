@@ -1,0 +1,51 @@
+# The workshop: a network made apart, and the place where the language is learned by writing it.
+# This screen is written in GRML. The window opens it for each workshop, {ws} written as the workshop's name.
+# On the left, the words of the language and the paths that teach it; in the middle, the line being written and
+# the network as it grows, and what it proposes; below, every line written. Its nodes and its relations are in the
+# inspector, on the right (screens/workshop_inspector.grm), their values changed in place.
+app Workshop {ws}
+icon hammer
+
+# what the right button offers, on a node, a relation, a line, a word, or nothing ({item}: the one it is opened on)
+menu node_menu
+  item "change it" fr "le changer" icon pencil say "screen pick {ws} {item}" what "its line in the editor" whatfr "sa ligne dans l'éditeur"
+  item "its value" fr "sa valeur" icon hash say "screen value {ws} {item}" what "a number or a constant: 2*pi, tau/4, c0" whatfr "un nombre ou une constante : 2*pi, tau/4, c0"
+  item "ask" fr "demander" icon circle-help say "workshop ask {ws} {item}" what "what it is worth, how sure, and why" whatfr "ce qu'il vaut, avec quelle certitude, et pourquoi"
+  item "play" fr "écouter" icon play say "workshop play {ws} {item}" when heard what "heard, as a sound" whatfr "l'entendre, comme un son"
+  item "remove" fr "supprimer" icon trash-2 say "workshop remove {ws} {item}" when alone what "its line taken away" whatfr "sa ligne retirée"
+  item "remove with what uses it" fr "supprimer avec ce qui l'utilise" icon trash say "workshop remove {ws} {item} all" when used what "it, and every line that uses it" whatfr "lui, et chaque ligne qui l'utilise"
+end
+menu relation_menu
+  item "change it" fr "la changer" icon pencil say "screen pick {ws} {item}" what "its line in the editor" whatfr "sa ligne dans l'éditeur"
+  item "remove" fr "supprimer" icon trash-2 say "workshop remove {ws} {item} all" what "its line taken away" whatfr "sa ligne retirée"
+end
+menu line_menu
+  item "change it" fr "la changer" icon pencil say "screen edit {ws} {item.i}" what "the line in the editor" whatfr "la ligne dans l'éditeur"
+  item "take it back" fr "la reprendre" icon undo-2 say "workshop unsay {ws} {item.i}" what "the workshop said again without it" whatfr "l'atelier redit sans elle"
+end
+menu word_menu
+  item "write one" fr "en écrire un" icon pen-line say "screen write {ws} {item.example}" what "its example in the editor" whatfr "son exemple dans l'éditeur"
+end
+menu moved_menu
+  item "share it" fr "la partager" icon share-2 say "screen export {ws}" what "the simulation in a file: its lines, and what moved" whatfr "la simulation dans un fichier : ses lignes, et ce qui a bougé"
+end
+menu background_menu
+  item "a new node" fr "un nouveau nœud" icon circle-plus say "screen write {ws} node x = 1" what "a quantity: its name, its value" whatfr "une quantité : son nom, sa valeur"
+  item "a new relation" fr "une nouvelle relation" icon spline say "screen write {ws} relate r: y = 2 * x" what "an equation between nodes" whatfr "une équation entre des nœuds"
+  item "propose what is missing" fr "proposer ce qui manque" icon sparkles say "workshop propose {ws}" what "relations and nodes, each to take or refuse" whatfr "relations et nœuds, chacun à prendre ou refuser"
+  item "fit" fr "cadrer" icon scan-search say "screen fit {ws}" what "everything in view" whatfr "tout dans la vue"
+end
+
+widget bar: row at 0 0 size 12 1
+  widget propose: button "propose" fr "proposer" icon sparkles say "workshop propose {ws}" size 3 1 tip "The network looks for what is missing (relations, nodes): each proposal waits on the right, to take or to refuse" tipfr "Le réseau cherche ce qui manque (relations, nœuds) : chaque proposition attend à droite, à prendre ou à refuser"
+  widget table: button "a table" fr "un tableau" icon sheet say "workshop table {ws}" size 3 1 tip "A CSV table: its columns become nodes, and the laws they hold are proposed" tipfr "Un tableau CSV : ses colonnes deviennent des nœuds, et les lois qu'elles suivent sont proposées"
+  widget fit: button "fit" fr "cadrer" icon scan-search say "screen fit {ws}" size 2 1 tip "Everything in view" tipfr "Tout dans la vue"
+  widget door: airlock {ws} size 4 1
+end
+widget words: rows words {ws} menu word_menu say "screen write {ws} {item.example}" at 0 1 size 3 7 "the words" fr "les mots" tip "Each word of the language: a click puts its example in the editor" tipfr "Chaque mot du langage : un clic met son exemple dans l'éditeur"
+widget paths: rows paths {ws} say "screen path {ws} {item.i}" at 0 8 size 3 4 "paths" fr "parcours" tip "Step by step: from a blank page, or from an example" tipfr "Pas à pas : depuis une page blanche, ou depuis un exemple"
+widget write: editor {ws} at 3 1 size 9 5
+widget net: network {ws} menu node_menu at 3 6 size 6 6
+widget proposals: rows proposals {ws} at 9 6 size 3 6 "proposals" fr "propositions" tip "What the network proposes: take it or refuse it" tipfr "Ce que le réseau propose : le prendre ou le refuser"
+widget lines: rows lines {ws} menu line_menu say "screen edit {ws} {item.i}" at 0 12 size 9 4 "lines" fr "lignes" tip "Every line written, in words: a click changes it, the right button takes it back" tipfr "Chaque ligne écrite, en mots : un clic la change, le bouton droit la reprend"
+widget moved: rows moved {ws} menu moved_menu at 9 12 size 3 4 "what moved" fr "ce qui a bougé" tip "In a simulation: what moved from its reality (the right button shares it)" tipfr "Dans une simulation : ce qui a bougé depuis sa réalité (le bouton droit la partage)"

@@ -127,6 +127,8 @@ fn node_sign(n: &crate::model::NodeView) -> &'static str {
 
 /// The inspector.
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
+    // the workshop in front: its nodes and relations at once (its screen, written in GRML)
+    crate::screen::inspector(app, ui);
     let ink = Ink::of(ui.ctx());
     let lang = app.settings.lang;
     let pic = app.picture.clone();
