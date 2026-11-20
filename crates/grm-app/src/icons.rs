@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
-use eframe::egui::{self, vec2, Color32, Response};
+use eframe::egui::{ self, vec2, Color32, Response };
 
 static TABLE: &str = include_str!("../../../assets/icons/lucide.tsv");
 
@@ -14,8 +14,7 @@ static TABLE: &str = include_str!("../../../assets/icons/lucide.tsv");
 fn all() -> &'static BTreeMap<&'static str, String> {
     static ALL: OnceLock<BTreeMap<&'static str, String>> = OnceLock::new();
     ALL.get_or_init(|| {
-        TABLE
-            .lines()
+        TABLE.lines()
             .filter_map(|l| l.split_once('\t'))
             .map(|(name, inner)| {
                 (
@@ -45,9 +44,14 @@ pub fn names() -> impl Iterator<Item = &'static str> {
 pub fn image(name: &str, size: f32, colour: Color32) -> egui::Image<'static> {
     let (name, svg) = match all().get_key_value(name) {
         Some((k, v)) => (*k, v),
-        None => all().get_key_value("circle-help").map(|(k, v)| (*k, v)).expect("the question mark"),
+        None =>
+            all()
+                .get_key_value("circle-help")
+                .map(|(k, v)| (*k, v))
+                .expect("the question mark"),
     };
-    egui::Image::from_bytes(format!("bytes://icon/{name}.svg"), svg.as_bytes())
+    egui::Image
+        ::from_bytes(format!("bytes://icon/{name}.svg"), svg.as_bytes())
         .fit_to_exact_size(vec2(size, size))
         .tint(colour)
 }
@@ -64,9 +68,22 @@ pub fn button(ui: &mut egui::Ui, name: &str, text: impl Into<egui::WidgetText>) 
 }
 
 /// A button with its sign and its words, shown as chosen or not.
-pub fn toggle(ui: &mut egui::Ui, name: &str, text: impl Into<egui::WidgetText>, on: bool) -> Response {
+pub fn toggle(
+    ui: &mut egui::Ui,
+    name: &str,
+    text: impl Into<egui::WidgetText>,
+    on: bool
+) -> Response {
     let colour = if on { ui.visuals().selection.stroke.color } else { ui.visuals().text_color() };
-    ui.add(egui::Button::image_and_text(image(name, 15.0, colour), text).selected(on))
+    let widget_text = text.into();
+
+    if widget_text.is_empty() {
+        let b = egui::Button::image(image(name, 15.0, colour)).selected(on);
+        ui.add(b)
+    } else {
+        let b = egui::Button::image_and_text(image(name, 15.0, colour), widget_text).selected(on);
+        ui.add(b)
+    }
 }
 
 /// A button that is only its sign (what it does is said when the pointer rests on it).
@@ -153,6 +170,8 @@ mod tests {
         ] {
             assert!(exists(n), "{n}");
         }
-        assert!(all()["play"].contains("stroke=\"#fff\"") && !all()["play"].contains("currentColor"));
+        assert!(
+            all()["play"].contains("stroke=\"#fff\"") && !all()["play"].contains("currentColor")
+        );
     }
 }

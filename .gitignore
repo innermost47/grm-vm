@@ -31,3 +31,5 @@ space.grm
 # Kept here, never pushed: the notes of each lot and the rules the work follows.
 RELEASE_NOTES.md
 CLAUDE.md
+
+build_grm_os.py

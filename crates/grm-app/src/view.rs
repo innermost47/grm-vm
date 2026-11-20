@@ -856,41 +856,18 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
             });
         }
     }
-    // the master equation, top left, and the one of what is shown
     {
         let mut y = rect.top() + 8.0;
-        // drawn as mathematics (right click: LaTeX), what it gathers said beside it
-        for (key, m, colour) in
-            [("master_now", app.master.0.clone(), ink.text), ("master_here", app.master.1.clone(), ink.muted)]
-        {
-            let Some((eq, note)) = m else { continue };
-            let area = Rect::from_min_size(pos2(rect.left() + 6.0, y), vec2(rect.width() - 12.0, 90.0));
-            let mut child = ui
-                .new_child(egui::UiBuilder::new().max_rect(area).layout(egui::Layout::left_to_right(egui::Align::Min)));
-            let inner = egui::Frame::new()
-                .fill(faded(ink.surface, 0.85))
-                .corner_radius(crate::style::corner())
-                .inner_margin(egui::Margin::symmetric(6, 2))
-                .show(&mut child, |ui| {
-                    ui.horizontal(|ui| {
-                        crate::icons::show(ui, "sigma", 14.0, colour);
-                        ui.label(egui::RichText::new(t(lang, key)).small().color(colour));
-                        crate::math::show(ui, &eq, 14.0, lang);
-                        ui.label(egui::RichText::new(note).small().color(ink.muted));
-                    });
-                });
-            y = inner.response.rect.bottom() + 4.0;
-            app.view.eq_row = inner.response.rect.height() + 4.0;
-        }
-        // the room of both rows kept, whether one is there or two (what is under them does not move)
         y = y.max(rect.top() + 8.0 + 2.0 * app.view.eq_row);
         app.view.eq_below = y - rect.top();
-        // the networks in the network: a list on the left, searched, scrolled (as many as there are; a workshop is
-        // one network of its own: no list)
+
         if !app.view.passive && app.write_into.is_none() {
             let counts = &prep.counts;
-            let list =
-                Rect::from_min_max(pos2(rect.left() + 6.0, y + 2.0), pos2(rect.left() + 206.0, rect.bottom() - 28.0));
+            let height = ui.available_height();
+            let list = Rect::from_min_size(
+                pos2(rect.left() + 6.0, rect.top() + 8.0), 
+                vec2(200.0, height)
+            );
             let mut child =
                 ui.new_child(egui::UiBuilder::new().max_rect(list).layout(egui::Layout::top_down(egui::Align::Min)));
             egui::Frame::new()
@@ -899,7 +876,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
                 .corner_radius(crate::style::corner())
                 .inner_margin(egui::Margin::same(6))
                 .show(&mut child, |ui| {
-                    ui.set_width(list.width() - 12.0);
+                    ui.set_width(ui.available_width());
                     ui.horizontal(|ui| {
                         crate::icons::show(ui, "search", 13.0, ink.muted);
                         ui.add(
@@ -915,45 +892,58 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
                     {
                         app.focus = None;
                     }
-                    egui::ScrollArea::vertical().id_salt("net-list").max_height(list.height() - 70.0).show(ui, |ui| {
-                        for (s, k) in counts.iter().filter(|(s, _)| q.is_empty() || s.to_lowercase().contains(&q)) {
-                            let colour = ink.source(app.colours.get(s).copied().unwrap_or(0));
-                            let on = app.focus.as_deref() == Some(s.as_str());
-                            let r = ui
-                                .horizontal(|ui| {
-                                    let (dot, _) = ui.allocate_exact_size(vec2(10.0, 14.0), Sense::hover());
-                                    ui.painter().circle_filled(dot.center(), 4.0, colour);
-                                    let text =
-                                        egui::RichText::new(s).small().color(if on { ink.on_chosen() } else { colour });
-                                    let b = egui::Button::new(text)
-                                        .fill(if on {
-                                            crate::style::under_words(colour)
-                                        } else {
-                                            egui::Color32::TRANSPARENT
-                                        })
-                                        .frame(on);
-                                    let r = ui.add(b);
-                                    ui.label(egui::RichText::new(format!("{k}")).small().color(ink.muted));
-                                    r
-                                })
-                                .inner;
-                            if r.double_clicked() {
-                                zoom_to_net(app, rect, &full, s);
-                            } else if r.clicked() {
-                                app.focus = if on { None } else { Some(s.clone()) };
+                    let scroll_output = egui::ScrollArea::vertical()
+                        .id_salt("net-list")
+                        .auto_shrink([false, false])
+                        .max_height(list.height() - 70.0)
+                        .show(ui, |ui| {
+                            for (s, k) in counts.iter().filter(|(s, _)| q.is_empty() || s.to_lowercase().contains(&q)) {
+                                let colour = ink.source(app.colours.get(s).copied().unwrap_or(0));
+                                let on = app.focus.as_deref() == Some(s.as_str());
+                                let r = ui
+                                    .horizontal(|ui| {
+                                        let (dot, _) = ui.allocate_exact_size(vec2(10.0, 14.0), Sense::hover());
+                                        ui.painter().circle_filled(dot.center(), 4.0, colour);
+                                        let text =
+                                            egui::RichText::new(s).small().color(if on { ink.on_chosen() } else { colour });
+                                        let b = egui::Button::new(text)
+                                            .fill(if on {
+                                                crate::style::under_words(colour)
+                                            } else {
+                                                egui::Color32::TRANSPARENT
+                                            })
+                                            .frame(on);
+                                        let r = ui.add(b);
+                                        ui.label(egui::RichText::new(format!("{k}")).small().color(ink.muted));
+                                        r
+                                    })
+                                    .inner;
+                                if r.double_clicked() {
+                                    zoom_to_net(app, rect, &full, s);
+                                } else if r.clicked() {
+                                    app.focus = if on { None } else { Some(s.clone()) };
+                                }
+                                let outputs: Vec<String> = pic
+                                    .nodes
+                                    .iter()
+                                    .filter(|n| &n.source == s && n.output)
+                                    .map(|n| n.name.clone())
+                                    .collect();
+                                r.on_hover_text(t(lang, "net_list_hint")).context_menu(|ui| {
+                                    ui.set_min_width(280.0);
+                                    crate::tree::network_menu(app, ui, s, &outputs)
+                                });
                             }
-                            let outputs: Vec<String> = pic
-                                .nodes
-                                .iter()
-                                .filter(|n| &n.source == s && n.output)
-                                .map(|n| n.name.clone())
-                                .collect();
-                            r.on_hover_text(t(lang, "net_list_hint")).context_menu(|ui| {
-                                ui.set_min_width(280.0);
-                                crate::tree::network_menu(app, ui, s, &outputs)
-                            });
-                        }
-                    });
+                        });
+
+                    if scroll_output.inner_rect.contains(ui.input(|i| i.pointer.hover_pos().unwrap_or_default()))
+                    || ui.rect_contains_pointer(list)
+                    {
+                        ui.input_mut(|i| {
+                            i.smooth_scroll_delta = egui::Vec2::ZERO;
+                            i.raw_scroll_delta = egui::Vec2::ZERO;
+                        });
+                    }
                 });
         }
     }

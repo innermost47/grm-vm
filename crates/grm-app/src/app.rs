@@ -2494,8 +2494,9 @@ impl eframe::App for App {
             if self.side_open {
                 let r = egui::SidePanel::right("side")
                     .resizable(true)
+                    .min_width(sizes.side)  
                     .default_width(sizes.side)
-                    .width_range(260.0..=(size.x * 0.6).max(280.0))
+                    .width_range(300.0..=(size.x * 0.6).max(320.0))
                     .show(ctx, |ui| {
                         // the panel keeps the width it has, whatever it shows (a tab, a wide line): what it holds
                         // is laid out in that width and clipped there, never widening it frame after frame

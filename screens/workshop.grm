@@ -36,7 +36,7 @@ menu background_menu
   item "fit" fr "cadrer" icon scan-search say "screen fit {ws}" what "everything in view" whatfr "tout dans la vue"
 end
 
-widget bar: row at 0 0 size 12 1
+widget bar: row at 0 0 size 14 1
   widget propose: button "propose" fr "proposer" icon sparkles say "workshop propose {ws}" size 3 1 tip "The network looks for what is missing (relations, nodes): each proposal waits on the right, to take or to refuse" tipfr "Le réseau cherche ce qui manque (relations, nœuds) : chaque proposition attend à droite, à prendre ou à refuser"
   widget table: button "a table" fr "un tableau" icon sheet say "workshop table {ws}" size 3 1 tip "A CSV table: its columns become nodes, and the laws they hold are proposed" tipfr "Un tableau CSV : ses colonnes deviennent des nœuds, et les lois qu'elles suivent sont proposées"
   widget fit: button "fit" fr "cadrer" icon scan-search say "screen fit {ws}" size 2 1 tip "Everything in view" tipfr "Tout dans la vue"
