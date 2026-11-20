@@ -171,12 +171,21 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
     }
     // what is near the pointer stays still (to take it, or stop it, without a fight)
     app.graph.held.clear();
-    if let Some(m) = resp.hover_pos() {
-        let (zoom, centre) = (app.view.zoom, rect.center() + app.view.offset);
-        let reach = 90.0 / zoom;
-        let here = [(m.x - centre.x) / zoom, (m.y - centre.y) / zoom];
-        for (k, p) in &app.graph.pos {
-            if (p[0] - here[0]).hypot(p[1] - here[1]) < reach {
+    if app.view.zoom > 0.35 {
+        if let Some(m) = resp.hover_pos() {
+            let (zoom, centre) = (app.view.zoom, rect.center() + app.view.offset);
+            let reach = (60.0 / zoom).min(100.0);
+            let here = [(m.x - centre.x) / zoom, (m.y - centre.y) / zoom];
+
+            let mut close: Vec<(f32, &String)> = app.graph.pos.iter()
+                .filter_map(|(k, p)| {
+                    let d = (p[0] - here[0]).hypot(p[1] - here[1]);
+                    if d < reach { Some((d, k)) } else { None }
+                })
+                .collect();
+
+            close.sort_by(|a, b| a.0.total_cmp(&b.0));
+            for (_, k) in close.into_iter().take(5) {
                 app.graph.held.insert(k.clone());
             }
         }
@@ -257,8 +266,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
     // the triangle: the container in which the content is reflected, and the content reflecting the container (two,
     // and their relation: three). It is no centre of the network: it stays above it, at the top and in the middle of
     // the view, and the light goes both ways through it, coming back changed
-    let below = (app.view.eq_below + 30.0).max(48.0);
-    let witness_at = (!screen.is_empty()).then(|| rect.center_top() + vec2(0.0, below));
+    let r_witness = 24.0;
+    let witness_at = (!screen.is_empty()).then(|| {
+        pos2(rect.center().x, rect.top() + 8.0 + r_witness)
+    });
     if let Some(c) = witness_at {
         let g = &full.glance;
         let passing: Vec<String> = g
@@ -296,6 +307,42 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
                 let beyond = c + (c - p).normalized() * 22.0;
                 painter.line_segment([p, beyond], Stroke::new(1.0_f32, thread));
             }
+        }
+    }
+    if let Some(c) = witness_at {
+        // the triangle, over the threads and the links, under the nodes and the networks gathered: empty (nothing is kept in it), a second fainter one around it, the reflection
+        let r = r_witness;
+        let tri = |r: f32, turn: f32| -> Vec<Pos2> {
+            (0..3)
+                .map(|k| {
+                    let a = -std::f32::consts::FRAC_PI_2 + turn + k as f32 * std::f32::consts::TAU / 3.0;
+                    c + vec2(a.cos(), a.sin()) * r
+                })
+                .collect()
+        };
+        painter.add(Shape::convex_polygon(
+            tri(r, 0.0),
+            ink.surface,
+            Stroke::new(1.8_f32, ink.accent.gamma_multiply(0.85)),
+        ));
+        painter.add(Shape::closed_line(
+            tri(r + 9.0, std::f32::consts::PI),
+            Stroke::new(0.8_f32, ink.accent.gamma_multiply(0.25)),
+        ));
+        if pointer_over(&resp, c, r + 6.0) {
+            resp.clone().on_hover_ui(|ui| {
+                let lang = app.settings.lang;
+                let ink = crate::app::Ink::of(ui.ctx());
+                ui.horizontal(|ui| {
+                    crate::icons::show(ui, "triangle", 15.0, ink.accent);
+                    ui.label(egui::RichText::new(crate::text::t(lang, "witness")).strong());
+                });
+                ui.label(egui::RichText::new(crate::text::t(lang, "witness_d")).small().color(ink.muted));
+                ui.separator();
+                crate::panels::witness_lines(app, ui);
+                ui.separator();
+                crate::panels::witness_equations(app, ui);
+            });
         }
     }
     // links: each relation to its nodes; from afar, what joins the packets (once each, as thick as how many)
@@ -368,42 +415,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
         }
         if pointer.is_some_and(|m| m.distance(p) < s + 4.0) {
             hover_rel = Some(r.name.clone());
-        }
-    }
-    if let Some(c) = witness_at {
-        // the triangle, over the threads and the links, under the nodes and the networks gathered: empty (nothing is kept in it), a second fainter one around it, the reflection
-        let r = 17.0;
-        let tri = |r: f32, turn: f32| -> Vec<Pos2> {
-            (0..3)
-                .map(|k| {
-                    let a = -std::f32::consts::FRAC_PI_2 + turn + k as f32 * std::f32::consts::TAU / 3.0;
-                    c + vec2(a.cos(), a.sin()) * r
-                })
-                .collect()
-        };
-        painter.add(Shape::convex_polygon(
-            tri(r, 0.0),
-            ink.surface,
-            Stroke::new(1.6_f32, ink.accent.gamma_multiply(0.85)),
-        ));
-        painter.add(Shape::closed_line(
-            tri(r + 7.0, std::f32::consts::PI),
-            Stroke::new(0.7_f32, ink.accent.gamma_multiply(0.22)),
-        ));
-        if pointer_over(&resp, c, r + 6.0) {
-            resp.clone().on_hover_ui(|ui| {
-                let lang = app.settings.lang;
-                let ink = crate::app::Ink::of(ui.ctx());
-                ui.horizontal(|ui| {
-                    crate::icons::show(ui, "triangle", 15.0, ink.accent);
-                    ui.label(egui::RichText::new(crate::text::t(lang, "witness")).strong());
-                });
-                ui.label(egui::RichText::new(crate::text::t(lang, "witness_d")).small().color(ink.muted));
-                ui.separator();
-                crate::panels::witness_lines(app, ui);
-                ui.separator();
-                crate::panels::witness_equations(app, ui);
-            });
         }
     }
     // nodes
@@ -1029,7 +1040,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, only: Option<&str>) {
                     Some((ws, n.clone()))
                 };
             }
-            Some(n) => app.select(n, command),
+            Some(n) => {app.select(n, command)},
             // a relation clicked opens in the inspector, as a node does
             None if hover_rel.is_some() => app.show_relation(hover_rel.as_deref().unwrap_or_default()),
             None if !command => app.selected.clear(),

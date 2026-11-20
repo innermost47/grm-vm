@@ -342,10 +342,13 @@ fn node_row(
             act = Some(format!("play {name}"));
         }
     });
-    if app.tree_scroll.as_deref() == Some(&format!("node:{name}")) {
+
+    let scroll_key = format!("node:{name}");
+    if app.tree_scroll.as_deref() == Some(&scroll_key) {
         out.label.scroll_to_me(Some(egui::Align::Center));
         app.tree_scroll = None;
     }
+
     if let Some(a) = act {
         app.say(a);
     }

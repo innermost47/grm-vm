@@ -23,8 +23,7 @@ pub fn sign_of(tab: Tab) -> &'static str {
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let lang = app.settings.lang;
 
-    egui::Frame
-        ::new()
+    egui::Frame::new()
         .inner_margin(egui::Margin::symmetric(8, 6))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -45,24 +44,24 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         });
 
     ui.separator();
+
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
 
-            ui.spacing_mut().item_spacing.x = 6.0;
-            
-            ui.horizontal(|ui| {
-                ui.add_space(6.0); 
-                ui.vertical(|ui| {
-                    match app.tab {
-                        Tab::Inspector => crate::tree::show(app, ui),
-                        Tab::Sandboxes => sandboxes(app, ui),
-                        Tab::Sources => sources(app, ui),
-                        Tab::Journal => journal(app, ui),
-                        Tab::Sound => sound(app, ui),
-                        Tab::Insights => crate::insights::panel(app, ui),
-                    }
-                });
+            ui.spacing_mut().item_spacing.y = 6.0;
+            ui.spacing_mut().indent = 6.0;
+
+
+            ui.indent("side-panel-indent", |ui| {
+                match app.tab {
+                    Tab::Inspector => crate::tree::show(app, ui),
+                    Tab::Sandboxes => sandboxes(app, ui),
+                    Tab::Sources => sources(app, ui),
+                    Tab::Journal => journal(app, ui),
+                    Tab::Sound => sound(app, ui),
+                    Tab::Insights => crate::insights::panel(app, ui),
+                }
             });
         });
 }

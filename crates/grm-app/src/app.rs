@@ -1603,8 +1603,17 @@ impl App {
             self.selected = vec![node.to_string()];
         }
         self.detail_pull.soon();
+
         if self.selected.len() == 1 {
+            self.tree_scroll = Some(format!("node:{node}"));
+            if let Some(n) = self.picture.node(node) {
+                let net = format!("n:{}", n.source);
+                self.tree_open.insert(net.clone());
+                self.tree_open.insert(format!("{net}/nodes"));
+            }
+
             self.tab = Tab::Inspector;
+            self.side_open = true;
         }
     }
 
