@@ -2123,167 +2123,176 @@ impl App {
         }
     }
 
+    fn render_prompt_bar(&mut self, ui: &mut egui::Ui, id: egui::Id, ink: &Ink) {
+        let (sign, what) = if self.prompt_open {
+            ("panel-bottom-close", t(self.settings.lang, "fold_prompt"))
+        } else {
+            ("panel-bottom-open", t(self.settings.lang, "unfold_prompt"))
+        };
+        if crate::icons::sign(ui, sign, what).clicked() {
+            self.prompt_open = !self.prompt_open;
+        }
+        let here = std::env::current_dir()
+            .map(|d| {
+                let d = d.display().to_string();
+                let home = std::env::var("HOME").unwrap_or_default();
+                if !home.is_empty() && d.starts_with(&home) {
+                    format!("~{}", &d[home.len()..])
+                } else {
+                    d
+                }
+            })
+            .unwrap_or_default();
+        ui.label(RichText::new(format!("grm {here}›")).monospace().color(ink.accent));
+        let has_focus = ui.memory(|m| m.has_focus(id));
+        if has_focus {
+            let (up, down, tab) = ui.input_mut(|i| {
+                (
+                    i.consume_key(Modifiers::NONE, Key::ArrowUp),
+                    i.consume_key(Modifiers::NONE, Key::ArrowDown),
+                    i.consume_key(Modifiers::NONE, Key::Tab),
+                )
+            });
+            let mut moved = false;
+            if up && !self.history.is_empty() {
+                let k = self.history_at.map(|k| k.saturating_sub(1)).unwrap_or(self.history.len() - 1);
+                self.history_at = Some(k);
+                self.input = self.history[k].clone();
+                moved = true;
+            }
+            if down {
+                if let Some(k) = self.history_at {
+                    if k + 1 < self.history.len() {
+                        self.history_at = Some(k + 1);
+                        self.input = self.history[k + 1].clone();
+                    } else {
+                        self.history_at = None;
+                        self.input.clear();
+                    }
+                    moved = true;
+                }
+            }
+            if tab {
+                self.input = self.complete(&self.input);
+                moved = true;
+            }
+            if moved {
+                if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), id) {
+                    let end = egui::text::CCursor::new(self.input.chars().count());
+                    state.cursor.set_char_range(Some(egui::text::CCursorRange::one(end)));
+                    state.store(ui.ctx(), id);
+                }
+            }
+        }
+        let asking = self.asking;
+        let width = ui.available_width() - if asking { 140.0 } else { 0.0 };
+        let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, _w: f32| {
+            let job = crate::code::highlight_line(&ink, text.as_str());
+            ui.ctx().fonts_mut(|f| f.layout_job(job))
+        };
+        let edit = egui::TextEdit::singleline(&mut self.input)
+            .margin(crate::style::field())
+            .layouter(&mut layouter)
+            .id(id)
+            .lock_focus(true)
+            .font(egui::TextStyle::Monospace)
+            .hint_text(crate::style::hint(t(self.settings.lang, "prompt_hint")))
+            .desired_width(width.max(80.0));
+        let r = ui.add(edit);
+        if self.focus_prompt {
+            r.request_focus();
+            self.focus_prompt = false;
+        }
+        if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
+            let line = std::mem::take(&mut self.input);
+            self.history_at = None;
+            if !line.trim().is_empty() {
+                self.say(line);
+            }
+            r.request_focus();
+        }
+        if asking {
+            if ui.button(self.tr("yes")).clicked() {
+                self.say("y");
+            }
+            if ui.button(self.tr("no")).clicked() {
+                self.say("n");
+            }
+        }
+    }
+
     fn prompt(&mut self, ui: &mut egui::Ui) {
         let ink = Ink::of(ui.ctx());
-        // it fills the height the human gave it (a panel keeps the height of what it holds)
-        ui.set_min_height(ui.available_height());
-        {
-            let id = egui::Id::new("prompt-line");
+        let id = egui::Id::new("prompt-line");
+
+        if self.prompt_open {
+            ui.set_min_height(ui.available_height());
             let line_h = ui.spacing().interact_size.y + 10.0;
-            if self.prompt_open {
-                egui::ScrollArea::vertical()
-                    .max_height((ui.available_height() - line_h).max(20.0))
-                    .auto_shrink([false, false])
-                    .stick_to_bottom(true)
-                    .show(ui, |ui| {
-                        for (kind, text) in &self.log {
-                            let colour = match kind {
-                                LineKind::Said => ink.text,
-                                LineKind::Dim => ink.muted,
-                                LineKind::Warning | LineKind::Ask => ink.amber,
-                                LineKind::Error => ink.amber,
-                            };
-                            if let Some(banner) = text.strip_prefix('\u{1}') {
-                                ui.label(RichText::new(banner).monospace().color(ink.accent));
-                                continue;
-                            }
-                            // what was said: coloured as code is
-                            if let Some(said) = text.strip_prefix("› ") {
-                                let mut job = crate::code::highlight_line(&ink, said);
-                                job.sections
-                                    .iter_mut()
-                                    .for_each(|s| s.format.color = s.format.color.gamma_multiply(0.75));
-                                job.sections.insert(
-                                    0,
-                                    egui::text::LayoutSection {
-                                        leading_space: 0.0,
-                                        byte_range: 0..0,
-                                        format: Default::default(),
-                                    },
-                                );
-                                let mut full = egui::text::LayoutJob::default();
-                                full.append(
-                                    "› ",
-                                    0.0,
-                                    egui::TextFormat::simple(crate::style::code(crate::style::Size::Text), ink.muted),
-                                );
-                                for sec in job.sections.iter().skip(1) {
-                                    full.append(&job.text[sec.byte_range.clone()], 0.0, sec.format.clone());
-                                }
-                                ui.add(egui::Label::new(full).selectable(true));
-                                continue;
-                            }
-                            let shown = if self.settings.lang == Lang::Fr && !text.starts_with("› ") {
-                                crate::french::fr(text)
-                            } else {
-                                text.clone()
-                            };
-                            let rich = RichText::new(shown).monospace().color(colour);
-                            let rich = if *kind == LineKind::Error { rich.strong() } else { rich };
-                            // what the prompt said can be selected and copied
-                            ui.add(egui::Label::new(rich).selectable(true));
+            
+            egui::ScrollArea::vertical()
+                .max_height((ui.available_height() - line_h).max(20.0))
+                .auto_shrink([false, false])
+                .stick_to_bottom(true)
+                .show(ui, |ui| {
+                    for (kind, text) in &self.log {
+                        let colour = match kind {
+                            LineKind::Said => ink.text,
+                            LineKind::Dim => ink.muted,
+                            LineKind::Warning | LineKind::Ask => ink.amber,
+                            LineKind::Error => ink.amber,
+                        };
+                        if let Some(banner) = text.strip_prefix('\u{1}') {
+                            ui.label(RichText::new(banner).monospace().color(ink.accent));
+                            continue;
                         }
-                    });
-            }
-            ui.horizontal(|ui| {
-                let (sign, what) = if self.prompt_open {
-                    ("panel-bottom-close", t(self.settings.lang, "fold_prompt"))
-                } else {
-                    ("panel-bottom-open", t(self.settings.lang, "unfold_prompt"))
-                };
-                if crate::icons::sign(ui, sign, what).clicked() {
-                    self.prompt_open = !self.prompt_open;
-                }
-                let here = std::env::current_dir()
-                    .map(|d| {
-                        let d = d.display().to_string();
-                        let home = std::env::var("HOME").unwrap_or_default();
-                        if !home.is_empty() && d.starts_with(&home) {
-                            format!("~{}", &d[home.len()..])
+                        if let Some(said) = text.strip_prefix("› ") {
+                            let mut job = crate::code::highlight_line(&ink, said);
+                            job.sections
+                                .iter_mut()
+                                .for_each(|s| s.format.color = s.format.color.gamma_multiply(0.75));
+                            job.sections.insert(
+                                0,
+                                egui::text::LayoutSection {
+                                    leading_space: 0.0,
+                                    byte_range: 0..0,
+                                    format: Default::default(),
+                                },
+                            );
+                            let mut full = egui::text::LayoutJob::default();
+                            full.append(
+                                "› ",
+                                0.0,
+                                egui::TextFormat::simple(crate::style::code(crate::style::Size::Text), ink.muted),
+                            );
+                            for sec in job.sections.iter().skip(1) {
+                                full.append(&job.text[sec.byte_range.clone()], 0.0, sec.format.clone());
+                            }
+                            ui.add(egui::Label::new(full).selectable(true));
+                            continue;
+                        }
+                        let shown = if self.settings.lang == Lang::Fr && !text.starts_with("› ") {
+                            crate::french::fr(text)
                         } else {
-                            d
-                        }
-                    })
-                    .unwrap_or_default();
-                ui.label(RichText::new(format!("grm {here}›")).monospace().color(ink.accent));
-                let has_focus = ui.memory(|m| m.has_focus(id));
-                if has_focus {
-                    let (up, down, tab) = ui.input_mut(|i| {
-                        (
-                            i.consume_key(Modifiers::NONE, Key::ArrowUp),
-                            i.consume_key(Modifiers::NONE, Key::ArrowDown),
-                            i.consume_key(Modifiers::NONE, Key::Tab),
-                        )
-                    });
-                    let mut moved = false;
-                    if up && !self.history.is_empty() {
-                        let k = self.history_at.map(|k| k.saturating_sub(1)).unwrap_or(self.history.len() - 1);
-                        self.history_at = Some(k);
-                        self.input = self.history[k].clone();
-                        moved = true;
+                            text.clone()
+                        };
+                        let rich = RichText::new(shown).monospace().color(colour);
+                        let rich = if *kind == LineKind::Error { rich.strong() } else { rich };
+                        ui.add(egui::Label::new(rich).selectable(true));
                     }
-                    if down {
-                        if let Some(k) = self.history_at {
-                            if k + 1 < self.history.len() {
-                                self.history_at = Some(k + 1);
-                                self.input = self.history[k + 1].clone();
-                            } else {
-                                self.history_at = None;
-                                self.input.clear();
-                            }
-                            moved = true;
-                        }
-                    }
-                    if tab {
-                        self.input = self.complete(&self.input);
-                        moved = true;
-                    }
-                    if moved {
-                        if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), id) {
-                            let end = egui::text::CCursor::new(self.input.chars().count());
-                            state.cursor.set_char_range(Some(egui::text::CCursorRange::one(end)));
-                            state.store(ui.ctx(), id);
-                        }
-                    }
-                }
-                let asking = self.asking;
-                let width = ui.available_width() - if asking { 140.0 } else { 0.0 };
-                let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, _w: f32| {
-                    let job = crate::code::highlight_line(&ink, text.as_str());
-                    ui.fonts_mut(|f| f.layout_job(job))
-                };
-                let edit = egui::TextEdit::singleline(&mut self.input)
-                    .margin(crate::style::field())
-                    .layouter(&mut layouter)
-                    .id(id)
-                    .lock_focus(true)
-                    .font(egui::TextStyle::Monospace)
-                    .hint_text(crate::style::hint(t(self.settings.lang, "prompt_hint")))
-                    .desired_width(width.max(80.0));
-                let r = ui.add(edit);
-                if self.focus_prompt {
-                    r.request_focus();
-                    self.focus_prompt = false;
-                }
-                if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
-                    let line = std::mem::take(&mut self.input);
-                    self.history_at = None;
-                    if !line.trim().is_empty() {
-                        self.say(line);
-                    }
-                    r.request_focus();
-                }
-                if asking {
-                    if ui.button(self.tr("yes")).clicked() {
-                        self.say("y");
-                    }
-                    if ui.button(self.tr("no")).clicked() {
-                        self.say("n");
-                    }
-                }
+                });
+
+            ui.horizontal(|ui| {
+                self.render_prompt_bar(ui, id, &ink);
+            });
+        } else {
+            ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+                ui.horizontal(|ui| {
+                    self.render_prompt_bar(ui, id, &ink);
+                });
             });
         }
     }
+         
 
     /// Completes the last word: a command, then a node.
     fn complete(&self, input: &str) -> String {
@@ -2534,7 +2543,7 @@ impl eframe::App for App {
         let prompt = if self.prompt_open {
             prompt.resizable(true).default_height(sizes.bottom.min(size.y * 0.5)).height_range(90.0..=size.y * 0.7)
         } else {
-            prompt.exact_height(40.0).resizable(false)
+            prompt.exact_height(32.0).resizable(false)
         };
         let r = prompt.show(ctx, |ui| self.prompt(ui));
         self.areas.insert("prompt", r.response.rect);
